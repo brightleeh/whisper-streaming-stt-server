@@ -1,0 +1,11 @@
+faster-whisper
+grpcio
+grpcio-tools
+numpy
+soundfile
+librosa
+pyyaml
+sounddevice
+fastapi
+uvicorn
+mypy-protobuf

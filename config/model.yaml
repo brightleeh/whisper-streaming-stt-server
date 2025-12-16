@@ -1,0 +1,39 @@
+model:
+  name: "small" # Whisper model size
+  device: "cpu" # cpu / cuda
+  compute_type: "int8" # faster-whisper compute type
+  pool_size: 1 # Number of preloaded model instances
+
+  # Language configuration
+  language_fix: false
+  language: "ko" # e.g., de, en, fr, ja, ko, zh ...
+  task: "transcribe" # "transcribe" | "translate" (keep "transcribe" to avoid translation)
+
+  # Default profile when clients do not request one
+  default_decode_profile: "realtime"
+
+# Decode profiles picked per client request
+decode_profiles:
+  # Real-time profile (matches the current low-latency setup)
+  realtime:
+    beam_size: 1
+    best_of: 1
+    patience: 1.0
+    temperature: 0.0
+    length_penalty: 1.0
+    without_timestamps: true # Keep true if the server does not emit timestamps
+    compression_ratio_threshold: 2.4
+    no_speech_threshold: 0.6
+    log_prob_threshold: -1.0 # Low-probability rejection threshold (-1.0 disables)
+
+  # Accuracy-first profile (batch/file STT or post-processing)
+  accurate:
+    beam_size: 5
+    best_of: 5
+    patience: 1.0
+    temperature: 0.0
+    length_penalty: 1.0
+    without_timestamps: true
+    compression_ratio_threshold: 2.4
+    no_speech_threshold: 0.6
+    log_prob_threshold: -1.0

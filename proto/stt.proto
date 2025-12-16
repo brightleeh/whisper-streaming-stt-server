@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package stt;
+
+service STTBackend {
+  // Creates a new STT session and returns server-side session attributes.
+  rpc CreateSession(SessionRequest) returns (SessionResponse);
+
+  // Bidirectional streaming for audio input and STT results output.
+  rpc StreamingRecognize(stream AudioChunk) returns (stream STTResult);
+}
+
+//
+// Controls how the EPD (endpoint detection) should behave.
+//
+enum EPDMode {
+  // Keep the session active after the first EPD trigger.
+  // The server continues sending partial results.
+  EPD_CONTINUE = 0;
+
+  // Automatically finalize the session after the first EPD trigger.
+  EPD_AUTO_END = 1;
+}
+
+//
+// Transcription or translation task.
+//
+enum Task {
+  TASK_UNSPECIFIED = 0;
+  TASK_TRANSCRIBE = 1; // Transcribe speech as-is
+  TASK_TRANSLATE  = 2; // Translate speech into another language
+}
+
+//
+// Decoding profiles that trade off latency vs accuracy.
+//
+enum DecodeProfile {
+  DECODE_PROFILE_UNSPECIFIED = 0;
+
+  // Low-latency mode (e.g., beam_size=1, best-effort realtime)
+  DECODE_PROFILE_REALTIME = 1;
+
+  // High-accuracy mode (e.g., beam_size=5)
+  DECODE_PROFILE_ACCURATE = 2;
+}
+
+//
+// Session initialization request from the client.
+//
+message SessionRequest {
+  string session_id = 1;             // Client-generated session identifier
+  map<string, string> attributes = 2; // Optional custom attributes
+
+  EPDMode epd_mode = 3;              // Desired endpoint-detection behavior
+  double epd_silence = 4;            // Desired trailing silence window (seconds)
+  double epd_threshold = 5;          // Desired RMS threshold for silence detection
+
+  bool require_token = 6;            // Whether the server should issue a session token
+
+  // Desired input language (BCP-47 code).
+  // Examples: "de", "en", "fr", "ja", "ko", "zh". Empty string → default or server-chosen.
+  string language_code = 7;
+
+  // Transcription or translation task.
+  Task task = 8;
+
+  // Decoding profile indicating realtime or accuracy-focused mode.
+  DecodeProfile decode_profile = 9;
+}
+
+//
+// Session initialization response from the server.
+//
+message SessionResponse {
+  map<string, string> attributes = 1; // Server-provided attributes
+  EPDMode epd_mode = 2;
+  double epd_silence = 3;
+  double epd_threshold = 4;
+  string token = 5;                  // Optional session token
+  bool token_required = 6;           // Whether the session requires token validation
+
+  // Echo back the final resolved session settings (after defaults/fallbacks).
+  string language_code = 7;
+  Task task = 8;
+  DecodeProfile decode_profile = 9;
+}
+
+//
+// Audio packet sent during StreamingRecognize.
+//
+message AudioChunk {
+  bytes pcm16 = 1;        // Raw PCM16 mono audio
+  int32 sample_rate = 2;  // Sample rate in Hz (e.g., 8000, 16000, 44100)
+  bool is_final = 3;      // True if this is the last chunk for the session
+  string session_id = 4;  // Session ID obtained from CreateSession
+  string session_token = 5; // Include only if token_required=true
+}
+
+//
+// Server-to-client STT output messages.
+//
+message STTResult {
+  string text = 1;          // Transcript text segment
+  bool is_final = 2;        // True if the segment is finalized
+  double start_sec = 3;     // Segment start time (sec since session start)
+  double end_sec = 4;       // Segment end time (sec since session start)
+  string language_code = 5; // Detected BCP-47 language (e.g., "en")
+  string language = 6;      // Human-readable language name (optional)
+  double probability = 7;   // Confidence score for language detection (0.0–1.0)
+}

@@ -1,0 +1,26 @@
+server:
+  port: 50051 # gRPC listen port
+  max_sessions: 4 # Concurrent gRPC sessions
+  metrics_port: 8000 # HTTP metrics/health port
+  decode_timeout_sec: 30 # Seconds to wait for decode tasks when draining
+  log_metrics: false # Emit decode metrics logs
+  session_timeout_sec: 60 # Seconds of inactivity before aborting a session
+  sample_rate: 16000 # Fallback sample rate when chunks omit it
+
+epd:
+  silence: 0.5 # Seconds of trailing silence to trigger decode
+  threshold: 0.01 # Silence detection RMS threshold
+
+safety:
+  speech_rms_threshold: 0.00 # Minimum RMS required before decoding buffered audio
+
+logging:
+  level: "INFO" # TRACE/DEBUG/INFO/WARN/ERROR
+  file: null # Optional log file path
+
+storage:
+  persist_audio: false # Enable server-side audio capture
+  directory: "data/audio" # Directory to store captured audio
+  max_bytes: null # Optional cap on total bytes in directory
+  max_files: null # Optional maximum number of stored files
+  max_age_days: null # Optional retention window in days
