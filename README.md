@@ -156,6 +156,10 @@ The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models
   are loaded, and worker pools are healthy; otherwise `500`.
 
+## Assets
+
+- `hello.wav`: sourced from https://github.com/SkelterLabsInc/stt-dataset-example
+
 ## Error codes
 
 Errors are tagged in logs and gRPC error messages with `ERR####`. The gRPC
