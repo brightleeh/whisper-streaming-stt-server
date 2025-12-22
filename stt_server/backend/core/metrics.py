@@ -16,7 +16,8 @@ class Metrics:
         self._rtf_count = 0
         self._rtf_total = 0.0
         self._rtf_max = 0.0
-        self._epd_triggers = 0
+        self._vad_triggers = 0
+        self._active_vad_utterances = 0
         self._error_counts: Dict[str, int] = defaultdict(int)
 
     def increase_active_sessions(self, api_key: str) -> None:
@@ -44,9 +45,22 @@ class Metrics:
                 self._rtf_total += rtf
                 self._rtf_max = max(self._rtf_max, rtf)
 
-    def record_epd_trigger(self) -> None:
+    def record_vad_trigger(self) -> None:
         with self._lock:
-            self._epd_triggers += 1
+            self._vad_triggers += 1
+
+    def increase_active_vad_utterances(self) -> None:
+        with self._lock:
+            self._active_vad_utterances += 1
+
+    def decrease_active_vad_utterances(self) -> None:
+        with self._lock:
+            if self._active_vad_utterances > 0:
+                self._active_vad_utterances -= 1
+
+    def active_vad_utterances(self) -> int:
+        with self._lock:
+            return self._active_vad_utterances
 
     def record_error(self, status_code: grpc.StatusCode) -> None:
         with self._lock:
@@ -62,7 +76,8 @@ class Metrics:
                 f"rtf_total {self._rtf_total:.6f}",
                 f"rtf_count {self._rtf_count}",
                 f"rtf_max {self._rtf_max:.6f}",
-                f"epd_triggers_total {self._epd_triggers}",
+                f"vad_triggers_total {self._vad_triggers}",
+                f"active_vad_utterances {self._active_vad_utterances}",
             ]
             for api_key, count in self._api_key_sessions.items():
                 lines.append(f'active_sessions_by_api{{api_key="{api_key}"}} {count}')
@@ -82,5 +97,6 @@ class Metrics:
                 "decode_latency_max": self._decode_max,
                 "rtf_avg": rtf_avg,
                 "rtf_max": self._rtf_max,
-                "epd_triggers": self._epd_triggers,
+                "vad_triggers": self._vad_triggers,
+                "active_vad_utterances": self._active_vad_utterances,
             }

@@ -41,8 +41,8 @@ def serve(config: ServerConfig) -> None:
         default_decode_profile=config.default_decode_profile,
     )
     streaming_cfg = StreamingRuntimeConfig(
-        epd_silence=config.epd_silence,
-        epd_threshold=config.epd_threshold,
+        vad_silence=config.vad_silence,
+        vad_threshold=config.vad_threshold,
         speech_rms_threshold=config.speech_rms_threshold,
         session_timeout_sec=config.session_timeout_sec,
         sample_rate=config.sample_rate,
@@ -174,16 +174,16 @@ def parse_args() -> argparse.Namespace:
         help="Optional log file path; overrides config",
     )
     parser.add_argument(
-        "--epd-silence",
+        "--vad-silence",
         type=float,
         default=None,
-        help="Seconds of trailing silence that trigger end-point detection",
+        help="Seconds of trailing silence that trigger VAD",
     )
     parser.add_argument(
-        "--epd-threshold",
+        "--vad-threshold",
         type=float,
         default=None,
-        help="Normalized RMS threshold used for silence detection",
+        help="VAD probability threshold (0-1)",
     )
     parser.add_argument(
         "--speech-threshold",
@@ -239,10 +239,10 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.log_level = args.log_level
     if args.log_file is not None:
         config.log_file = args.log_file
-    if args.epd_silence is not None:
-        config.epd_silence = args.epd_silence
-    if args.epd_threshold is not None:
-        config.epd_threshold = args.epd_threshold
+    if args.vad_silence is not None:
+        config.vad_silence = args.vad_silence
+    if args.vad_threshold is not None:
+        config.vad_threshold = args.vad_threshold
     if args.sample_rate is not None:
         config.sample_rate = args.sample_rate
 

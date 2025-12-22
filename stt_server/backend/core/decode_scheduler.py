@@ -86,7 +86,7 @@ class DecodeStream:
 
     def __init__(self, scheduler: DecodeScheduler) -> None:
         self.scheduler = scheduler
-        self.pending_results: List[Tuple[futures.Future, bool, float]] = []
+        self.pending_results: List[Tuple[futures.Future, bool, float, bool]] = []
         self.pending_partials = 0
         self.session_id: Optional[str] = None
 
@@ -100,6 +100,7 @@ class DecodeStream:
         decode_options: Dict[str, Any] | None,
         is_final: bool,
         offset_sec: float,
+        count_vad: bool = False,
     ) -> None:
         if not pcm:
             LOGGER.debug("Skip decode for empty buffer (final=%s)", is_final)
@@ -107,7 +108,7 @@ class DecodeStream:
         worker = self.scheduler._acquire_worker()
         future = worker.submit(pcm, sample_rate, decode_options)
         self.scheduler._increment_pending()
-        self.pending_results.append((future, is_final, offset_sec))
+        self.pending_results.append((future, is_final, offset_sec, count_vad))
         if not is_final:
             self.pending_partials += 1
         LOGGER.debug(
@@ -126,13 +127,13 @@ class DecodeStream:
         return bool(self.pending_results)
 
     def emit_ready(self, block: bool) -> Iterable[stt_pb2.STTResult]:
-        ready: List[Tuple[futures.Future, bool, float]] = []
-        still_pending: List[Tuple[futures.Future, bool, float]] = []
-        for future, is_final, offset_sec in self.pending_results:
+        ready: List[Tuple[futures.Future, bool, float, bool]] = []
+        still_pending: List[Tuple[futures.Future, bool, float, bool]] = []
+        for future, is_final, offset_sec, count_vad in self.pending_results:
             if future.done():
-                ready.append((future, is_final, offset_sec))
+                ready.append((future, is_final, offset_sec, count_vad))
             else:
-                still_pending.append((future, is_final, offset_sec))
+                still_pending.append((future, is_final, offset_sec, count_vad))
         self.pending_results[:] = still_pending
 
         if not ready and block and self.pending_results:
@@ -142,7 +143,7 @@ class DecodeStream:
                 else None
             )
             done, _ = futures.wait(
-                [future for future, _, _ in self.pending_results],
+                [future for future, _, _, _ in self.pending_results],
                 timeout=wait_timeout,
                 return_when=futures.FIRST_COMPLETED,
             )
@@ -153,20 +154,22 @@ class DecodeStream:
                     len(self.pending_results),
                 )
             else:
-                remaining: List[Tuple[futures.Future, bool, float]] = []
-                for future, is_final, offset_sec in self.pending_results:
+                remaining: List[Tuple[futures.Future, bool, float, bool]] = []
+                for future, is_final, offset_sec, count_vad in self.pending_results:
                     if future in done:
-                        ready.append((future, is_final, offset_sec))
+                        ready.append((future, is_final, offset_sec, count_vad))
                     else:
-                        remaining.append((future, is_final, offset_sec))
+                        remaining.append((future, is_final, offset_sec, count_vad))
                 self.pending_results[:] = remaining
 
-        for future, is_final, offset_sec in ready:
+        for future, is_final, offset_sec, count_vad in ready:
             try:
                 result = future.result()
             except Exception:  # pragma: no cover - defensive logging
                 LOGGER.exception("Decode task failed (final=%s)", is_final)
                 self.scheduler.metrics.record_error(grpc.StatusCode.INTERNAL)
+                if count_vad:
+                    self.scheduler.metrics.decrease_active_vad_utterances()
                 self.scheduler._decrement_pending()
                 continue
             if not is_final and self.pending_partials > 0:
@@ -204,4 +207,6 @@ class DecodeStream:
                         else 0.0
                     ),
                 )
+            if count_vad:
+                self.scheduler.metrics.decrease_active_vad_utterances()
             self.scheduler._decrement_pending()

@@ -54,7 +54,7 @@ sides share the same `stt_pb2.py` and `stt_pb2_grpc.py` files.
 
 Runtime defaults live in two files:
 
-- `config/server.yaml`: networking, session limits, logging, and EPD controls.
+- `config/server.yaml`: networking, session limits, logging, and VAD controls.
 - `config/model.yaml`: Whisper model/device settings plus the named decode profiles.
 
 Copy/edit these files (or point `--config` / `--model-config` at your own YAML) to
@@ -75,9 +75,9 @@ server:
   log_metrics: true
   metrics_port: 8000
 
-epd:
+vad:
   silence: 0.6
-  threshold: 0.008
+  threshold: 0.5
 
 safety:
   speech_rms_threshold: 0.02
@@ -89,9 +89,9 @@ logging:
 storage:
   persist_audio: true
   directory: "data/audio"
-  max_bytes: 10737418240   # Optional byte cap (10 GB)
-  max_files: 500           # Optional file-count cap
-  max_age_days: 7          # Optional retention window
+  max_bytes: 10737418240 # Optional byte cap (10 GB)
+  max_files: 500 # Optional file-count cap
+  max_age_days: 7 # Optional retention window
 ```
 
 CLI flags always override YAML entries if provided.
@@ -107,7 +107,7 @@ level noise by requiring buffered audio to exceed the given RMS before decoding.
 Each client first calls `CreateSession`, passing an application-defined
 `session_id` plus optional `--attr KEY=VALUE` pairs (custom session attributes, `--meta`
 remains as a CLI alias). They can also request
-either **EPD Continue** (default) or **EPD Auto-End** via the `--epd-mode` flag;
+either **VAD Continue** (default) or **VAD Auto-End** via the `--vad-mode` flag;
 auto-end terminates the session once silence is detected, while continue keeps
 the session alive for multi-utterance workloads. Use `--require-token` if you
 want the server to issue a per-session token that must be attached to every
@@ -119,8 +119,9 @@ when the streaming RPC ends.
 The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 
 - `GET /metrics`: plain-text counters/gauges (active sessions, API-key session
-  counts, decode latency aggregates, RTF stats, EPD trigger totals, error
-  counts) that can be scraped or converted to Prometheus format later.
+  counts, decode latency aggregates, RTF stats, VAD trigger totals, active VAD
+  utterances, error counts) that can be scraped or converted to Prometheus
+  format later.
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models
   are loaded, and worker pools are healthy; otherwise `500`.
 
@@ -146,8 +147,8 @@ python -m stt_server.main --log-metrics
 - `--config <path>` points to the server YAML (default: `config/server.yaml`).
 - `--model-config <path>` points to the model/decode YAML (default: `config/model.yaml`).
 - `--log-level` / `--log-file` override the logging section (console/file).
-- `--epd-silence` / `--epd-threshold` configure the end-point detector (silence
-  duration + RMS threshold) that triggers final decoding.
+- `--vad-silence` / `--vad-threshold` configure the VAD gate (silence duration +
+  Silero VAD probability threshold, 0-1) that triggers final decoding.
 - `--speech-threshold` sets the minimum RMS required before buffering is treated
   as speech (helps ignore low-level noise).
 - `--decode-timeout` specifies the wait time for outstanding decode tasks
@@ -161,8 +162,8 @@ python -m stt_server.main --log-metrics
    ```
    - Add `--no-realtime` to send audio as fast as possible (for throughput tests).
    - Use `--server host:port` or `--chunk-ms value` to tweak target and chunking.
-   - Use `--epd-mode auto` to enable auto-end sessions (default is `continue`).
-   - Override the detector per session via `--epd-silence` (seconds) and `--epd-threshold` (RMS).
+   - Use `--vad-mode auto` to enable auto-end sessions (default is `continue`).
+   - Override the detector per session via `--vad-silence` (seconds) and `--vad-threshold` (VAD probability).
    - Use `--language ja`, `--task translate`, or `--decode-profile accurate` to
      override the server defaults per session.
    - `--attr key=value` (repeatable) attaches arbitrary attributes, and
@@ -171,9 +172,9 @@ python -m stt_server.main --log-metrics
    ```bash
    python -m stt_client.realtime.mic --metrics
    ```
-   - Defaults to `--epd-mode auto` so sessions end automatically once speech stops;
+   - Defaults to `--vad-mode auto` so sessions end automatically once speech stops;
      switch to `continue` if you need multi-utterance streaming.
-   - Per-session overrides: `--epd-silence` (seconds) and `--epd-threshold` (RMS) mirror the server flags.
+   - Per-session overrides: `--vad-silence` (seconds) and `--vad-threshold` (VAD probability) mirror the server flags.
    - Same `--language`, `--task`, `--decode-profile`, `--require-token`, and attributes semantics apply.
    - Optional flags: `--device` (CoreAudio name/index), `--sample-rate`, `--chunk-ms`.
 5. For batch-style processing (single large chunk, ideal for accuracy-oriented profiles):
@@ -181,7 +182,7 @@ python -m stt_server.main --log-metrics
    python -m stt_client.batch.file path/to/audio.wav --decode-profile accurate
    ```
    - Defaults to the `accurate` profile; override with `--decode-profile realtime`.
-   - Accepts the same `--language`, `--task`, attributes, token, and `--epd-*` flags as the realtime clients.
+   - Accepts the same `--language`, `--task`, attributes, token, and `--vad-*` flags as the realtime clients.
 
 ## Server-side audio capture
 
@@ -190,8 +191,8 @@ per session inside `storage.directory`. Retention is enforced lazily right after
 each session finishes:
 
 - `max_bytes`: cap total on-disk bytes (oldest files removed first).
-- `max_files`: keep at most *N* WAV files (oldest deleted first).
-- `max_age_days`: delete recordings older than *N* days.
+- `max_files`: keep at most _N_ WAV files (oldest deleted first).
+- `max_age_days`: delete recordings older than _N_ days.
 
 Leave any limit `null` or negative for “no limit”. Audio capture is disabled by
 default and only activates when configured, so deployments that do not need
@@ -207,7 +208,7 @@ flowchart LR
     B -->|PCM16 + metadata| E[StreamingRunner]
     subgraph Server
         C[CreateSessionHandler] -- session info --> D[SessionManager]
-        E --> F[EPD & speech gating]
+        E --> F[VAD & speech gating]
         E --> G[DecodeScheduler]
         E --> H[AudioStorageManager]
         G --> I[STT Results]
@@ -216,7 +217,7 @@ flowchart LR
     H -->|WAV files & retention| Storage[(storage.directory)]
 ```
 
-The streaming runner resolves the session, runs EPD/speech gating, schedules
+The streaming runner resolves the session, runs VAD/speech gating, schedules
 decoding, and, when capture is enabled, streams the exact PCM bytes to the audio
 storage manager. When the session ends (normal completion, timeout, disconnect,
 or invalid token) the recorder finalizes its WAV file and the retention policy

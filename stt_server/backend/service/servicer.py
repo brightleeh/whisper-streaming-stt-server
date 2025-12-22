@@ -41,8 +41,8 @@ class ModelRuntimeConfig:
 
 @dataclass
 class StreamingRuntimeConfig:
-    epd_silence: float = 0.8
-    epd_threshold: float = 0.01
+    vad_silence: float = 0.8
+    vad_threshold: float = 0.5
     speech_rms_threshold: float = 0.02
     session_timeout_sec: float = 60.0
     sample_rate: int = 16000
@@ -119,12 +119,12 @@ class STTBackendServicer(stt_pb2_grpc.STTBackendServicer):
             language_fix=self.language_fix,
             default_task=self.default_task,
             supported_languages=self.supported_languages,
-            default_epd_silence=streaming_config.epd_silence,
-            default_epd_threshold=streaming_config.epd_threshold,
+            default_vad_silence=streaming_config.vad_silence,
+            default_vad_threshold=streaming_config.vad_threshold,
         )
         runner_config = StreamingRunnerConfig(
-            epd_threshold=streaming_config.epd_threshold,
-            epd_silence=streaming_config.epd_silence,
+            vad_threshold=streaming_config.vad_threshold,
+            vad_silence=streaming_config.vad_silence,
             speech_rms_threshold=streaming_config.speech_rms_threshold,
             session_timeout_sec=streaming_config.session_timeout_sec,
             default_sample_rate=streaming_config.sample_rate,

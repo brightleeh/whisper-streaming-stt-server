@@ -7,8 +7,8 @@ DEFAULT_MAX_SESSIONS = 4
 DEFAULT_METRICS_PORT = 8000
 DEFAULT_DECODE_TIMEOUT = 30.0
 DEFAULT_LOG_METRICS = False
-DEFAULT_EPD_SILENCE = 0.8
-DEFAULT_EPD_THRESHOLD = 0.01
+DEFAULT_VAD_SILENCE = 0.8
+DEFAULT_VAD_THRESHOLD = 0.5
 DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_LOG_LEVEL = "INFO"
@@ -25,9 +25,9 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "log_metrics": "log_metrics",
         "sample_rate": "sample_rate",
     },
-    "epd": {
-        "silence": "epd_silence",
-        "threshold": "epd_threshold",
+    "vad": {
+        "silence": "vad_silence",
+        "threshold": "vad_threshold",
     },
     "safety": {
         "speech_rms_threshold": "speech_rms_threshold",
@@ -51,8 +51,8 @@ __all__ = [
     "DEFAULT_METRICS_PORT",
     "DEFAULT_DECODE_TIMEOUT",
     "DEFAULT_LOG_METRICS",
-    "DEFAULT_EPD_SILENCE",
-    "DEFAULT_EPD_THRESHOLD",
+    "DEFAULT_VAD_SILENCE",
+    "DEFAULT_VAD_THRESHOLD",
     "DEFAULT_SPEECH_RMS_THRESHOLD",
     "DEFAULT_SAMPLE_RATE",
     "DEFAULT_LOG_LEVEL",

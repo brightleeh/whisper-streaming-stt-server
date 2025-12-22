@@ -11,15 +11,15 @@ service STTBackend {
 }
 
 //
-// Controls how the EPD (endpoint detection) should behave.
+// Controls how the VAD (voice activity detection) should behave.
 //
-enum EPDMode {
-  // Keep the session active after the first EPD trigger.
+enum VADMode {
+  // Keep the session active after the first VAD trigger.
   // The server continues sending partial results.
-  EPD_CONTINUE = 0;
+  VAD_CONTINUE = 0;
 
-  // Automatically finalize the session after the first EPD trigger.
-  EPD_AUTO_END = 1;
+  // Automatically finalize the session after the first VAD trigger.
+  VAD_AUTO_END = 1;
 }
 
 //
@@ -51,9 +51,9 @@ message SessionRequest {
   string session_id = 1;             // Client-generated session identifier
   map<string, string> attributes = 2; // Optional custom attributes
 
-  EPDMode epd_mode = 3;              // Desired endpoint-detection behavior
-  double epd_silence = 4;            // Desired trailing silence window (seconds)
-  double epd_threshold = 5;          // Desired RMS threshold for silence detection
+  VADMode vad_mode = 3;              // Desired VAD behavior
+  double vad_silence = 4;            // Desired trailing silence window (seconds)
+  double vad_threshold = 5;          // Desired VAD probability threshold (0-1)
 
   bool require_token = 6;            // Whether the server should issue a session token
 
@@ -73,9 +73,9 @@ message SessionRequest {
 //
 message SessionResponse {
   map<string, string> attributes = 1; // Server-provided attributes
-  EPDMode epd_mode = 2;
-  double epd_silence = 3;
-  double epd_threshold = 4;
+  VADMode vad_mode = 2;
+  double vad_silence = 3;
+  double vad_threshold = 4;
   string token = 5;                  // Optional session token
   bool token_required = 6;           // Whether the session requires token validation
 

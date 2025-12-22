@@ -10,8 +10,6 @@ from stt_server.config.default import (
     DEFAULT_DECODE_PROFILE,
     DEFAULT_DECODE_TIMEOUT,
     DEFAULT_DEVICE,
-    DEFAULT_EPD_SILENCE,
-    DEFAULT_EPD_THRESHOLD,
     DEFAULT_LANGUAGE,
     DEFAULT_LANGUAGE_FIX,
     DEFAULT_LOG_FILE,
@@ -26,6 +24,8 @@ from stt_server.config.default import (
     DEFAULT_SAMPLE_RATE,
     DEFAULT_SPEECH_RMS_THRESHOLD,
     DEFAULT_TASK,
+    DEFAULT_VAD_SILENCE,
+    DEFAULT_VAD_THRESHOLD,
     MODEL_SECTION_MAP,
     SERVER_SECTION_MAP,
     default_decode_profiles,
@@ -50,8 +50,8 @@ class ServerConfig:
     metrics_port: int = DEFAULT_METRICS_PORT
     decode_timeout_sec: float = DEFAULT_DECODE_TIMEOUT
     log_metrics: bool = DEFAULT_LOG_METRICS
-    epd_silence: float = DEFAULT_EPD_SILENCE
-    epd_threshold: float = DEFAULT_EPD_THRESHOLD
+    vad_silence: float = DEFAULT_VAD_SILENCE
+    vad_threshold: float = DEFAULT_VAD_THRESHOLD
     speech_rms_threshold: float = DEFAULT_SPEECH_RMS_THRESHOLD
     log_level: str = DEFAULT_LOG_LEVEL
     log_file: Optional[str] = DEFAULT_LOG_FILE

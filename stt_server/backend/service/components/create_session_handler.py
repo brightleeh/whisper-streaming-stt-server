@@ -31,8 +31,8 @@ class CreateSessionHandler:
         language_fix: bool,
         default_task: str,
         supported_languages: SupportedLanguages,
-        default_epd_silence: float,
-        default_epd_threshold: float,
+        default_vad_silence: float,
+        default_vad_threshold: float,
     ) -> None:
         self._session_manager = session_manager
         self._decode_profiles = decode_profiles
@@ -41,8 +41,8 @@ class CreateSessionHandler:
         self._language_fix = language_fix
         self._default_task = default_task
         self._supported_languages = supported_languages
-        self._default_epd_silence = max(0.0, default_epd_silence)
-        self._default_epd_threshold = max(0.0, default_epd_threshold)
+        self._default_vad_silence = max(0.0, default_vad_silence)
+        self._default_vad_threshold = max(0.0, default_vad_threshold)
 
     def handle(
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
@@ -51,10 +51,10 @@ class CreateSessionHandler:
             context.abort(grpc.StatusCode.INVALID_ARGUMENT, "session_id is required")
 
         session_id = request.session_id
-        epd_mode = (
-            request.epd_mode
-            if request.epd_mode in (stt_pb2.EPD_CONTINUE, stt_pb2.EPD_AUTO_END)
-            else stt_pb2.EPD_CONTINUE
+        vad_mode = (
+            request.vad_mode
+            if request.vad_mode in (stt_pb2.VAD_CONTINUE, stt_pb2.VAD_AUTO_END)
+            else stt_pb2.VAD_CONTINUE
         )
         token_required = bool(request.require_token)
         token = secrets.token_hex(16) if token_required else ""
@@ -86,13 +86,13 @@ class CreateSessionHandler:
         if language_code:
             options["language"] = language_code
 
-        epd_silence = self._resolve_epd_silence(request.epd_silence, context)
-        epd_threshold = self._resolve_epd_threshold(request.epd_threshold, context)
+        vad_silence = self._resolve_vad_silence(request.vad_silence, context)
+        vad_threshold = self._resolve_vad_threshold(request.vad_threshold, context)
         session_info = SessionInfo(
             attributes=dict(request.attributes),
-            epd_mode=epd_mode,
-            epd_silence=epd_silence,
-            epd_threshold=epd_threshold,
+            vad_mode=vad_mode,
+            vad_silence=vad_silence,
+            vad_threshold=vad_threshold,
             token=token,
             token_required=token_required,
             api_key=api_key,
@@ -112,23 +112,23 @@ class CreateSessionHandler:
             response_attributes["language_code"] = language_code
 
         LOGGER.info(
-            "Created session_id=%s epd_mode=%s token_required=%s decode_profile=%s language=%s task=%s epd_silence=%.3f epd_threshold=%.4f attributes=%s",
+            "Created session_id=%s vad_mode=%s token_required=%s decode_profile=%s language=%s task=%s vad_silence=%.3f vad_threshold=%.4f attributes=%s",
             session_id,
-            "AUTO_END" if epd_mode == stt_pb2.EPD_AUTO_END else "CONTINUE",
+            "AUTO_END" if vad_mode == stt_pb2.VAD_AUTO_END else "CONTINUE",
             token_required,
             profile_name,
             language_code or "auto",
             session_task,
-            epd_silence,
-            epd_threshold,
+            vad_silence,
+            vad_threshold,
             dict(request.attributes),
         )
 
         return stt_pb2.SessionResponse(
             attributes=response_attributes,
-            epd_mode=epd_mode,
-            epd_silence=epd_silence,
-            epd_threshold=epd_threshold,
+            vad_mode=vad_mode,
+            vad_silence=vad_silence,
+            vad_threshold=vad_threshold,
             token=token,
             token_required=token_required,
             language_code=language_code,
@@ -136,21 +136,21 @@ class CreateSessionHandler:
             decode_profile=profile_enum_from_name(profile_name),
         )
 
-    def _resolve_epd_silence(
+    def _resolve_vad_silence(
         self, value: float, context: grpc.ServicerContext
     ) -> float:
         if value <= 0:
-            return self._default_epd_silence
+            return self._default_vad_silence
         return value
 
-    def _resolve_epd_threshold(
+    def _resolve_vad_threshold(
         self, value: float, context: grpc.ServicerContext
     ) -> float:
         if value < 0:
             context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT,
-                "epd_threshold must be non-negative",
+                "vad_threshold must be non-negative",
             )
         if value == 0:
-            return self._default_epd_threshold
+            return self._default_vad_threshold
         return value

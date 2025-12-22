@@ -8,8 +8,8 @@ import grpc
 
 from gen.stt.python.v1 import stt_pb2
 from stt_server.backend.core.decode_scheduler import DecodeScheduler, DecodeStream
-from stt_server.backend.core.epd import EPDState, buffer_is_speech
 from stt_server.backend.core.metrics import Metrics
+from stt_server.backend.core.vad import VADState, buffer_is_speech
 from stt_server.backend.service.components.audio_storage import (
     AudioStorageManager,
     SessionAudioRecorder,
@@ -23,8 +23,8 @@ from stt_server.utils.logger import LOGGER
 
 @dataclass(frozen=True)
 class StreamingRunnerConfig:
-    epd_threshold: float
-    epd_silence: float
+    vad_threshold: float
+    vad_silence: float
     speech_rms_threshold: float
     session_timeout_sec: float
     default_sample_rate: int
@@ -53,13 +53,13 @@ class StreamingRunner:
         context: grpc.ServicerContext,
     ) -> Iterator[stt_pb2.STTResult]:
         session_state: Optional[SessionState] = None
-        epd_state: Optional[EPDState] = None
+        vad_state: Optional[VADState] = None
         decode_stream = None
         metadata = {k.lower(): v for (k, v) in context.invocation_metadata()}
         session_logged = False
         final_reason = "stream_end"
         session_start = time.monotonic()
-        epd_count = 0
+        vad_count = 0
         audio_recorder: Optional[SessionAudioRecorder] = None
         try:
             session_state = self._session_facade.resolve_from_metadata(
@@ -67,7 +67,7 @@ class StreamingRunner:
             )
             if session_state:
                 session_logged = self._log_session_start(session_state)
-                epd_state = self._create_epd_state(session_state)
+                vad_state = self._create_vad_state(session_state)
             decode_stream = self._decode_scheduler.new_stream()
             if session_state and decode_stream:
                 decode_stream.set_session_id(session_state.session_id)
@@ -104,14 +104,14 @@ class StreamingRunner:
                     decode_stream.set_session_id(session_state.session_id)
                 if session_state and not session_logged:
                     session_logged = self._log_session_start(session_state)
-                if epd_state is None:
-                    epd_state = self._create_epd_state(session_state)
+                if vad_state is None:
+                    vad_state = self._create_vad_state(session_state)
 
                 self._session_facade.validate_token(session_state, chunk, context)
 
-                if epd_state is None:
+                if vad_state is None:
                     # Should not happen, but guard against update before initialization.
-                    epd_state = self._create_epd_state(session_state)
+                    vad_state = self._create_vad_state(session_state)
 
                 sample_rate = (
                     chunk.sample_rate
@@ -128,13 +128,13 @@ class StreamingRunner:
                     last_activity = time.time()
 
                 buffer.extend(chunk.pcm16)
-                epd_update = epd_state.update(chunk.pcm16, sample_rate)
+                vad_update = vad_state.update(chunk.pcm16, sample_rate)
 
-                if epd_update.triggered:
+                if vad_update.triggered:
                     if not buffer_is_speech(buffer, self._config.speech_rms_threshold):
                         LOGGER.info(
                             "Skipping decode: chunk RMS %.4f below speech threshold %.4f",
-                            epd_update.chunk_rms,
+                            vad_update.chunk_rms,
                             self._config.speech_rms_threshold,
                         )
                         LOGGER.info(
@@ -142,37 +142,41 @@ class StreamingRunner:
                             session_state.session_id if session_state else "unknown",
                         )
                         buffer = bytearray()
-                        epd_state.reset_after_trigger()
+                        vad_state.reset_after_trigger()
                         continue
-                    epd_count += 1
+                    self._metrics.record_vad_trigger()
+                    vad_count += 1
+                    self._metrics.increase_active_vad_utterances()
                     offset_sec = time.monotonic() - session_start
                     session_info = session_state.session_info
-                    is_final = session_info.epd_mode == stt_pb2.EPD_AUTO_END
+                    is_final = session_info.vad_mode == stt_pb2.VAD_AUTO_END
                     decode_stream.schedule_decode(
                         bytes(buffer),
                         sample_rate,
                         session_state.decode_options,
                         is_final,
                         offset_sec,
+                        count_vad=True,
                     )
                     buffer = bytearray()
                     LOGGER.info(
-                        "EPD count=%d for current session (pending=%d, mode=%s)",
-                        epd_count,
+                        "VAD count=%d for current session (pending=%d, mode=%s, active_vad=%d)",
+                        vad_count,
                         decode_stream.pending_partial_decodes(),
                         (
                             "AUTO_END"
-                            if session_info.epd_mode == stt_pb2.EPD_AUTO_END
+                            if session_info.vad_mode == stt_pb2.VAD_AUTO_END
                             else "CONTINUE"
                         ),
+                        self._metrics.active_vad_utterances(),
                     )
                     if is_final:
                         yield from self._emit_results_with_session(
                             decode_stream, False, session_state
                         )
-                        final_reason = "auto_epd_finalized"
+                        final_reason = "auto_vad_finalized"
                         break
-                    epd_state.reset_after_trigger()
+                    vad_state.reset_after_trigger()
 
                 yield from self._emit_results_with_session(
                     decode_stream, False, session_state
@@ -189,6 +193,7 @@ class StreamingRunner:
                             session_state.decode_options,
                             True,
                             offset_sec,
+                            count_vad=False,
                         )
                         buffer = bytearray()
                     yield from self._emit_results_with_session(
@@ -216,6 +221,7 @@ class StreamingRunner:
                         session_state.decode_options if session_state else {},
                         True,
                         offset_sec,
+                        count_vad=False,
                     )
 
                 while True:
@@ -237,23 +243,23 @@ class StreamingRunner:
             if session_state:
                 duration = time.monotonic() - session_start
                 LOGGER.info(
-                    "Streaming finished for session_id=%s reason=%s epd_count=%d duration=%.2fs",
+                    "Streaming finished for session_id=%s reason=%s vad_count=%d duration=%.2fs",
                     session_state.session_id,
                     final_reason,
-                    epd_count,
+                    vad_count,
                     duration,
                 )
             self._session_facade.remove_session(session_state, reason=final_reason)
 
-    def _create_epd_state(self, state: SessionState) -> EPDState:
+    def _create_vad_state(self, state: SessionState) -> VADState:
         info = state.session_info
-        silence = info.epd_silence
+        silence = info.vad_silence
         if silence <= 0:
-            silence = self._config.epd_silence
-        threshold = info.epd_threshold
+            silence = self._config.vad_silence
+        threshold = info.vad_threshold
         if threshold < 0:
-            threshold = self._config.epd_threshold
-        return EPDState(threshold, silence)
+            threshold = self._config.vad_threshold
+        return VADState(threshold, silence)
 
     def _capture_audio_chunk(
         self,
@@ -290,11 +296,11 @@ class StreamingRunner:
     def _log_session_start(self, state: SessionState) -> bool:
         info = state.session_info
         LOGGER.info(
-            "Streaming started for session_id=%s epd_mode=%s decode_profile=%s epd_silence=%.3f epd_threshold=%.4f",
+            "Streaming started for session_id=%s vad_mode=%s decode_profile=%s vad_silence=%.3f vad_threshold=%.4f",
             state.session_id,
-            "AUTO_END" if info.epd_mode == stt_pb2.EPD_AUTO_END else "CONTINUE",
+            "AUTO_END" if info.vad_mode == stt_pb2.VAD_AUTO_END else "CONTINUE",
             info.decode_profile,
-            info.epd_silence,
-            info.epd_threshold,
+            info.vad_silence,
+            info.vad_threshold,
         )
         return True

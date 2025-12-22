@@ -55,14 +55,14 @@ def single_chunk_iter(
 def run(
     path: str,
     target: str,
-    epd_mode: str,
+    vad_mode: str,
     attributes: Dict[str, str],
     require_token: bool,
     language: str,
     task: str,
     decode_profile: str,
-    epd_silence: Optional[float],
-    epd_threshold: Optional[float],
+    vad_silence: Optional[float],
+    vad_threshold: Optional[float],
 ) -> None:
     channel = grpc.insecure_channel(target)
     stub = stt_pb2_grpc.STTBackendStub(channel)
@@ -72,11 +72,11 @@ def run(
     request = stt_pb2.SessionRequest(
         session_id=session_id,
         attributes=attributes,
-        epd_mode=(
-            stt_pb2.EPD_AUTO_END if epd_mode.lower() == "auto" else stt_pb2.EPD_CONTINUE
+        vad_mode=(
+            stt_pb2.VAD_AUTO_END if vad_mode.lower() == "auto" else stt_pb2.VAD_CONTINUE
         ),
-        epd_silence=epd_silence if epd_silence is not None else 0.0,
-        epd_threshold=epd_threshold if epd_threshold is not None else 0.0,
+        vad_silence=vad_silence if vad_silence is not None else 0.0,
+        vad_threshold=vad_threshold if vad_threshold is not None else 0.0,
         require_token=require_token,
         language_code=language,
         task=task_to_enum(task),
@@ -133,10 +133,10 @@ def main() -> None:
         help="gRPC target in host:port format (default: %(default)s)",
     )
     parser.add_argument(
-        "--epd-mode",
+        "--vad-mode",
         choices=("continue", "auto"),
         default="auto",
-        help="EPD mode for the server session (default: %(default)s)",
+        help="VAD mode for the server session (default: %(default)s)",
     )
     parser.add_argument(
         "--require-token",
@@ -170,16 +170,16 @@ def main() -> None:
         help="Session attributes (repeatable). '--meta' kept for compatibility.",
     )
     parser.add_argument(
-        "--epd-silence",
+        "--vad-silence",
         type=float,
         default=None,
-        help="Override server EPD silence window in seconds",
+        help="Override server VAD silence window in seconds",
     )
     parser.add_argument(
-        "--epd-threshold",
+        "--vad-threshold",
         type=float,
         default=None,
-        help="Override server EPD RMS threshold",
+        help="Override server VAD probability threshold (0-1)",
     )
     args = parser.parse_args()
 
@@ -197,14 +197,14 @@ def main() -> None:
     run(
         str(audio_path),
         target=args.server,
-        epd_mode=args.epd_mode,
+        vad_mode=args.vad_mode,
         attributes=attr_dict,
         require_token=args.require_token,
         language=args.language,
         task=args.task,
         decode_profile=args.decode_profile,
-        epd_silence=args.epd_silence,
-        epd_threshold=args.epd_threshold,
+        vad_silence=args.vad_silence,
+        vad_threshold=args.vad_threshold,
     )
 
 

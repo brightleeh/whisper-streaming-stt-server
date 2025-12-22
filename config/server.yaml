@@ -7,9 +7,9 @@ server:
   session_timeout_sec: 60 # Seconds of inactivity before aborting a session
   sample_rate: 16000 # Fallback sample rate when chunks omit it
 
-epd:
+vad:
   silence: 0.5 # Seconds of trailing silence to trigger decode
-  threshold: 0.01 # Silence detection RMS threshold
+  threshold: 0.5 # Silero VAD speech probability threshold (0-1)
 
 safety:
   speech_rms_threshold: 0.00 # Minimum RMS required before decoding buffered audio

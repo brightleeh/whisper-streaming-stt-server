@@ -9,3 +9,5 @@ sounddevice
 fastapi
 uvicorn
 mypy-protobuf
+torch
+silero-vad

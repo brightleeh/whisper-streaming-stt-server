@@ -12,9 +12,9 @@ from stt_server.backend.core.metrics import Metrics
 @dataclass
 class SessionInfo:
     attributes: Dict[str, str]
-    epd_mode: int
-    epd_silence: float
-    epd_threshold: float
+    vad_mode: int
+    vad_silence: float
+    vad_threshold: float
     token: str
     token_required: bool
     api_key: str

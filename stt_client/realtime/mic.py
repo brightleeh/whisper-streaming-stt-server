@@ -117,13 +117,13 @@ def run(
     chunk_ms: int,
     input_device: Optional[str],
     report_metrics: bool,
-    epd_mode: str,
+    vad_mode: str,
     require_token: bool,
     language: str,
     task: str,
     decode_profile: str,
-    epd_silence: Optional[float],
-    epd_threshold: Optional[float],
+    vad_silence: Optional[float],
+    vad_threshold: Optional[float],
 ) -> None:
     mic = MicrophoneStream(
         sample_rate=sample_rate, chunk_ms=chunk_ms, device=input_device
@@ -132,22 +132,22 @@ def run(
     stub = stt_pb2_grpc.STTBackendStub(channel)
     session_id = str(int(time.time() * 1000))
     attributes: Dict[str, str] = {}
-    if epd_silence is not None:
-        attributes["epd_silence"] = str(epd_silence)
-    if epd_threshold is not None:
-        attributes["epd_threshold"] = str(epd_threshold)
+    if vad_silence is not None:
+        attributes["vad_silence"] = str(vad_silence)
+    if vad_threshold is not None:
+        attributes["vad_threshold"] = str(vad_threshold)
 
     session_resp = stub.CreateSession(
         stt_pb2.SessionRequest(
             session_id=session_id,
             attributes=attributes,
-            epd_mode=(
-                stt_pb2.EPD_AUTO_END
-                if epd_mode.lower() == "auto"
-                else stt_pb2.EPD_CONTINUE
+            vad_mode=(
+                stt_pb2.VAD_AUTO_END
+                if vad_mode.lower() == "auto"
+                else stt_pb2.VAD_CONTINUE
             ),
-            epd_silence=epd_silence or 0.0,
-            epd_threshold=epd_threshold or 0.0,
+            vad_silence=vad_silence or 0.0,
+            vad_threshold=vad_threshold or 0.0,
             require_token=require_token,
             language_code=language,
             task=task_to_enum(task),
@@ -238,10 +238,10 @@ def main() -> None:
         help="Print capture duration and real-time factor on exit",
     )
     parser.add_argument(
-        "--epd-mode",
+        "--vad-mode",
         choices=("continue", "auto"),
         default="continue",
-        help="EPD mode (continue or auto); default: %(default)s",
+        help="VAD mode (continue or auto); default: %(default)s",
     )
     parser.add_argument(
         "--require-token",
@@ -266,16 +266,16 @@ def main() -> None:
         help="Decoding profile to request; default: %(default)s",
     )
     parser.add_argument(
-        "--epd-silence",
+        "--vad-silence",
         type=float,
         default=None,
-        help="Override server EPD silence window in seconds",
+        help="Override server VAD silence window in seconds",
     )
     parser.add_argument(
-        "--epd-threshold",
+        "--vad-threshold",
         type=float,
         default=None,
-        help="Override server EPD RMS threshold",
+        help="Override server VAD probability threshold (0-1)",
     )
     args = parser.parse_args()
 
@@ -285,13 +285,13 @@ def main() -> None:
         chunk_ms=args.chunk_ms,
         input_device=args.device,
         report_metrics=args.metrics,
-        epd_mode=args.epd_mode,
+        vad_mode=args.vad_mode,
         require_token=args.require_token,
         language=args.language,
         task=args.task,
         decode_profile=args.decode_profile,
-        epd_silence=args.epd_silence,
-        epd_threshold=args.epd_threshold,
+        vad_silence=args.vad_silence,
+        vad_threshold=args.vad_threshold,
     )
 
 
