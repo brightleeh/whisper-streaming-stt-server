@@ -53,8 +53,10 @@ class SessionFacade:
             current_state.session_id if current_state else None
         )
         if not session_id:
+            LOGGER.error("ERR1004 Unknown or missing session_id")
             context.abort(
-                grpc.StatusCode.UNAUTHENTICATED, "Unknown or missing session_id"
+                grpc.StatusCode.UNAUTHENTICATED,
+                "ERR1004 Unknown or missing session_id",
             )
         if current_state and session_id == current_state.session_id:
             return current_state
@@ -71,7 +73,10 @@ class SessionFacade:
         session_info = state.session_info
         if session_info.token_required and chunk.session_token != session_info.token:
             self.remove_session(state, reason="invalid_token")
-            context.abort(grpc.StatusCode.PERMISSION_DENIED, "Invalid session token")
+            LOGGER.error("ERR1005 Invalid session token")
+            context.abort(
+                grpc.StatusCode.PERMISSION_DENIED, "ERR1005 Invalid session token"
+            )
 
     def remove_session(self, state: Optional[SessionState], reason: str = "") -> None:
         if not state:
@@ -90,8 +95,10 @@ class SessionFacade:
     ) -> SessionState:
         session_info = self._session_manager.get_session(session_id)
         if not session_info:
+            LOGGER.error("ERR1004 Unknown or missing session_id")
             context.abort(
-                grpc.StatusCode.UNAUTHENTICATED, "Unknown or missing session_id"
+                grpc.StatusCode.UNAUTHENTICATED,
+                "ERR1004 Unknown or missing session_id",
             )
         return SessionState(
             session_id=session_id,

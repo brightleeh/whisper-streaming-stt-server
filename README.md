@@ -156,6 +156,26 @@ The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models
   are loaded, and worker pools are healthy; otherwise `500`.
 
+## Error codes
+
+Errors are tagged in logs and gRPC error messages with `ERR####`. The gRPC
+status codes are listed below for clarity.
+
+- `ERR1xxx`: request/session validation or authentication failures
+- `ERR2xxx`: decode pipeline/runtime failures
+- `ERR3xxx`: unexpected server exceptions
+
+- `ERR1001` (INVALID_ARGUMENT): missing `session_id` in `CreateSession`
+- `ERR1002` (ALREADY_EXISTS): `session_id` already active
+- `ERR1003` (INVALID_ARGUMENT): `vad_threshold` must be non-negative
+- `ERR1004` (UNAUTHENTICATED): unknown or missing `session_id`
+- `ERR1005` (PERMISSION_DENIED): invalid session token
+- `ERR1006` (DEADLINE_EXCEEDED): session timeout (no audio)
+- `ERR2001` (INTERNAL): decode timeout waiting for pending tasks
+- `ERR2002` (INTERNAL): decode task failed
+- `ERR3001` (UNKNOWN): unexpected `CreateSession` error
+- `ERR3002` (UNKNOWN): unexpected `StreamingRecognize` error
+
 ## Run
 
 1. Install dependencies (after the system packages above):

@@ -205,9 +205,10 @@ class StreamingRunner:
                 if time.time() - last_activity > self._config.session_timeout_sec:
                     final_reason = "timeout"
                     self._session_facade.remove_session(session_state, reason="timeout")
+                    LOGGER.error("ERR1006 Session timeout (no audio)")
                     context.abort(
                         grpc.StatusCode.DEADLINE_EXCEEDED,
-                        "Session timeout (no audio)",
+                        "ERR1006 Session timeout (no audio)",
                     )
 
             if decode_stream:

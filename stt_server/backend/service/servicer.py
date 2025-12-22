@@ -169,7 +169,7 @@ class STTBackendServicer(stt_pb2_grpc.STTBackendServicer):
             raise
         except Exception:
             self.metrics.record_error(grpc.StatusCode.UNKNOWN)
-            LOGGER.exception("Unexpected CreateSession error")
+            LOGGER.exception("ERR3001 Unexpected CreateSession error")
             raise
 
     def StreamingRecognize(  # type: ignore[override]
@@ -184,7 +184,7 @@ class STTBackendServicer(stt_pb2_grpc.STTBackendServicer):
             raise
         except Exception:
             self.metrics.record_error(grpc.StatusCode.UNKNOWN)
-            LOGGER.exception("Unexpected streaming error")
+            LOGGER.exception("ERR3002 Unexpected streaming error")
             raise
 
     # ------------------------------------------------------------------

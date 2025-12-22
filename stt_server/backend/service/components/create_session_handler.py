@@ -48,7 +48,11 @@ class CreateSessionHandler:
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
     ) -> stt_pb2.SessionResponse:
         if not request.session_id:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "session_id is required")
+            LOGGER.error("ERR1001 session_id is required")
+            context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT,
+                "ERR1001 session_id is required",
+            )
 
         session_id = request.session_id
         vad_mode = (
@@ -104,7 +108,11 @@ class CreateSessionHandler:
         try:
             self._session_manager.create_session(session_id, session_info)
         except ValueError:
-            context.abort(grpc.StatusCode.ALREADY_EXISTS, "session_id already active")
+            LOGGER.error("ERR1002 session_id already active")
+            context.abort(
+                grpc.StatusCode.ALREADY_EXISTS,
+                "ERR1002 session_id already active",
+            )
 
         response_attributes = dict(request.attributes)
         response_attributes["decode_profile"] = profile_name
@@ -147,9 +155,10 @@ class CreateSessionHandler:
         self, value: float, context: grpc.ServicerContext
     ) -> float:
         if value < 0:
+            LOGGER.error("ERR1003 vad_threshold must be non-negative")
             context.abort(
                 grpc.StatusCode.INVALID_ARGUMENT,
-                "vad_threshold must be non-negative",
+                "ERR1003 vad_threshold must be non-negative",
             )
         if value == 0:
             return self._default_vad_threshold

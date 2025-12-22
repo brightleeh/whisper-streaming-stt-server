@@ -149,7 +149,7 @@ class DecodeStream:
             )
             if not done:
                 LOGGER.error(
-                    "Decode timeout after %.2fs; %d tasks pending",
+                    "ERR2001 Decode timeout after %.2fs; %d tasks pending",
                     wait_timeout or 0.0,
                     len(self.pending_results),
                 )
@@ -166,7 +166,7 @@ class DecodeStream:
             try:
                 result = future.result()
             except Exception:  # pragma: no cover - defensive logging
-                LOGGER.exception("Decode task failed (final=%s)", is_final)
+                LOGGER.exception("ERR2002 Decode task failed (final=%s)", is_final)
                 self.scheduler.metrics.record_error(grpc.StatusCode.INTERNAL)
                 if count_vad:
                     self.scheduler.metrics.decrease_active_vad_utterances()
