@@ -58,40 +58,71 @@ Runtime defaults live in two files:
 - `config/model.yaml`: Whisper model/device settings plus the named decode profiles.
 
 Copy/edit these files (or point `--config` / `--model-config` at your own YAML) to
-change behavior without touching code. Example server snippet:
+change behavior without touching code. Example server snippet (`config/server.yaml`):
 
 ```yaml
-model:
-  name: "base"
-  device: "cuda"
-  compute_type: "int8_float16"
-  languages: ["ko", "en"]
-  pool_size: 4
-
 server:
-  port: 6000
-  max_sessions: 8
-  decode_timeout_sec: 45
-  log_metrics: true
+  port: 50051
+  max_sessions: 4
   metrics_port: 8000
+  decode_timeout_sec: 30
+  log_metrics: false
+  session_timeout_sec: 60
+  sample_rate: 16000
 
 vad:
-  silence: 0.6
+  silence: 0.5
   threshold: 0.5
 
 safety:
-  speech_rms_threshold: 0.02
+  speech_rms_threshold: 0.00
 
 logging:
-  level: "DEBUG"
-  file: "/tmp/stt_server.log"
+  level: "INFO"
+  file: null
 
 storage:
-  persist_audio: true
+  persist_audio: false
   directory: "data/audio"
-  max_bytes: 10737418240 # Optional byte cap (10 GB)
-  max_files: 500 # Optional file-count cap
-  max_age_days: 7 # Optional retention window
+  max_bytes: null # Optional byte cap
+  max_files: null # Optional file-count cap
+  max_age_days: null # Optional retention window
+```
+
+Example model snippet (`config/model.yaml`):
+
+```yaml
+model:
+  name: "small" # Whisper model size
+  device: "cpu" # cpu / cuda
+  compute_type: "int8" # faster-whisper compute type
+  pool_size: 1 # Number of preloaded model instances
+  language_fix: false
+  language: "ko" # e.g., de, en, fr, ja, ko, zh ...
+  task: "transcribe" # "transcribe" | "translate"
+  default_decode_profile: "realtime"
+
+decode_profiles:
+  realtime:
+    beam_size: 1
+    best_of: 1
+    patience: 1.0
+    temperature: 0.0
+    length_penalty: 1.0
+    without_timestamps: true
+    compression_ratio_threshold: 2.4
+    no_speech_threshold: 0.6
+    log_prob_threshold: -1.0 # Low-probability rejection threshold (-1.0 disables)
+  accurate:
+    beam_size: 5
+    best_of: 5
+    patience: 1.0
+    temperature: 0.0
+    length_penalty: 1.0
+    without_timestamps: true
+    compression_ratio_threshold: 2.4
+    no_speech_threshold: 0.6
+    log_prob_threshold: -1.0
 ```
 
 CLI flags always override YAML entries if provided.
