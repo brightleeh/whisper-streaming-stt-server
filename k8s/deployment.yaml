@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: stt-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: stt-server
+  template:
+    metadata:
+      labels:
+        app: stt-server
+    spec:
+      containers:
+        - name: stt-server
+          image: whisper-stt-server:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - python3
+            - -m
+            - stt_server.main
+            - --config
+            - /app/config/server.yaml
+            - --model-config
+            - /app/config/model.yaml
+          ports:
+            - containerPort: 50051
+              name: grpc
+            - containerPort: 8000
+              name: metrics
+          volumeMounts:
+            - name: stt-config
+              mountPath: /app/config
+              readOnly: true
+            - name: stt-audio
+              mountPath: /app/data/audio
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "4Gi"
+      volumes:
+        - name: stt-config
+          configMap:
+            name: stt-config
+        - name: stt-audio
+          emptyDir: {}

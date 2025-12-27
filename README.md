@@ -239,6 +239,48 @@ python -m stt_server.main --log-metrics
    - Defaults to the `accurate` profile; override with `--decode-profile realtime`.
    - Accepts the same `--language`, `--task`, attributes, token, and `--vad-*` flags as the realtime clients.
 
+## Docker
+
+Dockerfiles live in the `docker/` directory (Ubuntu 22.04).
+
+Build:
+
+```bash
+docker build -f docker/Dockerfile.ubuntu -t whisper-stt-server:ubuntu .
+```
+
+Run:
+
+```bash
+docker run --rm -p 50051:50051 -p 8000:8000 whisper-stt-server:ubuntu
+```
+
+### Kubernetes
+
+Apply manifests (ConfigMap, Deployment, Service):
+
+```bash
+kubectl apply -f k8s/configmap.yaml
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+```
+
+NodePort access (on-premises):
+
+```bash
+kubectl get nodes -o wide
+
+# Use the Internal-IP value from `kubectl get nodes -o wide` for <node-internal-ip>.
+python -m stt_client.realtime.mic --server <node-internal-ip>:32051
+```
+
+Update config and rollout:
+
+```bash
+kubectl apply -f k8s/configmap.yaml
+kubectl rollout restart deployment/stt-server
+```
+
 ## Server-side audio capture
 
 Enable `storage.persist_audio: true` to have the backend archive one WAV file

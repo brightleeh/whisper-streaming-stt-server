@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stt-config
+data:
+  server.yaml: |
+    server:
+      port: 50051
+      max_sessions: 4
+      metrics_port: 8000
+      decode_timeout_sec: 30
+      log_metrics: false
+      session_timeout_sec: 60
+      sample_rate: 16000
+
+    vad:
+      silence: 0.5
+      threshold: 0.5
+
+    safety:
+      speech_rms_threshold: 0.00
+
+    logging:
+      level: "INFO"
+      file: null
+
+    storage:
+      persist_audio: false
+      directory: "data/audio"
+      max_bytes: null
+      max_files: null
+      max_age_days: null
+  model.yaml: |
+    model:
+      name: "small"
+      device: "cpu"
+      compute_type: "int8"
+      pool_size: 1
+      language_fix: false
+      language: "ko"
+      task: "transcribe"
+      default_decode_profile: "realtime"
+
+    decode_profiles:
+      realtime:
+        beam_size: 1
+        best_of: 1
+        patience: 1.0
+        temperature: 0.0
+        length_penalty: 1.0
+        without_timestamps: true
+        compression_ratio_threshold: 2.4
+        no_speech_threshold: 0.6
+        log_prob_threshold: -1.0
+      accurate:
+        beam_size: 5
+        best_of: 5
+        patience: 1.0
+        temperature: 0.0
+        length_penalty: 1.0
+        without_timestamps: true
+        compression_ratio_threshold: 2.4
+        no_speech_threshold: 0.6
+        log_prob_threshold: -1.0
