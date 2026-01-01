@@ -1,8 +1,75 @@
+# Whisper Streaming STT Server
+
+Whisper Streaming STT Server is a gRPC service that performs low-latency speech to text with VAD-based endpointing, streaming partial/final results as audio arrives.
+
+## Overview
+
+The client opens a gRPC channel, calls `CreateSession` to obtain the resolved session settings, then uses the bidirectional `StreamingRecognize` stream to send PCM chunks and receive partial/final transcripts. The server resolves the session, gates audio with VAD, schedules decodes, and optionally persists audio; session teardown handles cleanup and retention.
+
+The gRPC servicer is the transport entrypoint and delegates both session creation and streaming audio to the runtime. The runtime wires the session registry and stream orchestrator, while the orchestrator drives VAD, decode scheduling, and optional audio storage. The HTTP server queries runtime health for `/health` and renders metrics output for `/metrics`.
+
+```mermaid
+flowchart TD
+  subgraph Client[Client]
+    GrpcClient[gRPC Client]
+    WebClient[Web Client]
+  end
+
+  subgraph Backend[Backend]
+    subgraph Transport[Transport]
+      Servicer[gRPC Servicer]
+      Http[HTTP: health/metrics]
+    end
+
+		subgraph RuntimeWrap[Runtime]
+	    Runtime[Runtime]
+	  end
+
+    subgraph Application[Application]
+      Registry[SessionRegistry]
+      Orchestrator[Stream Orchestrator]
+      Metrics[Metrics]
+    end
+
+    subgraph Components[Components]
+      VAD[VAD Gate]
+      Decode[Decode Scheduler]
+      Store[Audio Storage]
+    end
+
+    Servicer -->|create session| Runtime
+    Runtime -->|session register/lookup| Registry
+    Servicer <-->|audio/results| Runtime
+    Runtime -->|start stream| Orchestrator
+    Http <-->|health check| Runtime
+    Http <-->|request/render| Metrics
+
+    Orchestrator -->|resolve session| Registry
+    Orchestrator <-->|check vad| VAD
+    Orchestrator <-->|schedule/decode| Decode
+    Orchestrator -->|store pcm| Store
+    Orchestrator -->|record events| Metrics
+  end
+
+  subgraph Model[Model]
+    Worker[Worker]
+  end
+
+  Decode <-->|transcribe audio| Worker
+  GrpcClient <-->|gRPC stream| Servicer
+  WebClient <-->|http| Http
+
+style Client fill:#f6f5f2,stroke:#c8c1b8,stroke-width:1px,color:#4b473f
+style Backend fill:#f1f4f7,stroke:#9aa6b2,stroke-width:1px,color:#2f3a44
+style Application fill:#f2f6f3,stroke:#9db2a3,stroke-width:1px,color:#2f3f34
+style Components fill:#f4f2f7,stroke:#a7a0b5,stroke-width:1px,color:#3b3446
+style Transport fill:#f6f7f8,stroke:#b8c0c8,stroke-width:1px,color:#3a424a
+style RuntimeWrap fill:#f0f2f5,stroke:#8f9aa6,stroke-width:1px,color:#2f3740
+```
+
 ## Setup
 
-PyAV (a transitive dependency of `faster-whisper`) requires `pkg-config` so it can
-find FFmpeg headers during installation. Install the system packages first, then
-run `pip install -r requirements.txt`.
+PyAV (a transitive dependency of `faster-whisper`) requires `pkg-config` so it can find FFmpeg headers during installation. Install the system packages first, then run `pip install -r requirements.txt`.
 
 ### macOS
 
@@ -29,8 +96,7 @@ sudo apt install pkg-config ffmpeg libavformat-dev libavcodec-dev libavdevice-de
 
 ## Generate gRPC stubs
 
-Create a versioned package structure (e.g. `gen/stt/python/v1`) so both the
-server and client can import the same generated stubs:
+Create a versioned package structure (e.g. `gen/stt/python/v1`) so both the server and client can import the same generated stubs:
 
 ```bash
 mkdir -p gen/stt/python/v1
@@ -57,8 +123,7 @@ Runtime defaults live in two files:
 - `config/server.yaml`: networking, session limits, logging, and VAD controls.
 - `config/model.yaml`: Whisper model/device settings plus the named decode profiles.
 
-Copy/edit these files (or point `--config` / `--model-config` at your own YAML) to
-change behavior without touching code. Example server snippet (`config/server.yaml`):
+Copy/edit these files (or point `--config` / `--model-config` at your own YAML) to change behavior without touching code. Example server snippet (`config/server.yaml`):
 
 ```yaml
 server:
@@ -126,35 +191,16 @@ decode_profiles:
 ```
 
 CLI flags always override YAML entries if provided.
-`model.languages` defines one or more languages to force during decoding
-(repeat entries to weight certain languages or set to `null`/omit to let Whisper
-auto-detect). `model.pool_size` controls how many Whisper model instances are
-preloaded (akin to license count); `server.max_sessions` caps concurrent gRPC
-streams. The `server.decode_timeout_sec` value controls how long the server
-waits for a decode task when draining pending work (set to a non-positive value
-to wait forever). The `safety.speech_rms_threshold` setting helps filter out low
-level noise by requiring buffered audio to exceed the given RMS before decoding.
+`model.languages` defines one or more languages to force during decoding (repeat entries to weight certain languages or set to `null`/omit to let Whisper auto-detect). `model.pool_size` controls how many Whisper model instances are preloaded (akin to license count); `server.max_sessions` caps concurrent gRPC streams. The `server.decode_timeout_sec` value controls how long the server waits for a decode task when draining pending work (set to a non-positive value to wait forever). The `safety.speech_rms_threshold` setting helps filter out low level noise by requiring buffered audio to exceed the given RMS before decoding.
 
-Each client first calls `CreateSession`, passing an application-defined
-`session_id` plus optional `--attr KEY=VALUE` pairs (custom session attributes, `--meta`
-remains as a CLI alias). They can also request
-either **VAD Continue** (default) or **VAD Auto-End** via the `--vad-mode` flag;
-auto-end terminates the session once silence is detected, while continue keeps
-the session alive for multi-utterance workloads. Use `--require-token` if you
-want the server to issue a per-session token that must be attached to every
-audio chunk for light-weight validation. Sessions are cleaned up automatically
-when the streaming RPC ends.
+Each client first calls `CreateSession`, passing an application-defined `session_id` plus optional `--attr KEY=VALUE` pairs (custom session attributes, `--meta` remains as a CLI alias). They can also request either **VAD Continue** (default) or **VAD Auto-End** via the `--vad-mode` flag; auto-end terminates the session once silence is detected, while continue keeps the session alive for multi-utterance workloads. Use `--require-token` if you want the server to issue a per-session token that must be attached to every audio chunk for light-weight validation. Sessions are cleaned up automatically when the streaming RPC ends.
 
 ## Observability
 
 The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 
-- `GET /metrics`: plain-text counters/gauges (active sessions, API-key session
-  counts, decode latency aggregates, RTF stats, VAD trigger totals, active VAD
-  utterances, error counts) that can be scraped or converted to Prometheus
-  format later.
-- `GET /health`: returns `200` when the gRPC server is running, Whisper models
-  are loaded, and worker pools are healthy; otherwise `500`.
+- `GET /metrics`: plain-text counters/gauges (active sessions, API-key session counts, decode latency aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts) that can be scraped or converted to Prometheus format later.
+- `GET /health`: returns `200` when the gRPC server is running, Whisper models are loaded, and worker pools are healthy; otherwise `500`.
 
 ## Assets
 
@@ -162,8 +208,7 @@ The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 
 ## Error codes
 
-Errors are tagged in logs and gRPC error messages with `ERR####`. The gRPC
-status codes are listed below for clarity.
+Errors are tagged in logs and gRPC error messages with `ERR####`. The gRPC status codes are listed below for clarity.
 
 - `ERR1xxx`: request/session validation or authentication failures
 - `ERR2xxx`: decode pipeline/runtime failures
@@ -196,7 +241,6 @@ python -m stt_server.main --log-metrics
 
 - `--model`, `--device`, `--compute-type`, `--language`, `--model-pool-size`,
   and `--port` let you customize faster-whisper instances and networking.
-  let you customize faster-whisper instances and networking.
 - `--max-sessions` controls how many client streams the server accepts in parallel.
 - `--log-metrics` prints decode latency + real-time factor for each decode run.
 - `--config <path>` points to the server YAML (default: `config/server.yaml`).
@@ -283,39 +327,10 @@ kubectl rollout restart deployment/stt-server
 
 ## Server-side audio capture
 
-Enable `storage.persist_audio: true` to have the backend archive one WAV file
-per session inside `storage.directory`. Retention is enforced lazily right after
-each session finishes:
+Enable `storage.persist_audio: true` to have the backend archive one WAV file per session inside `storage.directory`. Retention is enforced lazily right after each session finishes:
 
 - `max_bytes`: cap total on-disk bytes (oldest files removed first).
 - `max_files`: keep at most _N_ WAV files (oldest deleted first).
 - `max_age_days`: delete recordings older than _N_ days.
 
-Leave any limit `null` or negative for “no limit”. Audio capture is disabled by
-default and only activates when configured, so deployments that do not need
-server-side logging incur no overhead.
-
-### Streaming pipeline overview
-
-```mermaid
-flowchart LR
-    subgraph Client
-        A[CreateSession] --> B[StreamingRecognize<br/>AudioChunk]
-    end
-    B -->|PCM16 + metadata| E[StreamingRunner]
-    subgraph Server
-        C[CreateSessionHandler] -- session info --> D[SessionManager]
-        E --> F[VAD & speech gating]
-        E --> G[DecodeScheduler]
-        E --> H[AudioStorageManager]
-        G --> I[STT Results]
-    end
-    I -->|partial/final text| Client
-    H -->|WAV files & retention| Storage[(storage.directory)]
-```
-
-The streaming runner resolves the session, runs VAD/speech gating, schedules
-decoding, and, when capture is enabled, streams the exact PCM bytes to the audio
-storage manager. When the session ends (normal completion, timeout, disconnect,
-or invalid token) the recorder finalizes its WAV file and the retention policy
-purges the oldest files if necessary.
+Leave any limit `null` or negative for “no limit”. Audio capture is disabled by default and only activates when configured, so deployments that do not need server-side logging incur no overhead.

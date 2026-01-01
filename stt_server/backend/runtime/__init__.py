@@ -1,17 +1,17 @@
-"""STT servicer package exports."""
+"""Runtime wiring and configuration for the STT application layer."""
 
-from .servicer import (
+from .config import (
     ModelRuntimeConfig,
     ServicerConfig,
     StorageRuntimeConfig,
     StreamingRuntimeConfig,
-    STTBackendServicer,
 )
+from .runtime import ApplicationRuntime
 
 __all__ = [
-    "STTBackendServicer",
-    "ServicerConfig",
+    "ApplicationRuntime",
     "ModelRuntimeConfig",
+    "ServicerConfig",
     "StorageRuntimeConfig",
     "StreamingRuntimeConfig",
 ]

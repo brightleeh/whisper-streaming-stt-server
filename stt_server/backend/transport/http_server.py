@@ -1,16 +1,14 @@
 import threading
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 import uvicorn
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 
-from stt_server.backend.core.metrics import Metrics
 
-
-def start_observability_server(
-    metrics: Metrics,
-    servicer: Any,
+def start_http_server(
+    metrics: Any,
+    health_snapshot: Callable[[], Dict[str, Any]],
     server_state: Dict[str, bool],
     host: str,
     port: int,
@@ -24,7 +22,7 @@ def start_observability_server(
 
     @app.get("/health")
     def health_endpoint() -> JSONResponse:
-        snapshot = servicer.health_snapshot()
+        snapshot = health_snapshot()
         snapshot["grpc_running"] = server_state.get("grpc_running", False)
         healthy = snapshot["grpc_running"] and snapshot["model_pool_healthy"]
         status = 200 if healthy else 500

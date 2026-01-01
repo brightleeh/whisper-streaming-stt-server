@@ -1,51 +1,128 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
-from typing import Iterable, Iterator, Optional
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable, Iterable, Iterator, Optional
 
 import grpc
 
 from gen.stt.python.v1 import stt_pb2
-from stt_server.backend.core.decode_scheduler import DecodeScheduler, DecodeStream
-from stt_server.backend.core.metrics import Metrics
-from stt_server.backend.core.vad import VADState, buffer_is_speech
-from stt_server.backend.service.components.audio_storage import (
+from stt_server.backend.application.session_registry import SessionFacade, SessionState
+from stt_server.backend.component.audio_storage import (
+    AudioStorageConfig,
     AudioStorageManager,
     SessionAudioRecorder,
 )
-from stt_server.backend.service.components.session_facade import (
-    SessionFacade,
-    SessionState,
+from stt_server.backend.component.decode_scheduler import (
+    DecodeScheduler,
+    DecodeSchedulerHooks,
+    DecodeStream,
 )
+from stt_server.backend.component.vad_gate import VADGate, buffer_is_speech
+from stt_server.config.languages import SupportedLanguages
 from stt_server.utils.logger import LOGGER
 
 
 @dataclass(frozen=True)
-class StreamingRunnerConfig:
+class StreamOrchestratorConfig:
     vad_threshold: float
     vad_silence: float
     speech_rms_threshold: float
     session_timeout_sec: float
     default_sample_rate: int
+    model_size: str
+    device: str
+    compute_type: str
+    language_cycle: list[Optional[str]]
+    pool_size: int
+    task: str
+    log_metrics: bool
+    decode_timeout_sec: float
+    language_lookup: SupportedLanguages
+    storage_enabled: bool
+    storage_directory: str
+    storage_max_bytes: Optional[int]
+    storage_max_files: Optional[int]
+    storage_max_age_days: Optional[int]
 
 
-class StreamingRunner:
+def _noop() -> None:
+    return None
+
+
+def _zero() -> int:
+    return 0
+
+
+@dataclass(frozen=True)
+class StreamOrchestratorHooks:
+    on_vad_trigger: Callable[[], None] = _noop
+    on_vad_utterance_start: Callable[[], None] = _noop
+    active_vad_utterances: Callable[[], int] = _zero
+    decode_hooks: DecodeSchedulerHooks = field(default_factory=DecodeSchedulerHooks)
+
+
+class StreamOrchestrator:
     """Executes the streaming recognition loop for the gRPC servicer."""
 
     def __init__(
         self,
         session_facade: SessionFacade,
-        decode_scheduler: DecodeScheduler,
-        metrics: Metrics,
-        config: StreamingRunnerConfig,
-        audio_storage: Optional[AudioStorageManager] = None,
+        config: StreamOrchestratorConfig,
+        hooks: StreamOrchestratorHooks | None = None,
     ) -> None:
         self._session_facade = session_facade
-        self._decode_scheduler = decode_scheduler
-        self._metrics = metrics
         self._config = config
-        self._audio_storage = audio_storage
+        self._hooks = hooks or StreamOrchestratorHooks()
+        self._decode_scheduler = self._create_decode_scheduler(config)
+        self._audio_storage: Optional[AudioStorageManager] = None
+        if config.storage_enabled:
+            storage_directory = Path(config.storage_directory).expanduser()
+            storage_policy = AudioStorageConfig(
+                enabled=True,
+                directory=storage_directory,
+                max_bytes=config.storage_max_bytes,
+                max_files=config.storage_max_files,
+                max_age_days=config.storage_max_age_days,
+            )
+            self._audio_storage = AudioStorageManager(storage_policy)
+            LOGGER.info(
+                "Audio storage enabled directory=%s max_bytes=%s max_files=%s max_age_days=%s",
+                storage_directory,
+                config.storage_max_bytes,
+                config.storage_max_files,
+                config.storage_max_age_days,
+            )
+
+    @property
+    def decode_scheduler(self) -> DecodeScheduler:
+        return self._decode_scheduler
+
+    def _create_decode_scheduler(
+        self, config: StreamOrchestratorConfig
+    ) -> DecodeScheduler:
+        return DecodeScheduler(
+            model_size=config.model_size,
+            device=config.device,
+            compute_type=config.compute_type,
+            language_cycle=config.language_cycle,
+            pool_size=config.pool_size,
+            task=config.task,
+            log_metrics=config.log_metrics,
+            decode_timeout_sec=config.decode_timeout_sec,
+            language_lookup=config.language_lookup,
+            hooks=self._hooks.decode_hooks,
+        )
+
+    def _on_vad_trigger(self) -> None:
+        self._hooks.on_vad_trigger()
+
+    def _on_vad_utterance_start(self) -> None:
+        self._hooks.on_vad_utterance_start()
+
+    def _active_vad_utterances(self) -> int:
+        return self._hooks.active_vad_utterances()
 
     def run(
         self,
@@ -53,7 +130,7 @@ class StreamingRunner:
         context: grpc.ServicerContext,
     ) -> Iterator[stt_pb2.STTResult]:
         session_state: Optional[SessionState] = None
-        vad_state: Optional[VADState] = None
+        vad_state: Optional[VADGate] = None
         decode_stream = None
         metadata = {k.lower(): v for (k, v) in context.invocation_metadata()}
         session_logged = False
@@ -144,9 +221,9 @@ class StreamingRunner:
                         buffer = bytearray()
                         vad_state.reset_after_trigger()
                         continue
-                    self._metrics.record_vad_trigger()
+                    self._on_vad_trigger()
                     vad_count += 1
-                    self._metrics.increase_active_vad_utterances()
+                    self._on_vad_utterance_start()
                     offset_sec = time.monotonic() - session_start
                     session_info = session_state.session_info
                     is_final = session_info.vad_mode == stt_pb2.VAD_AUTO_END
@@ -168,7 +245,7 @@ class StreamingRunner:
                             if session_info.vad_mode == stt_pb2.VAD_AUTO_END
                             else "CONTINUE"
                         ),
-                        self._metrics.active_vad_utterances(),
+                        self._active_vad_utterances(),
                     )
                     if is_final:
                         yield from self._emit_results_with_session(
@@ -252,7 +329,7 @@ class StreamingRunner:
                 )
             self._session_facade.remove_session(session_state, reason=final_reason)
 
-    def _create_vad_state(self, state: SessionState) -> VADState:
+    def _create_vad_state(self, state: SessionState) -> VADGate:
         info = state.session_info
         silence = info.vad_silence
         if silence <= 0:
@@ -260,7 +337,7 @@ class StreamingRunner:
         threshold = info.vad_threshold
         if threshold < 0:
             threshold = self._config.vad_threshold
-        return VADState(threshold, silence)
+        return VADGate(threshold, silence)
 
     def _capture_audio_chunk(
         self,

@@ -80,7 +80,7 @@ def _silero_frame_probability(model: VADModel, frame: np.ndarray) -> float:
 
 
 @dataclass
-class VADUpdate:
+class VADGateUpdate:
     triggered: bool
     speech_active: bool
     silence_duration: float
@@ -88,7 +88,7 @@ class VADUpdate:
     chunk_rms: float
 
 
-class VADState:
+class VADGate:
     """Tracks silence windows and determines when to trigger VAD."""
 
     def __init__(self, vad_threshold: float, vad_silence: float) -> None:
@@ -122,7 +122,7 @@ class VADState:
                 max_prob = prob
         return max_prob
 
-    def update(self, chunk_bytes: bytes, sample_rate: int) -> VADUpdate:
+    def update(self, chunk_bytes: bytes, sample_rate: int) -> VADGateUpdate:
         chunk_duration = audio.chunk_duration_seconds(len(chunk_bytes), sample_rate)
         chunk_rms = audio.chunk_rms(chunk_bytes)
         triggered = False
@@ -144,7 +144,7 @@ class VADState:
         if self.speech_active and self.silence_duration >= self.vad_silence:
             triggered = True
 
-        return VADUpdate(
+        return VADGateUpdate(
             triggered=triggered,
             speech_active=self.speech_active,
             silence_duration=self.silence_duration,

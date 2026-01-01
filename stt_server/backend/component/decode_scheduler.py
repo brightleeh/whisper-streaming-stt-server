@@ -4,15 +4,34 @@ from __future__ import annotations
 
 import threading
 from concurrent import futures
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from dataclasses import dataclass
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import grpc
 
 from gen.stt.python.v1 import stt_pb2
-from stt_server.backend.core.metrics import Metrics
 from stt_server.config.languages import SupportedLanguages
 from stt_server.model.worker import ModelWorker
 from stt_server.utils.logger import LOGGER
+
+
+def _noop() -> None:
+    return None
+
+
+def _noop_status(_: grpc.StatusCode) -> None:
+    return None
+
+
+def _noop_decode(_: float, __: float) -> None:
+    return None
+
+
+@dataclass(frozen=True)
+class DecodeSchedulerHooks:
+    on_error: Callable[[grpc.StatusCode], None] = _noop_status
+    on_decode_result: Callable[[float, float], None] = _noop_decode
+    on_vad_utterance_end: Callable[[], None] = _noop
 
 
 class DecodeScheduler:
@@ -28,10 +47,10 @@ class DecodeScheduler:
         task: str,
         log_metrics: bool,
         decode_timeout_sec: float,
-        metrics: Metrics,
         language_lookup: SupportedLanguages,
+        hooks: DecodeSchedulerHooks | None = None,
     ) -> None:
-        self.metrics = metrics
+        self._hooks = hooks or DecodeSchedulerHooks()
         self.decode_timeout_sec = decode_timeout_sec
         self.language_lookup = language_lookup
         self.model_pool: List[ModelWorker] = []
@@ -79,6 +98,15 @@ class DecodeScheduler:
         with self._pending_lock:
             if self._pending_tasks > 0:
                 self._pending_tasks -= 1
+
+    def _on_decode_error(self, status_code: grpc.StatusCode) -> None:
+        self._hooks.on_error(status_code)
+
+    def _on_decode_result(self, latency_sec: float, rtf: float) -> None:
+        self._hooks.on_decode_result(latency_sec, rtf)
+
+    def _on_vad_utterance_end(self) -> None:
+        self._hooks.on_vad_utterance_end()
 
 
 class DecodeStream:
@@ -167,15 +195,15 @@ class DecodeStream:
                 result = future.result()
             except Exception:  # pragma: no cover - defensive logging
                 LOGGER.exception("ERR2002 Decode task failed (final=%s)", is_final)
-                self.scheduler.metrics.record_error(grpc.StatusCode.INTERNAL)
+                self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
                 if count_vad:
-                    self.scheduler.metrics.decrease_active_vad_utterances()
+                    self.scheduler._on_vad_utterance_end()
                 self.scheduler._decrement_pending()
                 continue
             if not is_final and self.pending_partials > 0:
                 self.pending_partials -= 1
             if result.latency_sec >= 0:
-                self.scheduler.metrics.record_decode(result.latency_sec, result.rtf)
+                self.scheduler._on_decode_result(result.latency_sec, result.rtf)
             language_name = self.scheduler.language_lookup.get_name(
                 result.language_code
             )
@@ -208,5 +236,5 @@ class DecodeStream:
                     ),
                 )
             if count_vad:
-                self.scheduler.metrics.decrease_active_vad_utterances()
+                self.scheduler._on_vad_utterance_end()
             self.scheduler._decrement_pending()

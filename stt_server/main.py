@@ -5,14 +5,14 @@ from pathlib import Path
 import grpc
 
 from gen.stt.python.v1 import stt_pb2_grpc
-from stt_server.backend.core.metrics import Metrics
-from stt_server.backend.endpoints.http import start_observability_server
-from stt_server.backend.service import (
+from stt_server.backend.application.metrics import Metrics
+from stt_server.backend.transport import (
     ModelRuntimeConfig,
     ServicerConfig,
     StorageRuntimeConfig,
     StreamingRuntimeConfig,
-    STTBackendServicer,
+    STTGrpcServicer,
+    start_http_server,
 )
 from stt_server.config import (
     DEFAULT_CONFIG_PATH,
@@ -58,15 +58,16 @@ def serve(config: ServerConfig) -> None:
     servicer_config = ServicerConfig(
         model=model_cfg, streaming=streaming_cfg, storage=storage_cfg
     )
-    servicer = STTBackendServicer(
+    servicer = STTGrpcServicer(
         config=servicer_config,
         metrics=metrics,
+        error_recorder=metrics.record_error,
     )
     stt_pb2_grpc.add_STTBackendServicer_to_server(servicer, server)  # type: ignore[name-defined]
     server.add_insecure_port(f"[::]:{config.port}")
-    start_observability_server(
+    start_http_server(
         metrics,
-        servicer,
+        servicer.runtime.health_snapshot,
         server_state,
         host="0.0.0.0",
         port=config.metrics_port,
