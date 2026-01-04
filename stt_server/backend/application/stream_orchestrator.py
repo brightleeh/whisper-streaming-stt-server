@@ -260,9 +260,7 @@ class StreamOrchestrator:
                 )
 
                 if chunk.is_final:
-                    if buffer and buffer_is_speech(
-                        buffer, self._config.speech_rms_threshold
-                    ):
+                    if buffer:
                         offset_sec = time.monotonic() - session_start
                         decode_stream.schedule_decode(
                             bytes(buffer),
@@ -306,7 +304,7 @@ class StreamOrchestrator:
                     emitted = list(
                         self._emit_results_with_session(
                             decode_stream,
-                            block=bool(decode_stream.pending_partial_decodes()),
+                            block=decode_stream.has_pending_results(),
                             session_state=session_state,
                         )
                     )
