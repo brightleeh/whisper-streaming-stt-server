@@ -123,7 +123,12 @@ Runtime defaults live in two files:
 - `config/server.yaml`: networking, session limits, logging, and VAD controls.
 - `config/model.yaml`: Whisper model/device settings plus the named decode profiles.
 
-Copy/edit these files (or point `--config` / `--model-config` at your own YAML) to change behavior without touching code. Example server snippet (`config/server.yaml`):
+Sample client configs live in:
+
+- `stt_client/config/file.yaml`: file + batch client defaults (audio path, session options).
+- `stt_client/config/mic.yaml`: mic client defaults (device, sample rate, session options).
+
+Copy/edit the server YAMLs (or point `--config` / `--model-config` at your own YAML) to change server behavior. Client YAMLs are loaded via `-c/--config`. Example server snippet (`config/server.yaml`):
 
 ```yaml
 server:
@@ -204,7 +209,7 @@ The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 
 ## Assets
 
-- `hello.wav`: sourced from https://github.com/SkelterLabsInc/stt-dataset-example
+- `stt_client/assets/hello.wav`: sourced from https://github.com/SkelterLabsInc/stt-dataset-example
 
 ## Error codes
 
@@ -257,8 +262,9 @@ python -m stt_server.main --log-metrics
 
 3. In another terminal, run the sample **realtime file** client:
    ```bash
-   python -m stt_client.realtime.file path/to/audio.wav --metrics
+   python -m stt_client.realtime.file -c stt_client/config/file.yaml --metrics
    ```
+   - `-c/--config` loads YAML defaults (e.g., `audio_path`, `decode_profile`, VAD settings). CLI flags override.
    - Add `--no-realtime` to send audio as fast as possible (for throughput tests).
    - Use `--server host:port` or `--chunk-ms value` to tweak target and chunking.
    - Use `--vad-mode auto` to enable auto-end sessions (default is `continue`).
@@ -269,19 +275,19 @@ python -m stt_server.main --log-metrics
      `--require-token` asks the server to issue/validate per-session tokens.
 4. To stream live audio from a macOS microphone (requires microphone permission):
    ```bash
-   python -m stt_client.realtime.mic --metrics
+   python -m stt_client.realtime.mic -c stt_client/config/mic.yaml --metrics
    ```
-   - Defaults to `--vad-mode auto` so sessions end automatically once speech stops;
-     switch to `continue` if you need multi-utterance streaming.
+   - Defaults to `--vad-mode continue`; use `auto` to end sessions once speech stops.
    - Per-session overrides: `--vad-silence` (seconds) and `--vad-threshold` (VAD probability) mirror the server flags.
    - Same `--language`, `--task`, `--decode-profile`, `--require-token`, and attributes semantics apply.
    - Optional flags: `--device` (CoreAudio name/index), `--sample-rate`, `--chunk-ms`.
 5. For batch-style processing (single large chunk, ideal for accuracy-oriented profiles):
    ```bash
-   python -m stt_client.batch.file path/to/audio.wav --decode-profile accurate
+   python -m stt_client.batch.file -c stt_client/config/file.yaml --decode-profile accurate
    ```
    - Defaults to the `accurate` profile; override with `--decode-profile realtime`.
    - Accepts the same `--language`, `--task`, attributes, token, and `--vad-*` flags as the realtime clients.
+   - Batch ignores `chunk_ms`/`realtime` fields in the config; it always sends a single chunk.
 
 ## Docker
 

@@ -4,15 +4,39 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Iterator, Optional, Union
+from typing import Any, Dict, Iterator, Optional, Union
 
 import grpc
 import sounddevice as sd
+import yaml
 
 from gen.stt.python.v1 import stt_pb2, stt_pb2_grpc
 
 TASK_CHOICES = ("transcribe", "translate")
 PROFILE_CHOICES = ("realtime", "accurate")
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "mic.yaml"
+CONFIG_KEYS = {
+    "server",
+    "chunk_ms",
+    "sample_rate",
+    "device",
+    "metrics",
+    "vad_mode",
+    "require_token",
+    "language",
+    "task",
+    "decode_profile",
+    "vad_silence",
+    "vad_threshold",
+}
+
+
+def load_yaml_config(path: Path) -> Dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
+        data = yaml.safe_load(handle) or {}
+    if not isinstance(data, dict):
+        raise ValueError("Config file must contain a YAML mapping at the top level.")
+    return data
 
 
 def task_to_enum(value: str) -> stt_pb2.Task.ValueType:
@@ -125,6 +149,33 @@ def run(
     vad_silence: Optional[float],
     vad_threshold: Optional[float],
 ) -> None:
+    def merge_transcript(prefix: str, next_text: str) -> str:
+        prefix = prefix.strip()
+        next_text = next_text.strip()
+        if not prefix:
+            return next_text
+        if not next_text:
+            return prefix
+        if next_text.startswith(prefix):
+            return next_text
+        return f"{prefix} {next_text}"
+
+    def format_output(
+        prefix: str,
+        text: str,
+        start_sec: float,
+        end_sec: float,
+        language: str,
+        score: float,
+        recognized_at: float,
+    ) -> str:
+        return (
+            f"{prefix} TEXT: {text}\n"
+            f"   TIME: {start_sec:.2f}-{end_sec:.2f}s\n"
+            f"   LANG: {language} | SCORE: {score:.2f} | "
+            f"RECOGNIZED_AT: {recognized_at:.2f}s"
+        )
+
     mic = MicrophoneStream(
         sample_rate=sample_rate, chunk_ms=chunk_ms, device=input_device
     ).start()
@@ -160,7 +211,7 @@ def run(
         f"(token_required={session_resp.token_required})"
     )
 
-    start = time.perf_counter()
+    stream_start = time.perf_counter()
     request_iter = mic.request_stream(session_id, session_token)
     responses = stub.StreamingRecognize(
         request_iter,
@@ -171,13 +222,56 @@ def run(
         f"({chunk_ms} ms chunks). Press Ctrl+C to stop."
     )
 
+    committed_text = ""
+    stop_requested = False
     try:
-        for resp in responses:
-            kind = "[FINAL]" if resp.is_final else "[PARTIAL]"
-            print(
-                f"{kind} [session_id={session_id}] "
-                f"[{resp.start_sec}][{resp.end_sec}] {resp.text}"
-            )
+        response_iter = iter(responses)
+        while True:
+            try:
+                resp = next(response_iter)
+            except StopIteration:
+                break
+            except KeyboardInterrupt:
+                if not stop_requested:
+                    stop_requested = True
+                    mic.stop()
+                    print(
+                        "[STREAM] Stop requested; waiting for final results. "
+                        "Press Ctrl+C again to force exit."
+                    )
+                    continue
+                raise
+
+            recognized_at = time.perf_counter() - stream_start
+            language = (resp.language or resp.language_code or "unknown").strip()
+            score = resp.probability
+            if resp.is_final:
+                committed_text = merge_transcript(committed_text, resp.text)
+                display_text = committed_text
+                print(
+                    format_output(
+                        "✅",
+                        display_text,
+                        resp.start_sec,
+                        resp.end_sec,
+                        language,
+                        score,
+                        recognized_at,
+                    )
+                )
+            else:
+                display_text = merge_transcript(committed_text, resp.text)
+                print(
+                    format_output(
+                        "⏳",
+                        display_text,
+                        resp.start_sec,
+                        resp.end_sec,
+                        language,
+                        score,
+                        recognized_at,
+                    )
+                )
         print(f"[STREAM] session_id={session_id} completed normally")
     except grpc.RpcError as exc:
         print(
@@ -186,7 +280,7 @@ def run(
         )
         raise
     except KeyboardInterrupt:
-        print(f"\n[STREAM] session_id={session_id} interrupted by user")
+        print(f"[STREAM] session_id={session_id} interrupted by user")
     except Exception as exc:
         print(
             f"[STREAM] session_id={session_id} terminated by client error: {exc}",
@@ -196,7 +290,7 @@ def run(
     finally:
         mic.stop()
         channel.close()
-        total_wall = time.perf_counter() - start
+        total_wall = time.perf_counter() - stream_start
         if report_metrics:
             audio_duration = mic.duration_seconds
             rtf = total_wall / audio_duration if audio_duration > 0 else float("inf")
@@ -207,8 +301,37 @@ def run(
 
 
 def main() -> None:
+    config_parser = argparse.ArgumentParser(add_help=False)
+    config_parser.add_argument(
+        "-c",
+        "--config",
+        nargs="?",
+        const=str(DEFAULT_CONFIG_PATH),
+        default=None,
+        help=f"Path to YAML config (default: {DEFAULT_CONFIG_PATH})",
+    )
+    config_args, remaining_argv = config_parser.parse_known_args()
+    config_values: Dict[str, Any] = {}
+    if config_args.config:
+        config_path = Path(config_args.config).expanduser()
+        if not config_path.exists():
+            config_parser.error(f"Config file not found: {config_path}")
+        try:
+            raw_config = load_yaml_config(config_path)
+        except Exception as exc:
+            config_parser.error(f"Failed to load config file: {exc}")
+        config_values = {k: v for k, v in raw_config.items() if k in CONFIG_KEYS}
+
     parser = argparse.ArgumentParser(
         description="Streaming STT client (macOS microphone)"
+    )
+    parser.add_argument(
+        "-c",
+        "--config",
+        nargs="?",
+        const=str(DEFAULT_CONFIG_PATH),
+        default=None,
+        help=f"Path to YAML config (default: {DEFAULT_CONFIG_PATH})",
     )
     parser.add_argument(
         "--server",
@@ -277,7 +400,9 @@ def main() -> None:
         default=None,
         help="Override server VAD probability threshold (0-1)",
     )
-    args = parser.parse_args()
+    if config_values:
+        parser.set_defaults(**config_values)
+    args = parser.parse_args(remaining_argv)
 
     run(
         target=args.server,

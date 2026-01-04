@@ -1,0 +1,13 @@
+audio_path: "stt_client/assets/hello.wav" # string, path to a WAV/FLAC file
+server: "localhost:50051" # string, gRPC target in host:port format
+chunk_ms: 100 # int, chunk size in milliseconds
+realtime: true # bool, true=paced streaming; false=send as fast as possible
+metrics: true # bool, print client metrics after streaming
+recognition_timeout_sec: 60 # float, seconds to wait for results after sending
+vad_mode: "continue" # string: "continue" | "auto"
+require_token: false # bool, request a session token for chunk validation
+language: "" # string, BCP-47 code; empty for auto-detect
+task: "transcribe" # string: "transcribe" | "translate"
+decode_profile: "realtime" # string: "realtime" | "accurate"
+vad_silence: null # float, trailing silence window in seconds; null uses server default
+vad_threshold: null # float, VAD probability threshold (0-1); null uses server default

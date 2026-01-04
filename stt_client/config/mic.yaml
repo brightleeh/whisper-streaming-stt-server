@@ -1,0 +1,12 @@
+server: "localhost:50051" # string, gRPC target in host:port format
+chunk_ms: 100 # int, chunk size in milliseconds
+sample_rate: 16000 # int, capture sample rate in Hz
+device: null # string, CoreAudio device name/index; null uses default mic
+metrics: false # bool, print capture duration and RTF on exit
+vad_mode: "continue" # string: "continue" | "auto"
+require_token: false # bool, request a session token for chunk validation
+language: "" # string, BCP-47 code; empty for auto-detect
+task: "transcribe" # string: "transcribe" | "translate"
+decode_profile: "realtime" # string: "realtime" | "accurate"
+vad_silence: null # float, trailing silence window in seconds; null uses server default
+vad_threshold: null # float, VAD probability threshold (0-1); null uses server default
