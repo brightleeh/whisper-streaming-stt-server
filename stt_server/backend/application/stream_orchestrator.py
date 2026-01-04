@@ -21,6 +21,7 @@ from stt_server.backend.component.decode_scheduler import (
 )
 from stt_server.backend.component.vad_gate import VADGate, buffer_is_speech
 from stt_server.config.languages import SupportedLanguages
+from stt_server.utils import audio
 from stt_server.utils.logger import LOGGER
 
 
@@ -138,6 +139,8 @@ class StreamOrchestrator:
         session_start = time.monotonic()
         vad_count = 0
         audio_recorder: Optional[SessionAudioRecorder] = None
+        audio_received_sec = 0.0
+        buffer_start_sec = 0.0
         try:
             session_state = self._session_facade.resolve_from_metadata(
                 metadata, context
@@ -204,7 +207,12 @@ class StreamOrchestrator:
                 if len(chunk.pcm16) > 0 or chunk.is_final:
                     last_activity = time.time()
 
+                if not buffer and chunk.pcm16:
+                    buffer_start_sec = audio_received_sec
                 buffer.extend(chunk.pcm16)
+                audio_received_sec += audio.chunk_duration_seconds(
+                    len(chunk.pcm16), sample_rate
+                )
                 vad_update = vad_state.update(chunk.pcm16, sample_rate)
 
                 if vad_update.triggered:
@@ -224,7 +232,6 @@ class StreamOrchestrator:
                     self._on_vad_trigger()
                     vad_count += 1
                     self._on_vad_utterance_start()
-                    offset_sec = time.monotonic() - session_start
                     session_info = session_state.session_info
                     is_final = session_info.vad_mode == stt_pb2.VAD_AUTO_END
                     decode_stream.schedule_decode(
@@ -232,7 +239,7 @@ class StreamOrchestrator:
                         sample_rate,
                         session_state.decode_options,
                         is_final,
-                        offset_sec,
+                        buffer_start_sec,
                         count_vad=True,
                     )
                     buffer = bytearray()
@@ -261,13 +268,12 @@ class StreamOrchestrator:
 
                 if chunk.is_final:
                     if buffer:
-                        offset_sec = time.monotonic() - session_start
                         decode_stream.schedule_decode(
                             bytes(buffer),
                             sample_rate,
                             session_state.decode_options,
                             True,
-                            offset_sec,
+                            buffer_start_sec,
                             count_vad=False,
                         )
                         buffer = bytearray()
@@ -290,13 +296,12 @@ class StreamOrchestrator:
                 if buffer and buffer_is_speech(
                     buffer, self._config.speech_rms_threshold
                 ):
-                    offset_sec = time.monotonic() - session_start
                     decode_stream.schedule_decode(
                         bytes(buffer),
                         sample_rate or self._config.default_sample_rate,
                         session_state.decode_options if session_state else {},
                         True,
-                        offset_sec,
+                        buffer_start_sec,
                         count_vad=False,
                     )
 
