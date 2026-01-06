@@ -1,6 +1,6 @@
 import threading
 from collections import defaultdict
-from typing import Dict
+from typing import Any, Dict
 
 import grpc
 
@@ -66,24 +66,21 @@ class Metrics:
         with self._lock:
             self._error_counts[status_code.name] += 1
 
-    def render(self) -> str:
+    def render(self) -> Dict[str, Any]:
         with self._lock:
-            lines = [
-                f"active_sessions {self._active_sessions}",
-                f"decode_latency_total {self._decode_total:.6f}",
-                f"decode_latency_count {self._decode_count}",
-                f"decode_latency_max {self._decode_max:.6f}",
-                f"rtf_total {self._rtf_total:.6f}",
-                f"rtf_count {self._rtf_count}",
-                f"rtf_max {self._rtf_max:.6f}",
-                f"vad_triggers_total {self._vad_triggers}",
-                f"active_vad_utterances {self._active_vad_utterances}",
-            ]
-            for api_key, count in self._api_key_sessions.items():
-                lines.append(f'active_sessions_by_api{{api_key="{api_key}"}} {count}')
-            for code, count in self._error_counts.items():
-                lines.append(f'error_count{{code="{code}"}} {count}')
-            return "\n".join(lines) + "\n"
+            return {
+                "active_sessions": self._active_sessions,
+                "decode_latency_total": self._decode_total,
+                "decode_latency_count": self._decode_count,
+                "decode_latency_max": self._decode_max,
+                "rtf_total": self._rtf_total,
+                "rtf_count": self._rtf_count,
+                "rtf_max": self._rtf_max,
+                "vad_triggers_total": self._vad_triggers,
+                "active_vad_utterances": self._active_vad_utterances,
+                "active_sessions_by_api": dict(self._api_key_sessions),
+                "error_counts": dict(self._error_counts),
+            }
 
     def snapshot(self) -> Dict[str, float]:
         with self._lock:

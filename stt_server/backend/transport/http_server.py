@@ -18,7 +18,7 @@ def start_http_server(
 
     @app.get("/metrics")
     def metrics_endpoint() -> Response:
-        return Response(content=metrics.render(), media_type="text/plain")
+        return JSONResponse(metrics.render(), status_code=200)
 
     @app.get("/health")
     def health_endpoint() -> JSONResponse:
