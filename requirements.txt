@@ -11,3 +11,5 @@ uvicorn
 mypy-protobuf
 torch
 silero-vad
+requests
+pytest
