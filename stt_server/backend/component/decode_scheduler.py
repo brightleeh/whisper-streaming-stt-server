@@ -156,6 +156,7 @@ class DecodeStream:
 
     def emit_ready(self, block: bool) -> Iterable[stt_pb2.STTResult]:
         ready: List[Tuple[futures.Future, bool, float, bool]] = []
+
         still_pending: List[Tuple[futures.Future, bool, float, bool]] = []
         for future, is_final, offset_sec, count_vad in self.pending_results:
             if future.done():
@@ -176,11 +177,7 @@ class DecodeStream:
                 return_when=futures.FIRST_COMPLETED,
             )
             if not done:
-                LOGGER.error(
-                    "ERR2001 Decode timeout after %.2fs; %d tasks pending",
-                    wait_timeout or 0.0,
-                    len(self.pending_results),
-                )
+                raise TimeoutError(f"ERR2001 Decode timeout after {wait_timeout}s")
             else:
                 remaining: List[Tuple[futures.Future, bool, float, bool]] = []
                 for future, is_final, offset_sec, count_vad in self.pending_results:
@@ -193,13 +190,9 @@ class DecodeStream:
         for future, is_final, offset_sec, count_vad in ready:
             try:
                 result = future.result()
-            except Exception:  # pragma: no cover - defensive logging
-                LOGGER.exception("ERR2002 Decode task failed (final=%s)", is_final)
-                self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
-                if count_vad:
-                    self.scheduler._on_vad_utterance_end()
-                self.scheduler._decrement_pending()
-                continue
+            except Exception as e:
+                raise RuntimeError(f"ERR2002 Decode task failed: {e}") from e
+
             if not is_final and self.pending_partials > 0:
                 self.pending_partials -= 1
             if result.latency_sec >= 0:

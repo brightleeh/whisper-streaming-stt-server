@@ -204,6 +204,7 @@ class StreamOrchestrator:
                     session_state = self._session_facade.ensure_session_from_chunk(
                         session_state, chunk, context
                     )
+
                 if session_state and decode_stream:
                     decode_stream.set_session_id(session_state.session_id)
                 if session_state and not session_logged:
