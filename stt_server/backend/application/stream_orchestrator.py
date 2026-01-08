@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -141,7 +142,24 @@ class StreamOrchestrator:
         audio_recorder: Optional[SessionAudioRecorder] = None
         audio_received_sec = 0.0
         buffer_start_sec = 0.0
+
+        timeout_timer: Optional[threading.Timer] = None
+        timeout_occurred = threading.Event()
+
+        def abort_on_timeout():
+            timeout_occurred.set()
+            LOGGER.error("ERR1006 Session timeout due to inactivity.")
+            context.abort(
+                grpc.StatusCode.DEADLINE_EXCEEDED,
+                "ERR1006 Session timeout due to inactivity.",
+            )
+
         try:
+            timeout_timer = threading.Timer(
+                self._config.session_timeout_sec, abort_on_timeout
+            )
+            timeout_timer.start()
+
             session_state = self._session_facade.resolve_from_metadata(
                 metadata, context
             )
@@ -154,9 +172,15 @@ class StreamOrchestrator:
 
             buffer = bytearray()
             sample_rate: Optional[int] = None
-            last_activity = time.time()
 
             for chunk in request_iterator:
+                if timeout_timer:
+                    timeout_timer.cancel()
+                timeout_timer = threading.Timer(
+                    self._config.session_timeout_sec, abort_on_timeout
+                )
+                timeout_timer.start()
+
                 current_session_id = session_state.session_id if session_state else None
                 if not context.is_active():
                     LOGGER.info(
@@ -204,8 +228,6 @@ class StreamOrchestrator:
                     sample_rate,
                     chunk.pcm16,
                 )
-                if len(chunk.pcm16) > 0 or chunk.is_final:
-                    last_activity = time.time()
 
                 if not buffer and chunk.pcm16:
                     buffer_start_sec = audio_received_sec
@@ -283,15 +305,6 @@ class StreamOrchestrator:
                     final_reason = "client_sent_final_chunk"
                     break
 
-                if time.time() - last_activity > self._config.session_timeout_sec:
-                    final_reason = "timeout"
-                    self._session_facade.remove_session(session_state, reason="timeout")
-                    LOGGER.error("ERR1006 Session timeout (no audio)")
-                    context.abort(
-                        grpc.StatusCode.DEADLINE_EXCEEDED,
-                        "ERR1006 Session timeout (no audio)",
-                    )
-
             if decode_stream:
                 if buffer and buffer_is_speech(
                     buffer, self._config.speech_rms_threshold
@@ -319,6 +332,12 @@ class StreamOrchestrator:
                         yield result
 
         finally:
+            if timeout_timer:
+                timeout_timer.cancel()
+
+            if timeout_occurred.is_set():
+                final_reason = "timeout"
+
             if audio_recorder and self._audio_storage:
                 self._audio_storage.finalize_recording(audio_recorder, final_reason)
             if session_state:
