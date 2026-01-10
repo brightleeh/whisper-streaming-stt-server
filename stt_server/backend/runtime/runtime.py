@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from stt_server.backend.application.metrics import Metrics
+from stt_server.backend.application.model_registry import ModelRegistry
 from stt_server.backend.application.session_registry import (
     CreateSessionHandler,
     SessionFacade,
@@ -19,7 +19,9 @@ from stt_server.backend.application.stream_orchestrator import (
 )
 from stt_server.backend.component.decode_scheduler import DecodeSchedulerHooks
 from stt_server.backend.runtime.config import ServicerConfig
+from stt_server.backend.runtime.metrics import Metrics
 from stt_server.backend.utils.profile_resolver import normalize_decode_profiles
+from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
 from stt_server.utils.logger import LOGGER
 
@@ -30,9 +32,8 @@ class ApplicationRuntime:
     def __init__(
         self,
         config: ServicerConfig,
-        metrics: Optional[Metrics] = None,
     ) -> None:
-        self.metrics = metrics or Metrics()
+        self.metrics = Metrics()
         self.config = config
         model_config = self.config.model
         streaming_config = self.config.streaming
@@ -53,8 +54,7 @@ class ApplicationRuntime:
             default_profile = "realtime"
         self.default_decode_profile = default_profile
 
-        language_hint_cycle = self._build_language_cycle()
-        pool_size = max(model_config.model_pool_size, 1)
+        self.model_registry = ModelRegistry()
 
         session_hooks = SessionRegistryHooks(
             on_create=self._on_session_created,
@@ -64,6 +64,7 @@ class ApplicationRuntime:
         self.session_facade = SessionFacade(self.session_registry)
         self.create_session_handler = CreateSessionHandler(
             session_registry=self.session_registry,
+            model_registry=self.model_registry,
             decode_profiles=self.decode_profiles,
             default_decode_profile=self.default_decode_profile,
             default_language=self.default_language,
@@ -80,13 +81,6 @@ class ApplicationRuntime:
             speech_rms_threshold=streaming_config.speech_rms_threshold,
             session_timeout_sec=streaming_config.session_timeout_sec,
             default_sample_rate=streaming_config.sample_rate,
-            model_size=model_config.model_size,
-            device=model_config.device,
-            compute_type=model_config.compute_type,
-            language_cycle=language_hint_cycle,
-            pool_size=pool_size,
-            task=self.default_task,
-            log_metrics=model_config.log_metrics,
             decode_timeout_sec=streaming_config.decode_timeout_sec,
             language_lookup=self.supported_languages,
             storage_enabled=storage_config.enabled,
@@ -108,10 +102,23 @@ class ApplicationRuntime:
         )
         self.stream_orchestrator = StreamOrchestrator(
             session_facade=self.session_facade,
+            model_registry=self.model_registry,
             config=orchestrator_config,
             hooks=stream_hooks,
         )
         self.decode_scheduler = self.stream_orchestrator.decode_scheduler
+
+        default_model_config = {
+            "name": model_config.model_size,
+            "model_size": model_config.model_size,
+            "device": model_config.device,
+            "compute_type": model_config.compute_type,
+            "pool_size": max(model_config.model_pool_size, 1),
+            "language": self.default_language if self.language_fix else None,
+            "log_metrics": model_config.log_metrics,
+            "task": self.default_task,
+        }
+        self.stream_orchestrator.load_model(DEFAULT_MODEL_ID, default_model_config)
 
     def _build_language_cycle(self) -> list[Optional[str]]:
         if self.language_fix and self.default_language:

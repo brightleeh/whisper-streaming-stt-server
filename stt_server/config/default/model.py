@@ -2,6 +2,7 @@
 
 from typing import Any, Dict
 
+DEFAULT_MODEL_ID = "default"
 DEFAULT_MODEL_NAME = "small"
 DEFAULT_DEVICE = "cpu"
 DEFAULT_COMPUTE_TYPE = "int8"
@@ -41,6 +42,7 @@ MODEL_SECTION_MAP = {
 
 
 __all__ = [
+    "DEFAULT_MODEL_ID",
     "DEFAULT_MODEL_NAME",
     "DEFAULT_DEVICE",
     "DEFAULT_COMPUTE_TYPE",

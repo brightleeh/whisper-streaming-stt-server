@@ -5,7 +5,6 @@ from pathlib import Path
 import grpc
 
 from gen.stt.python.v1 import stt_pb2_grpc
-from stt_server.backend.application.metrics import Metrics
 from stt_server.backend.transport import (
     ModelRuntimeConfig,
     ServicerConfig,
@@ -25,7 +24,6 @@ from stt_server.utils.logger import LOGGER, configure_logging
 
 def serve(config: ServerConfig) -> None:
     """Launch gRPC + HTTP observability servers."""
-    metrics = Metrics()
     server_state = {"grpc_running": False}
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=config.max_sessions))
     model_cfg = ModelRuntimeConfig(
@@ -58,17 +56,12 @@ def serve(config: ServerConfig) -> None:
     servicer_config = ServicerConfig(
         model=model_cfg, streaming=streaming_cfg, storage=storage_cfg
     )
-    servicer = STTGrpcServicer(
-        config=servicer_config,
-        metrics=metrics,
-        error_recorder=metrics.record_error,
-    )
+    servicer = STTGrpcServicer(servicer_config)
     stt_pb2_grpc.add_STTBackendServicer_to_server(servicer, server)  # type: ignore[name-defined]
     server.add_insecure_port(f"[::]:{config.port}")
     start_http_server(
-        metrics,
-        servicer.runtime.health_snapshot,
-        server_state,
+        runtime=servicer.runtime,
+        server_state=server_state,
         host="0.0.0.0",
         port=config.metrics_port,
     )

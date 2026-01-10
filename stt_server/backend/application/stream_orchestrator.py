@@ -4,11 +4,12 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, Iterator, Optional
+from typing import Any, Callable, Dict, Iterable, Iterator, Optional
 
 import grpc
 
 from gen.stt.python.v1 import stt_pb2
+from stt_server.backend.application.model_registry import ModelRegistry
 from stt_server.backend.application.session_registry import SessionFacade, SessionState
 from stt_server.backend.component.audio_storage import (
     AudioStorageConfig,
@@ -28,20 +29,16 @@ from stt_server.utils.logger import LOGGER
 
 @dataclass(frozen=True)
 class StreamOrchestratorConfig:
+    # Streaming control settings
     vad_threshold: float
     vad_silence: float
     speech_rms_threshold: float
     session_timeout_sec: float
     default_sample_rate: int
-    model_size: str
-    device: str
-    compute_type: str
-    language_cycle: list[Optional[str]]
-    pool_size: int
-    task: str
-    log_metrics: bool
     decode_timeout_sec: float
     language_lookup: SupportedLanguages
+
+    # Audio storage settings
     storage_enabled: bool
     storage_directory: str
     storage_max_bytes: Optional[int]
@@ -71,13 +68,17 @@ class StreamOrchestrator:
     def __init__(
         self,
         session_facade: SessionFacade,
+        model_registry: ModelRegistry,
         config: StreamOrchestratorConfig,
         hooks: StreamOrchestratorHooks | None = None,
     ) -> None:
         self._session_facade = session_facade
+        self._model_registry = model_registry
         self._config = config
         self._hooks = hooks or StreamOrchestratorHooks()
-        self._decode_scheduler = self._create_decode_scheduler(config)
+        self._decode_scheduler = self._create_decode_scheduler(
+            config, self._model_registry
+        )
         self._audio_storage: Optional[AudioStorageManager] = None
         if config.storage_enabled:
             storage_directory = Path(config.storage_directory).expanduser()
@@ -101,17 +102,14 @@ class StreamOrchestrator:
     def decode_scheduler(self) -> DecodeScheduler:
         return self._decode_scheduler
 
+    def load_model(self, model_id: str, config: Dict[str, Any]) -> None:
+        self._model_registry.load_model(model_id, config)
+
     def _create_decode_scheduler(
-        self, config: StreamOrchestratorConfig
+        self, config: StreamOrchestratorConfig, registry: ModelRegistry
     ) -> DecodeScheduler:
         return DecodeScheduler(
-            model_size=config.model_size,
-            device=config.device,
-            compute_type=config.compute_type,
-            language_cycle=config.language_cycle,
-            pool_size=config.pool_size,
-            task=config.task,
-            log_metrics=config.log_metrics,
+            registry=registry,
             decode_timeout_sec=config.decode_timeout_sec,
             language_lookup=config.language_lookup,
             hooks=self._hooks.decode_hooks,
@@ -169,6 +167,7 @@ class StreamOrchestrator:
             decode_stream = self._decode_scheduler.new_stream()
             if session_state and decode_stream:
                 decode_stream.set_session_id(session_state.session_id)
+                decode_stream.set_model_id(session_state.session_info.model_id)
 
             buffer = bytearray()
             sample_rate: Optional[int] = None
@@ -397,11 +396,12 @@ class StreamOrchestrator:
     def _log_session_start(self, state: SessionState) -> bool:
         info = state.session_info
         LOGGER.info(
-            "Streaming started for session_id=%s vad_mode=%s decode_profile=%s vad_silence=%.3f vad_threshold=%.4f",
+            "Streaming started for session_id=%s vad_mode=%s decode_profile=%s vad_silence=%.3f vad_threshold=%.4f model_id=%s",
             state.session_id,
             "AUTO_END" if info.vad_mode == stt_pb2.VAD_AUTO_END else "CONTINUE",
             info.decode_profile,
             info.vad_silence,
             info.vad_threshold,
+            info.model_id,
         )
         return True

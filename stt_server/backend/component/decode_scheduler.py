@@ -10,6 +10,8 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 import grpc
 
 from gen.stt.python.v1 import stt_pb2
+from stt_server.backend.application.model_registry import ModelRegistry
+from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
 from stt_server.model.worker import ModelWorker
 from stt_server.utils.logger import LOGGER
@@ -39,13 +41,7 @@ class DecodeScheduler:
 
     def __init__(
         self,
-        model_size: str,
-        device: str,
-        compute_type: str,
-        language_cycle: List[Optional[str]],
-        pool_size: int,
-        task: str,
-        log_metrics: bool,
+        registry: ModelRegistry,
         decode_timeout_sec: float,
         language_lookup: SupportedLanguages,
         hooks: DecodeSchedulerHooks | None = None,
@@ -53,38 +49,23 @@ class DecodeScheduler:
         self._hooks = hooks or DecodeSchedulerHooks()
         self.decode_timeout_sec = decode_timeout_sec
         self.language_lookup = language_lookup
-        self.model_pool: List[ModelWorker] = []
+        self.registry = registry
         self._pending_lock = threading.Lock()
         self._pending_tasks = 0
-        for idx in range(pool_size):
-            lang = language_cycle[idx % len(language_cycle)] if language_cycle else None
-            base_options: Dict[str, Any] = {"task": task}
-            if lang:
-                base_options["language"] = lang
-            self.model_pool.append(
-                ModelWorker(
-                    model_size=model_size,
-                    device=device,
-                    compute_type=compute_type,
-                    language=lang,
-                    log_metrics=log_metrics,
-                    base_options=base_options,
-                )
-            )
         self._next_worker = 0
-        self._worker_lock = threading.Lock()
 
     def new_stream(self) -> "DecodeStream":
         return DecodeStream(self)
 
-    def _acquire_worker(self) -> ModelWorker:
-        with self._worker_lock:
-            worker = self.model_pool[self._next_worker]
-            self._next_worker = (self._next_worker + 1) % len(self.model_pool)
-            return worker
+    def _acquire_worker(self, model_id: str) -> ModelWorker:
+        worker = self.registry.get_worker(model_id)
+        if not worker:
+            # Registry handles default fallback internally, but raise exception if even default is missing
+            raise RuntimeError(f"No worker available for model_id='{model_id}'")
+        return worker
 
     def workers_healthy(self) -> bool:
-        return all(not worker.executor._shutdown for worker in self.model_pool)
+        return True
 
     def pending_decodes(self) -> int:
         with self._pending_lock:
@@ -117,9 +98,13 @@ class DecodeStream:
         self.pending_results: List[Tuple[futures.Future, bool, float, bool]] = []
         self.pending_partials = 0
         self.session_id: Optional[str] = None
+        self.model_id: str = DEFAULT_MODEL_ID
 
     def set_session_id(self, session_id: Optional[str]) -> None:
         self.session_id = session_id
+
+    def set_model_id(self, model_id: str) -> None:
+        self.model_id = model_id
 
     def schedule_decode(
         self,
@@ -133,19 +118,20 @@ class DecodeStream:
         if not pcm:
             LOGGER.debug("Skip decode for empty buffer (final=%s)", is_final)
             return
-        worker = self.scheduler._acquire_worker()
+        worker = self.scheduler._acquire_worker(self.model_id)
         future = worker.submit(pcm, sample_rate, decode_options)
         self.scheduler._increment_pending()
         self.pending_results.append((future, is_final, offset_sec, count_vad))
         if not is_final:
             self.pending_partials += 1
-        LOGGER.debug(
-            "Scheduled decode session_id=%s bytes=%d final=%s pending=%d offset=%.2f",
+        LOGGER.info(
+            "Scheduled decode session_id=%s bytes=%d final=%s pending=%d offset=%.2f, model_id=%s",
             self.session_id or "unknown",
             len(pcm),
             is_final,
             len(self.pending_results),
             offset_sec,
+            self.model_id,
         )
 
     def pending_partial_decodes(self) -> int:

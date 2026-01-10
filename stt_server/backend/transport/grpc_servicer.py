@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Iterable
+from typing import Iterable
 
 import grpc
 
@@ -17,11 +17,9 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
     def __init__(
         self,
         config: ServicerConfig,
-        metrics: Any = None,
-        error_recorder: Callable[[grpc.StatusCode], None] | None = None,
     ) -> None:
-        self.runtime = ApplicationRuntime(config, metrics)
-        self._error_recorder = error_recorder or self.runtime.metrics.record_error
+        self.runtime = ApplicationRuntime(config)
+        self._error_recorder = self.runtime.metrics.record_error
         self.create_session_handler = self.runtime.create_session_handler
         self.stream_orchestrator = self.runtime.stream_orchestrator
         self.decode_scheduler = self.runtime.decode_scheduler

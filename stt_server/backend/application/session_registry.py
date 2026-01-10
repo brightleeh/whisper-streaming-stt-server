@@ -10,6 +10,7 @@ from typing import Any, Callable, Dict, Optional
 import grpc
 
 from gen.stt.python.v1 import stt_pb2
+from stt_server.backend.application.model_registry import ModelRegistry
 from stt_server.backend.utils.profile_resolver import (
     profile_enum_from_name,
     profile_name_from_enum,
@@ -18,6 +19,7 @@ from stt_server.backend.utils.profile_resolver import (
     resolve_task,
     task_enum_from_name,
 )
+from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
 from stt_server.utils.logger import LOGGER
 
@@ -35,6 +37,7 @@ class SessionInfo:
     decode_options: Dict[str, Any]
     language_code: str
     task: str
+    model_id: str = DEFAULT_MODEL_ID
 
 
 def _noop_session_hook(_: "SessionInfo") -> None:
@@ -187,6 +190,7 @@ class CreateSessionHandler:
     def __init__(
         self,
         session_registry: SessionRegistry,
+        model_registry: ModelRegistry,
         decode_profiles: Dict[str, Dict[str, Any]],
         default_decode_profile: str,
         default_language: str,
@@ -197,6 +201,7 @@ class CreateSessionHandler:
         default_vad_threshold: float,
     ) -> None:
         self._session_registry = session_registry
+        self._model_registry = model_registry
         self._decode_profiles = decode_profiles
         self._default_decode_profile = default_decode_profile
         self._default_language = default_language
@@ -246,6 +251,13 @@ class CreateSessionHandler:
         )
         session_task = resolve_task(request.task, self._default_task)
 
+        model_id = (
+            request.attributes.get("model_id")
+            or request.attributes.get("model")
+            or self._model_registry.get_next_model_id()
+            or DEFAULT_MODEL_ID
+        )
+
         options = profile_options.copy()
         if session_task:
             options["task"] = session_task
@@ -266,6 +278,7 @@ class CreateSessionHandler:
             decode_options=options,
             language_code=language_code,
             task=session_task,
+            model_id=model_id,
         )
         try:
             self._session_registry.create_session(session_id, session_info)
@@ -282,7 +295,7 @@ class CreateSessionHandler:
             response_attributes["language_code"] = language_code
 
         LOGGER.info(
-            "Created session_id=%s vad_mode=%s token_required=%s decode_profile=%s language=%s task=%s vad_silence=%.3f vad_threshold=%.4f attributes=%s",
+            "Created session_id=%s vad_mode=%s token_required=%s decode_profile=%s language=%s task=%s vad_silence=%.3f vad_threshold=%.4f attributes=%s model_id=%s",
             session_id,
             "AUTO_END" if vad_mode == stt_pb2.VAD_AUTO_END else "CONTINUE",
             token_required,
@@ -292,6 +305,7 @@ class CreateSessionHandler:
             vad_silence,
             vad_threshold,
             dict(request.attributes),
+            model_id,
         )
 
         return stt_pb2.SessionResponse(

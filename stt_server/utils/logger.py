@@ -28,7 +28,9 @@ def configure_logging(level: str, log_file: Optional[str]) -> None:
     if level.upper() == "TRACE":
         numeric_level = TRACE_LEVEL_NUM
 
-    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+    formatter = logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(name)s [%(filename)s:%(lineno)d]: %(message)s"
+    )
 
     handlers: List[logging.Handler] = []
     stream_handler = logging.StreamHandler()
