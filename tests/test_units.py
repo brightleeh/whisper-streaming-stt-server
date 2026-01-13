@@ -46,10 +46,16 @@ def mock_session_registry():
 
 @pytest.fixture
 def create_session_handler(mock_session_registry):
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    mock_model_registry.load_model.return_value = None
+
     supported_languages = MagicMock()
     supported_languages.is_supported.return_value = True
+
     return CreateSessionHandler(
         session_registry=mock_session_registry,
+        model_registry=mock_model_registry,
         decode_profiles={"default": {}},
         default_decode_profile="default",
         default_language="en",
