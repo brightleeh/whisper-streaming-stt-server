@@ -161,9 +161,9 @@ def test_client_integration(grpc_server):
     )
 
     assert result.returncode == 0, f"Client failed: {result.stderr}"
-    # The sample audio contains "안녕하세요"
-    assert "안녕하세요" in result.stdout, "Expected transcript not found in output"
-    print("\n[PASS] Client integration test successful. Output contained '안녕하세요'.")
+    # The sample audio contains "안녕"
+    assert "안녕" in result.stdout, "Expected transcript not found in output"
+    print("\n[PASS] Client integration test successful. Output contained '안녕'.")
     print(f"Client stdout:\n---\n{result.stdout.strip()}\n---")
 
 

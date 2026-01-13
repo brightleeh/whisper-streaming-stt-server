@@ -10,35 +10,18 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.10"] # Recommended 3.10 as Dockerfile is based on Ubuntu 22.04
+
+    container:
+      image: ghcr.io/${{ github.repository }}-test:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      options: --user 1001
 
     steps:
       - uses: actions/checkout@v4
 
-      # 1. Install System Dependencies (Reference: Dockerfile)
-      # ffmpeg, pkg-config, etc. are required for faster-whisper/PyAV.
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg libsndfile1 pkg-config libavformat-dev libavcodec-dev libavdevice-dev
-
-      # 2. Set up Python
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-          cache: "pip" # Cache pip packages for speed
-
-      # 3. Install Python Dependencies
-      - name: Install Python Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          pip install pytest pytest-asyncio requests mypy-protobuf  # Add packages for testing and stub generation
-
-      # 4. Generate Protobuf/gRPC Stubs (Critical!)
+      # 1. Generate Protobuf/gRPC Stubs
       # Without this step, import errors will occur due to missing generated code.
       - name: Generate gRPC Stubs
         run: |
@@ -56,7 +39,7 @@ jobs:
             --mypy_out=./gen/stt/python/v1 \
             proto/stt.proto
 
-      # 5. Run Tests
+      # 2. Run Tests
       # Set PYTHONPATH to current directory (.) to locate stt_server and gen packages.
       - name: Run Tests
         env:
