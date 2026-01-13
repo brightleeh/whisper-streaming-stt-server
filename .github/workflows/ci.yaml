@@ -32,7 +32,7 @@ jobs:
           touch gen/stt/python/v1/__init__.py
 
           # Execute command as specified in README.md
-          python -m grpc_tools.protoc \
+          python3 -m grpc_tools.protoc \
             -I proto \
             --python_out=gen/stt/python/v1 \
             --grpc_python_out=gen/stt/python/v1 \
