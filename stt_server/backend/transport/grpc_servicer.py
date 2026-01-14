@@ -19,11 +19,6 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
         config: ServicerConfig,
     ) -> None:
         self.runtime = ApplicationRuntime(config)
-        self._error_recorder = self.runtime.metrics.record_error
-        self.create_session_handler = self.runtime.create_session_handler
-        self.stream_orchestrator = self.runtime.stream_orchestrator
-        self.decode_scheduler = self.runtime.decode_scheduler
-        self.session_registry = self.runtime.session_registry
 
     # ------------------------------------------------------------------
     # gRPC methods
@@ -32,7 +27,7 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
     ) -> stt_pb2.SessionResponse:
         try:
-            return self.create_session_handler.handle(request, context)
+            return self.runtime.create_session_handler.handle(request, context)
         except grpc.RpcError as exc:
             self._record_error(exc.code())
             raise
@@ -47,7 +42,7 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
         context: grpc.ServicerContext,
     ) -> Iterable[stt_pb2.STTResult]:
         try:
-            yield from self.stream_orchestrator.run(request_iterator, context)
+            yield from self.runtime.stream_orchestrator.run(request_iterator, context)
         except grpc.RpcError as exc:
             self._record_error(exc.code())
             raise
@@ -72,4 +67,4 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
             raise
 
     def _record_error(self, status_code: grpc.StatusCode) -> None:
-        self._error_recorder(status_code)
+        self.runtime.metrics.record_error(status_code)

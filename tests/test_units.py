@@ -142,7 +142,9 @@ def test_err1005_invalid_token(session_facade, mock_servicer_context):
 def test_err2001_decode_timeout(servicer, mock_servicer_context):
     """Unit test for ERR2001: Decode timeout."""
     # Simulate TimeoutError from stream_orchestrator
-    servicer.stream_orchestrator.run.side_effect = TimeoutError("Simulated timeout")
+    servicer.runtime.stream_orchestrator.run.side_effect = TimeoutError(
+        "Simulated timeout"
+    )
 
     with pytest.raises(grpc.RpcError):
         list(servicer.StreamingRecognize(iter([]), mock_servicer_context))
@@ -180,7 +182,7 @@ def test_decode_stream_logic_err2001_timeout():
 def test_err2002_decode_failed(servicer, mock_servicer_context):
     """Unit test for ERR2002: Decode task failed."""
     # Simulate generic Exception with specific message from stream_orchestrator
-    servicer.stream_orchestrator.run.side_effect = RuntimeError(
+    servicer.runtime.stream_orchestrator.run.side_effect = RuntimeError(
         "Something went wrong: Decode task failed"
     )
 
@@ -213,7 +215,9 @@ def test_decode_stream_logic_err2002_task_failed():
 def test_err3001_unexpected_create_session(servicer, mock_servicer_context, caplog):
     """Unit test for ERR3001: Unexpected CreateSession error."""
     # Simulate unexpected exception from create_session_handler
-    servicer.create_session_handler.handle.side_effect = RuntimeError("Unexpected boom")
+    servicer.runtime.create_session_handler.handle.side_effect = RuntimeError(
+        "Unexpected boom"
+    )
     request = stt_pb2.SessionRequest(session_id="test")
 
     with pytest.raises(
@@ -222,7 +226,7 @@ def test_err3001_unexpected_create_session(servicer, mock_servicer_context, capl
         servicer.CreateSession(request, mock_servicer_context)
 
     # Verify it recorded the error as UNKNOWN
-    servicer._error_recorder.assert_called_with(grpc.StatusCode.UNKNOWN)
+    servicer.runtime.metrics.record_error.assert_called_with(grpc.StatusCode.UNKNOWN)
     # Verify it logged the error code
     assert "ERR3001" in caplog.text
 
@@ -230,7 +234,7 @@ def test_err3001_unexpected_create_session(servicer, mock_servicer_context, capl
 def test_err3002_unexpected_streaming_error(servicer, mock_servicer_context, caplog):
     """Unit test for ERR3002: Unexpected StreamingRecognize error."""
     # Simulate generic unexpected exception
-    servicer.stream_orchestrator.run.side_effect = RuntimeError(
+    servicer.runtime.stream_orchestrator.run.side_effect = RuntimeError(
         "Unexpected streaming boom"
     )
 
@@ -238,6 +242,6 @@ def test_err3002_unexpected_streaming_error(servicer, mock_servicer_context, cap
         list(servicer.StreamingRecognize(iter([]), mock_servicer_context))
 
     # Verify it recorded the error as UNKNOWN
-    servicer._error_recorder.assert_called_with(grpc.StatusCode.UNKNOWN)
+    servicer.runtime.metrics.record_error.assert_called_with(grpc.StatusCode.UNKNOWN)
     # Verify it logged the error code
     assert "ERR3002" in caplog.text

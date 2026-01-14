@@ -5,16 +5,17 @@ from __future__ import annotations
 import threading
 from concurrent import futures
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 import grpc
 
 from gen.stt.python.v1 import stt_pb2
-from stt_server.backend.application.model_registry import ModelRegistry
 from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
-from stt_server.model.worker import ModelWorker
 from stt_server.utils.logger import LOGGER
+
+if TYPE_CHECKING:
+    from stt_server.backend.application.stream_orchestrator import StreamOrchestrator
 
 
 def _noop() -> None:
@@ -41,28 +42,21 @@ class DecodeScheduler:
 
     def __init__(
         self,
-        registry: ModelRegistry,
+        stream_orchestrator: StreamOrchestrator,
         decode_timeout_sec: float,
         language_lookup: SupportedLanguages,
         hooks: DecodeSchedulerHooks | None = None,
     ) -> None:
         self._hooks = hooks or DecodeSchedulerHooks()
+        self.stream_orchestrator = stream_orchestrator
         self.decode_timeout_sec = decode_timeout_sec
         self.language_lookup = language_lookup
-        self.registry = registry
         self._pending_lock = threading.Lock()
         self._pending_tasks = 0
         self._next_worker = 0
 
     def new_stream(self) -> "DecodeStream":
         return DecodeStream(self)
-
-    def _acquire_worker(self, model_id: str) -> ModelWorker:
-        worker = self.registry.get_worker(model_id)
-        if not worker:
-            # Registry handles default fallback internally, but raise exception if even default is missing
-            raise RuntimeError(f"No worker available for model_id='{model_id}'")
-        return worker
 
     def workers_healthy(self) -> bool:
         return True
@@ -118,7 +112,8 @@ class DecodeStream:
         if not pcm:
             LOGGER.debug("Skip decode for empty buffer (final=%s)", is_final)
             return
-        worker = self.scheduler._acquire_worker(self.model_id)
+
+        worker = self.scheduler.stream_orchestrator.acquire_worker(self.model_id)
         future = worker.submit(pcm, sample_rate, decode_options)
         self.scheduler._increment_pending()
         self.pending_results.append((future, is_final, offset_sec, count_vad))

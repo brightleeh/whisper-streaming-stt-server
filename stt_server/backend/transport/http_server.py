@@ -1,5 +1,5 @@
 import threading
-from typing import Any, Callable, Dict, Optional
+from typing import Dict, Optional
 
 import uvicorn
 from fastapi import FastAPI, Response
@@ -35,7 +35,7 @@ def start_http_server(
     app = FastAPI()
 
     metrics = runtime.metrics
-    model_registry = runtime.stream_orchestrator.decode_scheduler.registry
+    model_registry = runtime.model_registry
     health_snapshot = runtime.health_snapshot
 
     @app.get("/metrics")

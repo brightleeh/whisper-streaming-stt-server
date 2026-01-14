@@ -4,7 +4,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, Iterator, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, Optional
 
 import grpc
 
@@ -25,6 +25,9 @@ from stt_server.backend.component.vad_gate import VADGate, buffer_is_speech
 from stt_server.config.languages import SupportedLanguages
 from stt_server.utils import audio
 from stt_server.utils.logger import LOGGER
+
+if TYPE_CHECKING:
+    from stt_server.model.worker import ModelWorker
 
 
 @dataclass(frozen=True)
@@ -76,9 +79,7 @@ class StreamOrchestrator:
         self._model_registry = model_registry
         self._config = config
         self._hooks = hooks or StreamOrchestratorHooks()
-        self._decode_scheduler = self._create_decode_scheduler(
-            config, self._model_registry
-        )
+        self._decode_scheduler = self._create_decode_scheduler(config)
         self._audio_storage: Optional[AudioStorageManager] = None
         if config.storage_enabled:
             storage_directory = Path(config.storage_directory).expanduser()
@@ -105,11 +106,17 @@ class StreamOrchestrator:
     def load_model(self, model_id: str, config: Dict[str, Any]) -> None:
         self._model_registry.load_model(model_id, config)
 
+    def acquire_worker(self, model_id: str) -> ModelWorker:
+        worker = self._model_registry.get_worker(model_id)
+        if not worker:
+            raise RuntimeError(f"No worker available for model_id='{model_id}'")
+        return worker
+
     def _create_decode_scheduler(
-        self, config: StreamOrchestratorConfig, registry: ModelRegistry
+        self, config: StreamOrchestratorConfig
     ) -> DecodeScheduler:
         return DecodeScheduler(
-            registry=registry,
+            self,
             decode_timeout_sec=config.decode_timeout_sec,
             language_lookup=config.language_lookup,
             hooks=self._hooks.decode_hooks,

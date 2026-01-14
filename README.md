@@ -6,29 +6,32 @@ Whisper Streaming STT Server is a gRPC service that performs low-latency speech 
 
 The client opens a gRPC channel, calls `CreateSession` to obtain the resolved session settings, then uses the bidirectional `StreamingRecognize` stream to send PCM chunks and receive partial/final transcripts. The server resolves the session, gates audio with VAD, schedules decodes, and optionally persists audio; session teardown handles cleanup and retention.
 
-The gRPC servicer is the transport entrypoint and delegates both session creation and streaming audio to the runtime. The runtime wires the session registry and stream orchestrator, while the orchestrator drives VAD, decode scheduling, and optional audio storage. The HTTP server queries runtime health for `/health` and renders metrics output for `/metrics`.
+The gRPC servicer is the transport entrypoint and delegates both session creation and streaming audio to the runtime. The runtime wires the session registry and stream orchestrator, while the orchestrator drives VAD, decode scheduling, and optional audio storage. The HTTP server queries runtime health for `/health` and renders metrics output for `/metrics`. It also exposes an admin control plane for runtime model management (e.g., loading, unloading, and listing Whisper models without restarting the server).
 
 ```mermaid
 flowchart TD
   subgraph Client[Client]
     GrpcClient[gRPC Client]
     WebClient[Web Client]
+    Administrator[Administrator]
   end
 
   subgraph Backend[Backend]
     subgraph Transport[Transport]
       Servicer[gRPC Servicer]
-      Http[HTTP: health/metrics]
+      HttpClient[HTTP: health/metrics]
+      HttpAdmin[HTTP: admin]
     end
 
 		subgraph RuntimeWrap[Runtime]
 	    Runtime[Runtime]
+      Metrics[Metrics]
 	  end
 
     subgraph Application[Application]
-      Registry[SessionRegistry]
+      SessionRegistry[Session Registry]
+      ModelRegistry[Model Registry]
       Orchestrator[Stream Orchestrator]
-      Metrics[Metrics]
     end
 
     subgraph Components[Components]
@@ -37,27 +40,35 @@ flowchart TD
       Store[Audio Storage]
     end
 
-    Servicer -->|create session| Runtime
-    Runtime -->|session register/lookup| Registry
-    Servicer <-->|audio/results| Runtime
-    Runtime -->|start stream| Orchestrator
-    Http <-->|health check| Runtime
-    Http <-->|request/render| Metrics
-
-    Orchestrator -->|resolve session| Registry
-    Orchestrator <-->|check vad| VAD
-    Orchestrator <-->|schedule/decode| Decode
-    Orchestrator -->|store pcm| Store
-    Orchestrator -->|record events| Metrics
+    subgraph Model[Model]
+	    Worker[Worker]
+	  end
   end
 
-  subgraph Model[Model]
-    Worker[Worker]
-  end
+Administrator <-->|http| HttpAdmin
+HttpAdmin <-->|request/render| Runtime
+Runtime -->|assign| ModelRegistry
+ModelRegistry -->|load/unload model| Worker
 
-  Decode <-->|transcribe audio| Worker
-  GrpcClient <-->|gRPC stream| Servicer
-  WebClient <-->|http| Http
+WebClient <-->|http| HttpClient
+HttpClient <-->|request/render| Runtime
+
+GrpcClient <-->|gRPC unary| Servicer
+Servicer -->|create session| Runtime
+Runtime -->|register/lookup session| SessionRegistry
+SessionRegistry -->|resolve session| Orchestrator
+ModelRegistry <-->|request/assign model| SessionRegistry
+
+GrpcClient <-->|gRPC stream| Servicer
+Servicer -->|audio| Runtime
+Runtime -->|transcribe results| Servicer
+Runtime -->|start stream| Orchestrator
+Orchestrator <-->|check vad| VAD
+Orchestrator <-->|schedule/decode| Decode
+Orchestrator -->|store audio| Store
+Decode <-->|transcribe audio| Worker
+
+Runtime <-->|request/render| Metrics
 
 style Client fill:#f6f5f2,stroke:#c8c1b8,stroke-width:1px,color:#4b473f
 style Backend fill:#f1f4f7,stroke:#9aa6b2,stroke-width:1px,color:#2f3a44
@@ -65,6 +76,11 @@ style Application fill:#f2f6f3,stroke:#9db2a3,stroke-width:1px,color:#2f3f34
 style Components fill:#f4f2f7,stroke:#a7a0b5,stroke-width:1px,color:#3b3446
 style Transport fill:#f6f7f8,stroke:#b8c0c8,stroke-width:1px,color:#3a424a
 style RuntimeWrap fill:#f0f2f5,stroke:#8f9aa6,stroke-width:1px,color:#2f3740
+
+linkStyle 0,1,2,3 stroke:#3498db,stroke-width:1px;
+linkStyle 4,5 stroke:#f1c40f,stroke-width:1px;
+linkStyle 6,7,8,9,10 stroke:#2ecc71,stroke-width:1px;
+linkStyle 11,12,13,14,15,16,17,18 stroke:#e74c3c,stroke-width:1px;
 ```
 
 ## Setup
@@ -206,6 +222,24 @@ The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 
 - `GET /metrics`: plain-text counters/gauges (active sessions, API-key session counts, decode latency aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts) that can be scraped or converted to Prometheus format later.
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models are loaded, and worker pools are healthy; otherwise `500`.
+
+## Admin (Control Plane)
+
+The server provides an HTTP-based admin control plane for **runtime model management**.
+These endpoints allow operators to manage Whisper models without restarting the gRPC server.
+
+### Endpoints
+
+- `POST /admin/load_model`
+  Loads a Whisper model into the runtime. This can be used to pre-warm models or dynamically add new model variants.
+
+- `POST /admin/unload_model`
+  Unloads a previously loaded model to free CPU/GPU memory. Active sessions using the model must complete or fail gracefully.
+
+- `GET /admin/list_models`
+  Returns the list of currently loaded models and their runtime status.
+
+**Note:** Admin endpoints are intended for operator use only and should be protected or restricted in production environments.
 
 ## Assets
 
