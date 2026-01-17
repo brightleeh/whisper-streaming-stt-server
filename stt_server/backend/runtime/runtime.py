@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from stt_server.backend.application.model_registry import ModelRegistry
-from stt_server.backend.application.session_registry import (
+from stt_server.backend.application.session_manager import (
     CreateSessionHandler,
     SessionFacade,
     SessionInfo,

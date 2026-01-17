@@ -10,7 +10,7 @@ import pytest
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gen.stt.python.v1 import stt_pb2
-from stt_server.backend.application.session_registry import (
+from stt_server.backend.application.session_manager import (
     CreateSessionHandler,
     SessionFacade,
     SessionRegistry,

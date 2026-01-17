@@ -1,6 +1,6 @@
 """Application layer helpers for the STT server."""
 
-from .session_registry import (
+from .session_manager import (
     CreateSessionHandler,
     SessionFacade,
     SessionInfo,

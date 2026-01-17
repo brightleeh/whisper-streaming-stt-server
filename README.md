@@ -6,7 +6,7 @@ Whisper Streaming STT Server is a gRPC service that performs low-latency speech 
 
 The client opens a gRPC channel, calls `CreateSession` to obtain the resolved session settings, then uses the bidirectional `StreamingRecognize` stream to send PCM chunks and receive partial/final transcripts. The server resolves the session, gates audio with VAD, schedules decodes, and optionally persists audio; session teardown handles cleanup and retention.
 
-The gRPC servicer is the transport entrypoint and delegates both session creation and streaming audio to the runtime. The runtime wires the session registry and stream orchestrator, while the orchestrator drives VAD, decode scheduling, and optional audio storage. The HTTP server queries runtime health for `/health` and renders metrics output for `/metrics`. It also exposes an admin control plane for runtime model management (e.g., loading, unloading, and listing Whisper models without restarting the server).
+The gRPC servicer is the transport entrypoint and delegates both session creation and streaming audio to the runtime. The runtime wires the session manager, model registry, and stream orchestrator, while the orchestrator drives VAD, decode scheduling, and optional audio storage. The HTTP server queries runtime health for `/health` and renders metrics output for `/metrics`. It also exposes an admin control plane for runtime model management (e.g., loading, unloading, and listing Whisper models without restarting the server).
 
 ```mermaid
 flowchart TD
@@ -29,7 +29,7 @@ flowchart TD
 	  end
 
     subgraph Application[Application]
-      SessionRegistry[Session Registry]
+      SessionManager[Session Manager]
       ModelRegistry[Model Registry]
       Orchestrator[Stream Orchestrator]
     end
@@ -55,9 +55,9 @@ HttpClient <-->|request/render| Runtime
 
 GrpcClient <-->|gRPC unary| Servicer
 Servicer -->|create session| Runtime
-Runtime -->|register/lookup session| SessionRegistry
-SessionRegistry -->|resolve session| Orchestrator
-ModelRegistry <-->|request/assign model| SessionRegistry
+Runtime -->|register/lookup session| SessionManager
+SessionManager -->|resolve session| Orchestrator
+ModelRegistry <-->|request/assign model| SessionManager
 
 GrpcClient <-->|gRPC stream| Servicer
 Servicer -->|audio| Runtime

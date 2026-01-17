@@ -10,7 +10,7 @@ import grpc
 
 from gen.stt.python.v1 import stt_pb2
 from stt_server.backend.application.model_registry import ModelRegistry
-from stt_server.backend.application.session_registry import SessionFacade, SessionState
+from stt_server.backend.application.session_manager import SessionFacade, SessionState
 from stt_server.backend.component.audio_storage import (
     AudioStorageConfig,
     AudioStorageManager,
