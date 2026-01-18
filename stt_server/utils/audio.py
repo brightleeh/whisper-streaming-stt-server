@@ -1,5 +1,6 @@
-import librosa
 import numpy as np
+import torch
+import torchaudio
 
 
 def pcm16_to_float32(pcm_bytes):
@@ -11,7 +12,22 @@ def ensure_16k(audio, src_rate):
     """Resample input audio to Whisper's required 16 kHz when needed."""
     if src_rate == 16000:
         return audio
-    return librosa.resample(audio, orig_sr=src_rate, target_sr=16000)
+
+    # Numpy -> Torch Tensor (add channel dimension: [1, Time])
+    waveform = torch.from_numpy(audio).unsqueeze(0)
+
+    # Resample using torchaudio.functional.resample.
+    # We use lowpass_filter_width=6, which matches the default value in PyTorch.
+    # This provides an optimal trade-off between processing speed and anti-aliasing quality for speech tasks.
+    resampled_waveform = torchaudio.functional.resample(
+        waveform,
+        orig_freq=src_rate,
+        new_freq=16000,
+        lowpass_filter_width=6,
+    )
+
+    # Tensor -> Numpy (remove channel dimension)
+    return resampled_waveform.squeeze(0).numpy()
 
 
 def chunk_duration_seconds(byte_length: int, sample_rate: int) -> float:

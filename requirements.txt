@@ -3,7 +3,7 @@ grpcio
 grpcio-tools
 numpy
 soundfile
-librosa
+torchaudio
 pyyaml
 sounddevice
 fastapi
