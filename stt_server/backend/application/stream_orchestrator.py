@@ -148,23 +148,38 @@ class StreamOrchestrator:
         audio_received_sec = 0.0
         buffer_start_sec = 0.0
 
-        timeout_timer: Optional[threading.Timer] = None
-        timeout_occurred = threading.Event()
+        # Initialize Watchdog variables
+        last_activity = time.monotonic()
+        stop_watchdog = threading.Event()
+        timeout_occurred = False
 
-        def abort_on_timeout():
-            timeout_occurred.set()
-            LOGGER.error("ERR1006 Session timeout due to inactivity.")
-            context.abort(
-                grpc.StatusCode.DEADLINE_EXCEEDED,
-                "ERR1006 Session timeout due to inactivity.",
-            )
+        def watchdog_loop():
+            nonlocal timeout_occurred
+            while not stop_watchdog.is_set():
+                # Calculate time elapsed since last activity
+                elapsed = time.monotonic() - last_activity
+                remaining = self._config.session_timeout_sec - elapsed
+
+                if remaining <= 0:
+                    LOGGER.error("ERR1006 Session timeout due to inactivity.")
+                    timeout_occurred = True
+
+                    # Force abort as main thread might be blocked (I/O wait)
+                    context.abort(
+                        grpc.StatusCode.DEADLINE_EXCEEDED,
+                        "ERR1006 Session timeout due to inactivity.",
+                    )
+                    break
+
+                # Wait for remaining time (wake up immediately if stop signal received)
+                if stop_watchdog.wait(remaining):
+                    break
+
+        # Start Watchdog thread (run as daemon thread)
+        watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
+        watchdog_thread.start()
 
         try:
-            timeout_timer = threading.Timer(
-                self._config.session_timeout_sec, abort_on_timeout
-            )
-            timeout_timer.start()
-
             session_state = self._session_facade.resolve_from_metadata(
                 metadata, context
             )
@@ -180,12 +195,7 @@ class StreamOrchestrator:
             sample_rate: Optional[int] = None
 
             for chunk in request_iterator:
-                if timeout_timer:
-                    timeout_timer.cancel()
-                timeout_timer = threading.Timer(
-                    self._config.session_timeout_sec, abort_on_timeout
-                )
-                timeout_timer.start()
+                last_activity = time.monotonic()
 
                 current_session_id = session_state.session_id if session_state else None
                 if not context.is_active():
@@ -339,10 +349,10 @@ class StreamOrchestrator:
                         yield result
 
         finally:
-            if timeout_timer:
-                timeout_timer.cancel()
+            # Cleanup Watchdog thread on exit
+            stop_watchdog.set()
 
-            if timeout_occurred.is_set():
+            if timeout_occurred:
                 final_reason = "timeout"
 
             if audio_recorder and self._audio_storage:
