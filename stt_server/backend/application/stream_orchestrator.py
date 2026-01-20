@@ -151,23 +151,32 @@ class StreamOrchestrator:
         # Initialize Watchdog variables
         last_activity = time.monotonic()
         stop_watchdog = threading.Event()
-        timeout_occurred = False
+        timeout_event = threading.Event()
+        stream_finished = threading.Event()
 
         def watchdog_loop():
-            nonlocal timeout_occurred
             while not stop_watchdog.is_set():
                 # Calculate time elapsed since last activity
                 elapsed = time.monotonic() - last_activity
                 remaining = self._config.session_timeout_sec - elapsed
 
                 if remaining <= 0:
-                    LOGGER.error("ERR1006 Session timeout due to inactivity.")
-                    timeout_occurred = True
+                    # 1. Request graceful shutdown
+                    LOGGER.warning("Session timeout detected.")
+                    timeout_event.set()
 
-                    # Force abort as main thread might be blocked (I/O wait)
+                    # 2. Give the main thread time to clean up (0.5s)
+                    if stream_finished.wait(timeout=0.5):
+                        LOGGER.warning(" Requesting graceful shutdown...")
+                        return  # Main thread terminates itself
+
+                    # 3. Force abort as main thread might be blocked (I/O wait)
+                    LOGGER.error(
+                        "ERR1006 Session timeout due to inactivity (Force Abort)."
+                    )
                     context.abort(
                         grpc.StatusCode.DEADLINE_EXCEEDED,
-                        "ERR1006 Session timeout due to inactivity.",
+                        "ERR1006 Session timeout due to inactivity (Force Abort)",
                     )
                     break
 
@@ -195,6 +204,13 @@ class StreamOrchestrator:
             sample_rate: Optional[int] = None
 
             for chunk in request_iterator:
+                # Check for timeout signal at the start of the loop
+                if timeout_event.is_set():
+                    LOGGER.info("Stopping stream due to timeout signal.")
+                    final_reason = "timeout"
+                    break
+
+                # Update activity timestamp
                 last_activity = time.monotonic()
 
                 current_session_id = session_state.session_id if session_state else None
@@ -322,6 +338,7 @@ class StreamOrchestrator:
                     final_reason = "client_sent_final_chunk"
                     break
 
+            # Process remaining buffer after loop ends
             if decode_stream:
                 if buffer and buffer_is_speech(
                     buffer, self._config.speech_rms_threshold
@@ -348,11 +365,19 @@ class StreamOrchestrator:
                     for result in emitted:
                         yield result
 
+        except Exception as e:
+            # Handle errors occurring during force abort due to timeout
+            if timeout_event.is_set():
+                final_reason = "timeout"
+            else:
+                raise e
+
         finally:
-            # Cleanup Watchdog thread on exit
+            # Send termination signal (to prevent watchdog from unnecessary abort)
+            stream_finished.set()
             stop_watchdog.set()
 
-            if timeout_occurred:
+            if timeout_event.is_set():
                 final_reason = "timeout"
 
             if audio_recorder and self._audio_storage:
