@@ -15,7 +15,11 @@ from stt_server.backend.application.session_manager import (
     SessionFacade,
     SessionRegistry,
 )
-from stt_server.backend.component.decode_scheduler import DecodeScheduler, DecodeStream
+from stt_server.backend.component.decode_scheduler import (
+    DecodeScheduler,
+    DecodeSchedulerHooks,
+    DecodeStream,
+)
 from stt_server.backend.transport.grpc_servicer import STTGrpcServicer
 
 
@@ -157,7 +161,8 @@ def test_err2001_decode_timeout(servicer, mock_servicer_context):
 
 def test_decode_stream_logic_err2001_timeout():
     """Test that DecodeStream actually raises ERR2001 on timeout."""
-    scheduler = DecodeScheduler(MagicMock(), 0.01, MagicMock())
+    hooks = DecodeSchedulerHooks(on_error=MagicMock())
+    scheduler = DecodeScheduler(MagicMock(), 0.01, MagicMock(), hooks=hooks)
     stream = DecodeStream(scheduler)
 
     # Add a fake pending future
@@ -178,6 +183,7 @@ def test_decode_stream_logic_err2001_timeout():
             list(stream.emit_ready(block=True))
 
     assert "ERR2001" in str(exc.value)
+    hooks.on_error.assert_called_once_with(grpc.StatusCode.INTERNAL)
     assert scheduler.pending_decodes() == 0
     assert stream.pending_partials == 0
     assert stream.pending_results == []
@@ -200,7 +206,8 @@ def test_err2002_decode_failed(servicer, mock_servicer_context):
 
 def test_decode_stream_logic_err2002_task_failed():
     """Test that DecodeStream actually raises ERR2002 on task failure."""
-    scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock())
+    hooks = DecodeSchedulerHooks(on_error=MagicMock())
+    scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock(), hooks=hooks)
     stream = DecodeStream(scheduler)
 
     # Add a fake completed future that raises an exception
@@ -216,6 +223,7 @@ def test_decode_stream_logic_err2002_task_failed():
 
     assert "ERR2002" in str(exc.value)
     assert "Model crash" in str(exc.value)
+    hooks.on_error.assert_called_once_with(grpc.StatusCode.INTERNAL)
     assert scheduler.pending_decodes() == 0
     assert stream.pending_partials == 0
     assert stream.pending_results == []

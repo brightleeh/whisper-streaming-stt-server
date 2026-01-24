@@ -170,6 +170,7 @@ class DecodeStream:
                 return_when=futures.FIRST_COMPLETED,
             )
             if not done:
+                self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
                 self._drop_pending_results()
                 raise TimeoutError(f"ERR2001 Decode timeout after {wait_timeout}s")
             else:
@@ -185,6 +186,7 @@ class DecodeStream:
             try:
                 result = future.result()
             except Exception as e:
+                self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
                 self._finalize_pending(is_final)
                 raise RuntimeError(f"ERR2002 Decode task failed: {e}") from e
 
