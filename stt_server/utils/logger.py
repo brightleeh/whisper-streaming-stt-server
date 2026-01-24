@@ -32,6 +32,12 @@ def configure_logging(level: str, log_file: Optional[str]) -> None:
         "%(asctime)s [%(levelname)s] %(name)s [%(filename)s:%(lineno)d]: %(message)s"
     )
 
+    if QUEUE_LISTENER:
+        QUEUE_LISTENER.stop()
+        for handler in QUEUE_LISTENER.handlers:
+            handler.close()
+        QUEUE_LISTENER = None
+
     handlers: List[logging.Handler] = []
     stream_handler = logging.StreamHandler()
     stream_handler.setFormatter(formatter)
@@ -46,12 +52,12 @@ def configure_logging(level: str, log_file: Optional[str]) -> None:
 
     queue_handler = logging.handlers.QueueHandler(LOG_QUEUE)
     root_logger = logging.getLogger()
+    for handler in root_logger.handlers:
+        handler.close()
     root_logger.handlers.clear()
     root_logger.setLevel(numeric_level)
     root_logger.addHandler(queue_handler)
 
-    if QUEUE_LISTENER:
-        QUEUE_LISTENER.stop()
     QUEUE_LISTENER = logging.handlers.QueueListener(
         LOG_QUEUE, *handlers, respect_handler_level=True
     )
