@@ -129,6 +129,18 @@ class DecodeStream:
             self.model_id,
         )
 
+    def _finalize_pending(self, is_final: bool) -> None:
+        if not is_final and self.pending_partials > 0:
+            self.pending_partials -= 1
+        self.scheduler._decrement_pending()
+
+    def _drop_pending_results(self) -> None:
+        if not self.pending_results:
+            return
+        for _, is_final, _, _ in self.pending_results:
+            self._finalize_pending(is_final)
+        self.pending_results.clear()
+
     def pending_partial_decodes(self) -> int:
         return self.pending_partials
 
@@ -158,6 +170,7 @@ class DecodeStream:
                 return_when=futures.FIRST_COMPLETED,
             )
             if not done:
+                self._drop_pending_results()
                 raise TimeoutError(f"ERR2001 Decode timeout after {wait_timeout}s")
             else:
                 remaining: List[Tuple[futures.Future, bool, float, bool]] = []
@@ -172,10 +185,9 @@ class DecodeStream:
             try:
                 result = future.result()
             except Exception as e:
+                self._finalize_pending(is_final)
                 raise RuntimeError(f"ERR2002 Decode task failed: {e}") from e
 
-            if not is_final and self.pending_partials > 0:
-                self.pending_partials -= 1
             if result.latency_sec >= 0:
                 self.scheduler._on_decode_result(result.latency_sec, result.rtf)
             language_name = self.scheduler.language_lookup.get_name(
@@ -211,4 +223,4 @@ class DecodeStream:
                 )
             if count_vad:
                 self.scheduler._on_vad_utterance_end()
-            self.scheduler._decrement_pending()
+            self._finalize_pending(is_final)

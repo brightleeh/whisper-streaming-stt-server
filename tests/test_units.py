@@ -157,13 +157,14 @@ def test_err2001_decode_timeout(servicer, mock_servicer_context):
 
 def test_decode_stream_logic_err2001_timeout():
     """Test that DecodeStream actually raises ERR2001 on timeout."""
-    scheduler = MagicMock(spec=DecodeScheduler)
-    scheduler.decode_timeout_sec = 0.01
+    scheduler = DecodeScheduler(MagicMock(), 0.01, MagicMock())
     stream = DecodeStream(scheduler)
 
     # Add a fake pending future
     mock_future = MagicMock(spec=futures.Future)
     mock_future.done.return_value = False
+    scheduler._increment_pending()
+    stream.pending_partials = 1
     stream.pending_results.append((mock_future, False, 0.0, False))
 
     # Mock futures.wait to return (done={}, not_done={mock_future}) to simulate timeout
@@ -177,6 +178,9 @@ def test_decode_stream_logic_err2001_timeout():
             list(stream.emit_ready(block=True))
 
     assert "ERR2001" in str(exc.value)
+    assert scheduler.pending_decodes() == 0
+    assert stream.pending_partials == 0
+    assert stream.pending_results == []
 
 
 def test_err2002_decode_failed(servicer, mock_servicer_context):
@@ -196,13 +200,15 @@ def test_err2002_decode_failed(servicer, mock_servicer_context):
 
 def test_decode_stream_logic_err2002_task_failed():
     """Test that DecodeStream actually raises ERR2002 on task failure."""
-    scheduler = MagicMock(spec=DecodeScheduler)
+    scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock())
     stream = DecodeStream(scheduler)
 
     # Add a fake completed future that raises an exception
     mock_future = MagicMock(spec=futures.Future)
     mock_future.done.return_value = True
     mock_future.result.side_effect = ValueError("Model crash")
+    scheduler._increment_pending()
+    stream.pending_partials = 1
     stream.pending_results.append((mock_future, False, 0.0, False))
 
     with pytest.raises(RuntimeError) as exc:
@@ -210,6 +216,9 @@ def test_decode_stream_logic_err2002_task_failed():
 
     assert "ERR2002" in str(exc.value)
     assert "Model crash" in str(exc.value)
+    assert scheduler.pending_decodes() == 0
+    assert stream.pending_partials == 0
+    assert stream.pending_results == []
 
 
 def test_err3001_unexpected_create_session(servicer, mock_servicer_context, caplog):
