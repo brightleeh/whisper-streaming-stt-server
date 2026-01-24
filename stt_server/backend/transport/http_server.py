@@ -1,4 +1,5 @@
 import threading
+from dataclasses import dataclass
 from typing import Dict, Optional
 
 import uvicorn
@@ -25,12 +26,23 @@ class LoadModelRequest(BaseModel):
     language: Optional[str] = None
 
 
+@dataclass
+class HttpServerHandle:
+    server: uvicorn.Server
+    thread: threading.Thread
+
+    def stop(self, timeout: Optional[float] = None) -> None:
+        if self.thread.is_alive():
+            self.server.should_exit = True
+            self.thread.join(timeout=timeout)
+
+
 def start_http_server(
     runtime: ApplicationRuntime,
     server_state: Dict[str, bool],
     host: str,
     port: int,
-) -> None:
+) -> HttpServerHandle:
     """Start FastAPI app for /metrics and /health in a background thread."""
     app = FastAPI()
 
@@ -92,8 +104,13 @@ def start_http_server(
     def list_models_endpoint() -> JSONResponse:
         return JSONResponse({"models": model_registry.list_models()})
 
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = lambda: None
+
     def run_server() -> None:
-        uvicorn.run(app, host=host, port=port, log_level="info")
+        server.run()
 
     thread = threading.Thread(target=run_server, daemon=True)
     thread.start()
+    return HttpServerHandle(server=server, thread=thread)

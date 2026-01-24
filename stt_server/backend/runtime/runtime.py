@@ -143,3 +143,6 @@ class ApplicationRuntime:
             "decode_latency_avg": metrics_snapshot.get("decode_latency_avg"),
             "decode_latency_max": metrics_snapshot.get("decode_latency_max"),
         }
+
+    def shutdown(self) -> None:
+        self.model_registry.close()

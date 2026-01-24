@@ -160,3 +160,17 @@ class ModelRegistry:
 
             # Force garbage collection advice could be placed here
             return True
+
+    def close(self) -> None:
+        """Close all model workers and clear registry state."""
+        with self._lock:
+            pools = list(self._pools.values())
+            self._pools.clear()
+            self._configs.clear()
+            self._rr_counters.clear()
+        for pool in pools:
+            for worker in pool:
+                try:
+                    worker.close()
+                except Exception:
+                    LOGGER.exception("Failed to close model worker")

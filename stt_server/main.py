@@ -1,4 +1,6 @@
 import argparse
+import signal
+import threading
 from concurrent import futures
 from pathlib import Path
 
@@ -25,7 +27,10 @@ from stt_server.utils.logger import LOGGER, configure_logging
 def serve(config: ServerConfig) -> None:
     """Launch gRPC + HTTP observability servers."""
     server_state = {"grpc_running": False}
-    server = grpc.server(futures.ThreadPoolExecutor(max_workers=config.max_sessions))
+    stop_event = threading.Event()
+    shutdown_once = threading.Event()
+    grpc_executor = futures.ThreadPoolExecutor(max_workers=config.max_sessions)
+    server = grpc.server(grpc_executor)
     model_cfg = ModelRuntimeConfig(
         model_size=config.model,
         device=config.device,
@@ -59,7 +64,7 @@ def serve(config: ServerConfig) -> None:
     servicer = STTGrpcServicer(servicer_config)
     stt_pb2_grpc.add_STTBackendServicer_to_server(servicer, server)  # type: ignore[name-defined]
     server.add_insecure_port(f"[::]:{config.port}")
-    start_http_server(
+    http_handle = start_http_server(
         runtime=servicer.runtime,
         server_state=server_state,
         host="0.0.0.0",
@@ -71,9 +76,35 @@ def serve(config: ServerConfig) -> None:
         config.model,
         config.device,
     )
+
+    def shutdown() -> None:
+        if shutdown_once.is_set():
+            return
+        shutdown_once.set()
+        server_state["grpc_running"] = False
+        grace = config.decode_timeout_sec if config.decode_timeout_sec > 0 else 5.0
+        LOGGER.info("Graceful shutdown started (grace=%.2fs)", grace)
+        try:
+            server.stop(grace).wait()
+        finally:
+            http_handle.stop(timeout=grace + 1)
+            servicer.runtime.shutdown()
+            grpc_executor.shutdown(wait=False)
+
+    def _handle_signal(signum: int, _frame) -> None:  # type: ignore[no-untyped-def]
+        LOGGER.info("Received signal %s; shutting down", signum)
+        stop_event.set()
+
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
+
     server.start()
     server_state["grpc_running"] = True
-    server.wait_for_termination()
+    try:
+        while not stop_event.is_set():
+            server.wait_for_termination(timeout=1.0)
+    finally:
+        shutdown()
 
 
 def parse_args() -> argparse.Namespace:

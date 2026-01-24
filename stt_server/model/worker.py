@@ -98,3 +98,6 @@ class ModelWorker:
             language_code=language_code,
             language_probability=language_probability,
         )
+
+    def close(self) -> None:
+        self.executor.shutdown(wait=True)
