@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import queue
 import threading
 import time
 import wave
@@ -45,18 +46,54 @@ class SessionAudioRecorder:
         self._wave.setsampwidth(2)
         self._wave.setframerate(self.sample_rate)
         self._closed = False
+        self._lock = threading.Lock()
+        self._queue: "queue.Queue[Optional[bytes]]" = queue.Queue()
+        self._writer = threading.Thread(target=self._writer_loop, daemon=True)
+        self._writer.start()
+
+    def _writer_loop(self) -> None:
+        try:
+            while True:
+                chunk = self._queue.get()
+                if chunk is None:
+                    break
+                if not chunk:
+                    continue
+                self._wave.writeframes(chunk)
+                with self._lock:
+                    self._bytes_written += len(chunk)
+        except Exception:
+            LOGGER.exception(
+                "Audio writer failed session_id=%s path=%s", self.session_id, self.path
+            )
 
     def append(self, pcm16: bytes) -> None:
-        if self._closed or not pcm16:
+        if not pcm16:
             return
-        self._wave.writeframes(pcm16)
-        self._bytes_written += len(pcm16)
+        with self._lock:
+            if self._closed:
+                return
+        try:
+            self._queue.put_nowait(pcm16)
+        except queue.Full:
+            LOGGER.warning(
+                "Audio queue full; dropping chunk session_id=%s path=%s",
+                self.session_id,
+                self.path,
+            )
 
     def finalize(self) -> Optional[Path]:
-        if not self._closed:
+        with self._lock:
+            already_closed = self._closed
+            if not self._closed:
+                self._closed = True
+        if not already_closed:
+            self._queue.put(None)
+        if self._writer.is_alive():
+            self._writer.join()
+        if not already_closed:
             self._wave.close()
-            self._closed = True
-        if self._bytes_written <= 0:
+        if self.bytes_written <= 0:
             try:
                 self.path.unlink()
             except FileNotFoundError:
@@ -66,7 +103,8 @@ class SessionAudioRecorder:
 
     @property
     def bytes_written(self) -> int:
-        return self._bytes_written
+        with self._lock:
+            return self._bytes_written
 
 
 class AudioStorageManager:

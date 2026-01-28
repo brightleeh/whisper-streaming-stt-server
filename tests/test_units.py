@@ -23,6 +23,7 @@ from stt_server.backend.component.decode_scheduler import (
     DecodeSchedulerHooks,
     DecodeStream,
 )
+from stt_server.backend.component.audio_storage import SessionAudioRecorder
 from stt_server.backend.transport.grpc_servicer import STTGrpcServicer
 from stt_server.backend.transport.http_server import build_http_app
 from stt_server.config import ServerConfig
@@ -441,3 +442,23 @@ def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
     assert not thread.is_alive()
     assert "exc" in error_holder
     assert signal_calls == []
+
+
+def test_audio_recorder_writes_async(tmp_path):
+    path = tmp_path / "audio.wav"
+    recorder = SessionAudioRecorder("sess", path, sample_rate=16000)
+    pcm = b"\x01\x02" * 800
+    recorder.append(pcm)
+    recorder.append(pcm)
+    saved = recorder.finalize()
+    assert saved == path
+    assert path.exists()
+    assert recorder.bytes_written == len(pcm) * 2
+
+
+def test_audio_recorder_discard_empty(tmp_path):
+    path = tmp_path / "empty.wav"
+    recorder = SessionAudioRecorder("sess", path, sample_rate=16000)
+    saved = recorder.finalize()
+    assert saved is None
+    assert not path.exists()
