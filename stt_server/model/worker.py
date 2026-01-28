@@ -17,6 +17,7 @@ class DecodeResult(NamedTuple):
     rtf: float
     language_code: str
     language_probability: float
+    queue_wait_sec: float
 
 
 class ModelWorker:
@@ -48,15 +49,21 @@ class ModelWorker:
     ) -> futures.Future:
         """Submit PCM bytes for asynchronous decode."""
         opts = decode_options.copy() if decode_options else None
-        return self.executor.submit(self._decode, pcm_bytes, src_rate, opts)
+        submitted_at = time.perf_counter()
+        return self.executor.submit(
+            self._decode, pcm_bytes, src_rate, opts, submitted_at
+        )
 
     def _decode(
         self,
         pcm_bytes: bytes,
         src_rate: int,
         decode_options: Optional[Dict[str, Any]],
+        submitted_at: float,
     ) -> DecodeResult:
         """Decode bytes inside the worker thread."""
+        start = time.perf_counter()
+        queue_wait_sec = max(0.0, start - submitted_at)
         if len(pcm_bytes) == 0:
             return DecodeResult(
                 segments=[],
@@ -65,6 +72,7 @@ class ModelWorker:
                 rtf=-1.0,
                 language_code="",
                 language_probability=-1.0,
+                queue_wait_sec=queue_wait_sec,
             )
 
         audio = pcm16_to_float32(pcm_bytes)
@@ -73,7 +81,6 @@ class ModelWorker:
         if decode_options:
             options.update(decode_options)
 
-        start = time.perf_counter()
         segments, info = self.model.transcribe(
             audio,
             **options,
@@ -97,6 +104,7 @@ class ModelWorker:
             rtf=rtf,
             language_code=language_code,
             language_probability=language_probability,
+            queue_wait_sec=queue_wait_sec,
         )
 
     def close(self) -> None:

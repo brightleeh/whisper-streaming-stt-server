@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from concurrent import futures
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -26,7 +27,7 @@ def _noop_status(_: grpc.StatusCode) -> None:
     return None
 
 
-def _noop_decode(_: float, __: float) -> None:
+def _noop_decode(_: float, __: float, ___: float, ____: float, _____: float) -> None:
     return None
 
 
@@ -37,7 +38,7 @@ def _noop_count(_: int) -> None:
 @dataclass(frozen=True)
 class DecodeSchedulerHooks:
     on_error: Callable[[grpc.StatusCode], None] = _noop_status
-    on_decode_result: Callable[[float, float], None] = _noop_decode
+    on_decode_result: Callable[[float, float, float, float, float], None] = _noop_decode
     on_vad_utterance_end: Callable[[], None] = _noop
     on_decode_cancelled: Callable[[int], None] = _noop_count
     on_decode_orphaned: Callable[[int], None] = _noop_count
@@ -83,8 +84,21 @@ class DecodeScheduler:
     def _on_decode_error(self, status_code: grpc.StatusCode) -> None:
         self._hooks.on_error(status_code)
 
-    def _on_decode_result(self, latency_sec: float, rtf: float) -> None:
-        self._hooks.on_decode_result(latency_sec, rtf)
+    def _on_decode_result(
+        self,
+        inference_sec: float,
+        real_time_factor: float,
+        queue_wait_sec: float,
+        buffer_wait_sec: float,
+        response_emit_sec: float,
+    ) -> None:
+        self._hooks.on_decode_result(
+            inference_sec,
+            real_time_factor,
+            queue_wait_sec,
+            buffer_wait_sec,
+            response_emit_sec,
+        )
 
     def _on_vad_utterance_end(self) -> None:
         self._hooks.on_vad_utterance_end()
@@ -101,11 +115,16 @@ class DecodeStream:
 
     def __init__(self, scheduler: DecodeScheduler) -> None:
         self.scheduler = scheduler
-        self.pending_results: List[Tuple[futures.Future, bool, float, bool]] = []
+        self.pending_results: List[Tuple[futures.Future, bool, float, bool, float]] = []
         self.pending_partials = 0
         self.session_id: Optional[str] = None
         self.model_id: str = DEFAULT_MODEL_ID
         self._lock = threading.Lock()
+        self._queue_wait_total = 0.0
+        self._infer_total = 0.0
+        self._buffer_wait_total = 0.0
+        self._response_emit_total = 0.0
+        self._decode_count = 0
 
     def set_session_id(self, session_id: Optional[str]) -> None:
         self.session_id = session_id
@@ -121,6 +140,7 @@ class DecodeStream:
         is_final: bool,
         offset_sec: float,
         count_vad: bool = False,
+        buffer_started_at: Optional[float] = None,
     ) -> None:
         if not pcm:
             LOGGER.debug("Skip decode for empty buffer (final=%s)", is_final)
@@ -128,9 +148,16 @@ class DecodeStream:
 
         worker = self.scheduler.stream_orchestrator.acquire_worker(self.model_id)
         future = worker.submit(pcm, sample_rate, decode_options)
+        buffer_wait_sec = (
+            max(0.0, time.perf_counter() - buffer_started_at)
+            if buffer_started_at is not None
+            else 0.0
+        )
         self.scheduler._increment_pending()
         with self._lock:
-            self.pending_results.append((future, is_final, offset_sec, count_vad))
+            self.pending_results.append(
+                (future, is_final, offset_sec, count_vad, buffer_wait_sec)
+            )
             if not is_final:
                 self.pending_partials += 1
             pending_count = len(self.pending_results)
@@ -156,7 +183,9 @@ class DecodeStream:
                 return
             dropped = list(self.pending_results)
             self.pending_results.clear()
-            partials_to_drop = sum(1 for _, is_final, _, _ in dropped if not is_final)
+            partials_to_drop = sum(
+                1 for _, is_final, _, _, _ in dropped if not is_final
+            )
             if partials_to_drop:
                 self.pending_partials = max(0, self.pending_partials - partials_to_drop)
         for _ in dropped:
@@ -176,12 +205,14 @@ class DecodeStream:
                 return 0, 0
             pending = list(self.pending_results)
             self.pending_results.clear()
-            partials_to_drop = sum(1 for _, is_final, _, _ in pending if not is_final)
+            partials_to_drop = sum(
+                1 for _, is_final, _, _, _ in pending if not is_final
+            )
             if partials_to_drop:
                 self.pending_partials = max(0, self.pending_partials - partials_to_drop)
         cancelled = 0
         not_cancelled = 0
-        for future, _, _, _ in pending:
+        for future, _, _, _, _ in pending:
             if future.cancel():
                 cancelled += 1
             else:
@@ -193,16 +224,54 @@ class DecodeStream:
             self.scheduler._on_decode_orphaned(not_cancelled)
         return cancelled, not_cancelled
 
+    def timing_summary(self) -> Tuple[float, float, float, float, int]:
+        with self._lock:
+            return (
+                self._buffer_wait_total,
+                self._queue_wait_total,
+                self._infer_total,
+                self._response_emit_total,
+                self._decode_count,
+            )
+
+    def _record_timing(
+        self,
+        buffer_wait_sec: float,
+        queue_wait_sec: float,
+        inference_sec: float,
+        response_emit_sec: float,
+    ) -> None:
+        with self._lock:
+            if buffer_wait_sec >= 0:
+                self._buffer_wait_total += buffer_wait_sec
+            if queue_wait_sec >= 0:
+                self._queue_wait_total += queue_wait_sec
+            if inference_sec >= 0:
+                self._infer_total += inference_sec
+            if response_emit_sec >= 0:
+                self._response_emit_total += response_emit_sec
+            self._decode_count += 1
+
     def emit_ready(self, block: bool) -> Iterable[stt_pb2.STTResult]:
-        ready: List[Tuple[futures.Future, bool, float, bool]] = []
+        ready: List[Tuple[futures.Future, bool, float, bool, float]] = []
 
         with self._lock:
-            still_pending: List[Tuple[futures.Future, bool, float, bool]] = []
-            for future, is_final, offset_sec, count_vad in self.pending_results:
+            still_pending: List[Tuple[futures.Future, bool, float, bool, float]] = []
+            for (
+                future,
+                is_final,
+                offset_sec,
+                count_vad,
+                buffer_wait_sec,
+            ) in self.pending_results:
                 if future.done():
-                    ready.append((future, is_final, offset_sec, count_vad))
+                    ready.append(
+                        (future, is_final, offset_sec, count_vad, buffer_wait_sec)
+                    )
                 else:
-                    still_pending.append((future, is_final, offset_sec, count_vad))
+                    still_pending.append(
+                        (future, is_final, offset_sec, count_vad, buffer_wait_sec)
+                    )
             self.pending_results[:] = still_pending
             pending_snapshot = list(self.pending_results)
 
@@ -213,7 +282,7 @@ class DecodeStream:
                 else None
             )
             done, _ = futures.wait(
-                [future for future, _, _, _ in pending_snapshot],
+                [future for future, _, _, _, _ in pending_snapshot],
                 timeout=wait_timeout,
                 return_when=futures.FIRST_COMPLETED,
             )
@@ -223,15 +292,39 @@ class DecodeStream:
                 raise TimeoutError(f"ERR2001 Decode timeout after {wait_timeout}s")
             else:
                 with self._lock:
-                    remaining: List[Tuple[futures.Future, bool, float, bool]] = []
-                    for future, is_final, offset_sec, count_vad in self.pending_results:
+                    remaining: List[Tuple[futures.Future, bool, float, bool, float]] = (
+                        []
+                    )
+                    for (
+                        future,
+                        is_final,
+                        offset_sec,
+                        count_vad,
+                        buffer_wait_sec,
+                    ) in self.pending_results:
                         if future in done:
-                            ready.append((future, is_final, offset_sec, count_vad))
+                            ready.append(
+                                (
+                                    future,
+                                    is_final,
+                                    offset_sec,
+                                    count_vad,
+                                    buffer_wait_sec,
+                                )
+                            )
                         else:
-                            remaining.append((future, is_final, offset_sec, count_vad))
+                            remaining.append(
+                                (
+                                    future,
+                                    is_final,
+                                    offset_sec,
+                                    count_vad,
+                                    buffer_wait_sec,
+                                )
+                            )
                     self.pending_results[:] = remaining
 
-        for future, is_final, offset_sec, count_vad in ready:
+        for future, is_final, offset_sec, count_vad, buffer_wait_sec in ready:
             try:
                 result = future.result()
             except Exception as e:
@@ -239,11 +332,10 @@ class DecodeStream:
                 self._finalize_pending(is_final)
                 raise RuntimeError(f"ERR2002 Decode task failed: {e}") from e
 
-            if result.latency_sec >= 0:
-                self.scheduler._on_decode_result(result.latency_sec, result.rtf)
             language_name = self.scheduler.language_lookup.get_name(
                 result.language_code
             )
+            emit_start = time.perf_counter()
             for seg in result.segments:
                 LOGGER.info(
                     "session_id=%s %s result='%s' [%.2f, %.2f] lang=%s prob=%.2f",
@@ -272,6 +364,39 @@ class DecodeStream:
                         else 0.0
                     ),
                 )
+            response_emit_sec = max(0.0, time.perf_counter() - emit_start)
             if count_vad:
                 self.scheduler._on_vad_utterance_end()
+            if result.latency_sec >= 0:
+                self.scheduler._on_decode_result(
+                    result.latency_sec,
+                    result.rtf,
+                    result.queue_wait_sec,
+                    buffer_wait_sec,
+                    response_emit_sec,
+                )
+                self._record_timing(
+                    buffer_wait_sec,
+                    result.queue_wait_sec,
+                    result.latency_sec,
+                    response_emit_sec,
+                )
+                total_sec = (
+                    buffer_wait_sec
+                    + result.queue_wait_sec
+                    + result.latency_sec
+                    + response_emit_sec
+                )
+                LOGGER.info(
+                    "decode_timing session_id=%s final=%s buffer_wait=%.2fs queue_wait=%.2fs inference=%.2fs response_emit=%.2fs total=%.2fs audio_duration=%.2fs real_time_factor=%.2f",
+                    self.session_id or "unknown",
+                    is_final,
+                    buffer_wait_sec,
+                    result.queue_wait_sec,
+                    result.latency_sec,
+                    response_emit_sec,
+                    total_sec,
+                    result.audio_duration,
+                    result.rtf if result.rtf >= 0 else -1.0,
+                )
             self._finalize_pending(is_final)

@@ -147,6 +147,7 @@ class StreamOrchestrator:
         audio_recorder: Optional[SessionAudioRecorder] = None
         audio_received_sec = 0.0
         buffer_start_sec = 0.0
+        buffer_start_time: Optional[float] = None
         client_disconnected = False
 
         # Initialize Watchdog variables
@@ -236,6 +237,7 @@ class StreamOrchestrator:
                     final_reason = "client_disconnect"
                     client_disconnected = True
                     buffer = bytearray()
+                    buffer_start_time = None
                     break
                 # Check for timeout signal at the start of the loop
                 if timeout_event.is_set():
@@ -268,6 +270,7 @@ class StreamOrchestrator:
                                 current_session_id or "unknown",
                             )
                     buffer = bytearray()
+                    buffer_start_time = None
                     break
                 if (
                     chunk.session_id
@@ -313,6 +316,7 @@ class StreamOrchestrator:
 
                 if not buffer and chunk.pcm16:
                     buffer_start_sec = audio_received_sec
+                    buffer_start_time = time.perf_counter()
                 buffer.extend(chunk.pcm16)
                 audio_received_sec += audio.chunk_duration_seconds(
                     len(chunk.pcm16), sample_rate
@@ -331,6 +335,7 @@ class StreamOrchestrator:
                             session_state.session_id if session_state else "unknown",
                         )
                         buffer = bytearray()
+                        buffer_start_time = None
                         vad_state.reset_after_trigger()
                         continue
                     self._on_vad_trigger()
@@ -345,8 +350,10 @@ class StreamOrchestrator:
                         is_final,
                         buffer_start_sec,
                         count_vad=True,
+                        buffer_started_at=buffer_start_time,
                     )
                     buffer = bytearray()
+                    buffer_start_time = None
                     LOGGER.info(
                         "VAD count=%d for current session (pending=%d, mode=%s, active_vad=%d)",
                         vad_count,
@@ -379,8 +386,10 @@ class StreamOrchestrator:
                             True,
                             buffer_start_sec,
                             count_vad=False,
+                            buffer_started_at=buffer_start_time,
                         )
                         buffer = bytearray()
+                        buffer_start_time = None
                     yield from self._emit_results_with_session(
                         decode_stream, False, session_state
                     )
@@ -401,7 +410,9 @@ class StreamOrchestrator:
                         True,
                         buffer_start_sec,
                         count_vad=False,
+                        buffer_started_at=buffer_start_time,
                     )
+                buffer_start_time = None
 
                 while True:
                     emitted = list(
@@ -430,6 +441,46 @@ class StreamOrchestrator:
 
             if timeout_event.is_set():
                 final_reason = "timeout"
+
+            if decode_stream:
+                (
+                    buffer_wait_total,
+                    queue_wait_total,
+                    inference_total,
+                    response_emit_total,
+                    decode_count,
+                ) = decode_stream.timing_summary()
+                try:
+                    # Decode timing totals per stream (accumulated across decode tasks):
+                    # - buffer_wait: time spent buffering audio before scheduling decode
+                    # - queue_wait: time waiting for a worker after scheduling decode
+                    # - inference: model execution time
+                    # - response_emit: time spent yielding results to the client
+                    # - total: sum of buffer_wait + queue_wait + inference + response_emit
+                    context.set_trailing_metadata(
+                        (
+                            (
+                                "stt-decode-buffer-wait-sec",
+                                f"{buffer_wait_total:.6f}",
+                            ),
+                            (
+                                "stt-decode-queue-wait-sec",
+                                f"{queue_wait_total:.6f}",
+                            ),
+                            ("stt-decode-inference-sec", f"{inference_total:.6f}"),
+                            (
+                                "stt-decode-response-emit-sec",
+                                f"{response_emit_total:.6f}",
+                            ),
+                            (
+                                "stt-decode-total-sec",
+                                f"{(buffer_wait_total + queue_wait_total + inference_total + response_emit_total):.6f}",
+                            ),
+                            ("stt-decode-count", str(decode_count)),
+                        )
+                    )
+                except Exception:
+                    pass
 
             if audio_recorder and self._audio_storage:
                 self._audio_storage.finalize_recording(audio_recorder, final_reason)

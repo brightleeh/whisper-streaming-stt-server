@@ -13,6 +13,15 @@ class Metrics:
         self._decode_count = 0
         self._decode_total = 0.0
         self._decode_max = 0.0
+        self._decode_buffer_wait_count = 0
+        self._decode_buffer_wait_total = 0.0
+        self._decode_buffer_wait_max = 0.0
+        self._decode_queue_wait_count = 0
+        self._decode_queue_wait_total = 0.0
+        self._decode_queue_wait_max = 0.0
+        self._decode_response_emit_count = 0
+        self._decode_response_emit_total = 0.0
+        self._decode_response_emit_max = 0.0
         self._decode_cancelled = 0
         self._decode_orphaned = 0
         self._rtf_count = 0
@@ -37,15 +46,40 @@ class Metrics:
                 if self._api_key_sessions[api_key] <= 0:
                     self._api_key_sessions.pop(api_key, None)
 
-    def record_decode(self, latency_sec: float, rtf: float) -> None:
+    def record_decode(
+        self,
+        inference_sec: float,
+        real_time_factor: float,
+        queue_wait_sec: float | None = None,
+        buffer_wait_sec: float | None = None,
+        response_emit_sec: float | None = None,
+    ) -> None:
         with self._lock:
             self._decode_count += 1
-            self._decode_total += latency_sec
-            self._decode_max = max(self._decode_max, latency_sec)
-            if rtf >= 0:
+            self._decode_total += inference_sec
+            self._decode_max = max(self._decode_max, inference_sec)
+            if buffer_wait_sec is not None and buffer_wait_sec >= 0:
+                self._decode_buffer_wait_count += 1
+                self._decode_buffer_wait_total += buffer_wait_sec
+                self._decode_buffer_wait_max = max(
+                    self._decode_buffer_wait_max, buffer_wait_sec
+                )
+            if queue_wait_sec is not None and queue_wait_sec >= 0:
+                self._decode_queue_wait_count += 1
+                self._decode_queue_wait_total += queue_wait_sec
+                self._decode_queue_wait_max = max(
+                    self._decode_queue_wait_max, queue_wait_sec
+                )
+            if response_emit_sec is not None and response_emit_sec >= 0:
+                self._decode_response_emit_count += 1
+                self._decode_response_emit_total += response_emit_sec
+                self._decode_response_emit_max = max(
+                    self._decode_response_emit_max, response_emit_sec
+                )
+            if real_time_factor >= 0:
                 self._rtf_count += 1
-                self._rtf_total += rtf
-                self._rtf_max = max(self._rtf_max, rtf)
+                self._rtf_total += real_time_factor
+                self._rtf_max = max(self._rtf_max, real_time_factor)
 
     def record_decode_cancelled(self, count: int) -> None:
         with self._lock:
@@ -83,6 +117,15 @@ class Metrics:
                 "decode_latency_total": self._decode_total,
                 "decode_latency_count": self._decode_count,
                 "decode_latency_max": self._decode_max,
+                "decode_buffer_wait_total": self._decode_buffer_wait_total,
+                "decode_buffer_wait_count": self._decode_buffer_wait_count,
+                "decode_buffer_wait_max": self._decode_buffer_wait_max,
+                "decode_queue_wait_total": self._decode_queue_wait_total,
+                "decode_queue_wait_count": self._decode_queue_wait_count,
+                "decode_queue_wait_max": self._decode_queue_wait_max,
+                "decode_response_emit_total": self._decode_response_emit_total,
+                "decode_response_emit_count": self._decode_response_emit_count,
+                "decode_response_emit_max": self._decode_response_emit_max,
                 "decode_cancelled": self._decode_cancelled,
                 "decode_orphaned": self._decode_orphaned,
                 "rtf_total": self._rtf_total,
@@ -100,10 +143,31 @@ class Metrics:
                 (self._decode_total / self._decode_count) if self._decode_count else 0.0
             )
             rtf_avg = (self._rtf_total / self._rtf_count) if self._rtf_count else 0.0
+            buffer_wait_avg = (
+                (self._decode_buffer_wait_total / self._decode_buffer_wait_count)
+                if self._decode_buffer_wait_count
+                else 0.0
+            )
+            queue_wait_avg = (
+                (self._decode_queue_wait_total / self._decode_queue_wait_count)
+                if self._decode_queue_wait_count
+                else 0.0
+            )
+            response_emit_avg = (
+                (self._decode_response_emit_total / self._decode_response_emit_count)
+                if self._decode_response_emit_count
+                else 0.0
+            )
             return {
                 "active_sessions": self._active_sessions,
                 "decode_latency_avg": decode_avg,
                 "decode_latency_max": self._decode_max,
+                "decode_buffer_wait_avg": buffer_wait_avg,
+                "decode_buffer_wait_max": self._decode_buffer_wait_max,
+                "decode_queue_wait_avg": queue_wait_avg,
+                "decode_queue_wait_max": self._decode_queue_wait_max,
+                "decode_response_emit_avg": response_emit_avg,
+                "decode_response_emit_max": self._decode_response_emit_max,
                 "decode_cancelled": float(self._decode_cancelled),
                 "decode_orphaned": float(self._decode_orphaned),
                 "rtf_avg": rtf_avg,
