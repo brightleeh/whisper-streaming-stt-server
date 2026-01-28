@@ -1,19 +1,52 @@
+import logging
 import threading
 import time
+from copy import deepcopy
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import uvicorn
 from fastapi import FastAPI, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from uvicorn.config import LOGGING_CONFIG
 
 from stt_server.backend.runtime import ApplicationRuntime
+from stt_server.backend.utils.system_metrics import collect_system_metrics
 from stt_server.config.default.model import (
     DEFAULT_COMPUTE_TYPE,
     DEFAULT_DEVICE,
     DEFAULT_MODEL_NAME,
 )
+
+_ACCESS_LOG_IGNORED_PATHS = frozenset({"/metrics", "/system", "/health"})
+
+
+class _AccessLogPathFilter(logging.Filter):
+    def __init__(self, ignored_paths: Tuple[str, ...]) -> None:
+        super().__init__()
+        self._ignored_paths = set(ignored_paths)
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if isinstance(record.args, tuple) and len(record.args) >= 3:
+            path = record.args[2]
+            if path in self._ignored_paths:
+                return False
+        return True
+
+
+def _build_uvicorn_log_config() -> Dict[str, Any]:
+    log_config = deepcopy(LOGGING_CONFIG)
+    log_config.setdefault("filters", {})
+    log_config["filters"]["ignore_internal_endpoints"] = {
+        "()": _AccessLogPathFilter,
+        "ignored_paths": tuple(sorted(_ACCESS_LOG_IGNORED_PATHS)),
+    }
+    access_handler = log_config["handlers"].get("access", {})
+    access_filters = access_handler.get("filters", [])
+    access_handler["filters"] = [*access_filters, "ignore_internal_endpoints"]
+    log_config["handlers"]["access"] = access_handler
+    return log_config
 
 
 class LoadModelRequest(BaseModel):
@@ -73,6 +106,10 @@ def build_http_app(
         payload = {"status": "ok" if healthy else "error", **snapshot}
         return JSONResponse(payload, status_code=status)
 
+    @app.get("/system")
+    def system_endpoint() -> JSONResponse:
+        return JSONResponse(collect_system_metrics(), status_code=200)
+
     @app.post("/admin/load_model")
     def load_model_endpoint(req: LoadModelRequest) -> JSONResponse:
         if not model_registry.load_model:
@@ -130,7 +167,13 @@ def start_http_server(
 ) -> HttpServerHandle:
     """Start FastAPI app for /metrics and /health in a background thread."""
     app, load_threads, load_threads_lock = build_http_app(runtime, server_state)
-    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    config = uvicorn.Config(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+        log_config=_build_uvicorn_log_config(),
+    )
     server = uvicorn.Server(config)
 
     def run_server() -> None:

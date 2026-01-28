@@ -13,3 +13,4 @@ torch
 silero-vad
 requests
 pytest
+psutil
