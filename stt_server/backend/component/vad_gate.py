@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, Protocol, TypeAlias, cast
 
@@ -97,7 +98,9 @@ class VADGate:
         self.speech_active = False
         self.silence_duration = 0.0
         self._vad_model = _new_silero_model() if vad_threshold > 0 else None
-        self._vad_buffer = np.array([], dtype=np.float32)
+        self._vad_chunks: "deque[np.ndarray]" = deque()
+        self._vad_chunk_offset = 0
+        self._vad_buffered = 0
 
     def _vad_probability(self, chunk_bytes: bytes, sample_rate: int) -> float:
         if not chunk_bytes:
@@ -110,13 +113,27 @@ class VADGate:
         if audio_f32.size == 0:
             return 0.0
         model = self._vad_model
-        self._vad_buffer = np.concatenate([self._vad_buffer, audio_f32])
         frame_size = 512
         max_prob = 0.0
+        self._vad_chunks.append(audio_f32)
+        self._vad_buffered += audio_f32.size
         # Buffer incoming chunks and run VAD on 32ms (512-sample) frames; keep the max score per chunk.
-        while self._vad_buffer.size >= frame_size:
-            frame = self._vad_buffer[:frame_size]
-            self._vad_buffer = self._vad_buffer[frame_size:]
+        while self._vad_buffered >= frame_size:
+            frame = np.empty(frame_size, dtype=np.float32)
+            filled = 0
+            while filled < frame_size and self._vad_chunks:
+                chunk = self._vad_chunks[0]
+                remaining = chunk.size - self._vad_chunk_offset
+                take = min(frame_size - filled, remaining)
+                frame[filled : filled + take] = chunk[
+                    self._vad_chunk_offset : self._vad_chunk_offset + take
+                ]
+                filled += take
+                self._vad_chunk_offset += take
+                if self._vad_chunk_offset >= chunk.size:
+                    self._vad_chunks.popleft()
+                    self._vad_chunk_offset = 0
+            self._vad_buffered -= frame_size
             prob = _silero_frame_probability(model, frame)
             if prob > max_prob:
                 max_prob = prob
