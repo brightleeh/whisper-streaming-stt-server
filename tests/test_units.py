@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 from concurrent import futures
 from unittest.mock import MagicMock, patch
 
@@ -9,8 +10,9 @@ import pytest
 # Ensure project root is in sys.path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from fastapi.testclient import TestClient
+
 from gen.stt.python.v1 import stt_pb2
-from stt_server.config import ServerConfig
 from stt_server.backend.application.session_manager import (
     CreateSessionHandler,
     SessionFacade,
@@ -22,6 +24,8 @@ from stt_server.backend.component.decode_scheduler import (
     DecodeStream,
 )
 from stt_server.backend.transport.grpc_servicer import STTGrpcServicer
+from stt_server.backend.transport.http_server import build_http_app
+from stt_server.config import ServerConfig
 
 
 @pytest.fixture
@@ -335,3 +339,105 @@ def test_graceful_shutdown_on_signal(monkeypatch):
     fake_http_handle.stop.assert_called_once_with(timeout=3.5)
     fake_runtime.shutdown.assert_called_once()
     fake_executor.shutdown.assert_called_once_with(wait=False)
+
+
+def test_http_load_model_thread_daemon_and_tracked():
+    runtime = MagicMock()
+    runtime.metrics = MagicMock()
+    runtime.health_snapshot.return_value = {"model_pool_healthy": True}
+    runtime.model_registry.is_loaded.return_value = False
+
+    load_started = threading.Event()
+    block_event = threading.Event()
+
+    def slow_load(model_id, cfg):
+        load_started.set()
+        block_event.wait(timeout=0.2)
+
+    runtime.model_registry.load_model.side_effect = slow_load
+
+    app, load_threads, load_threads_lock = build_http_app(
+        runtime, {"grpc_running": True}
+    )
+    client = TestClient(app)
+
+    response = client.post("/admin/load_model", json={"model_id": "test-model"})
+    assert response.status_code == 200
+    assert load_started.wait(timeout=0.5)
+
+    with load_threads_lock:
+        threads = list(load_threads)
+    assert len(threads) == 1
+    assert threads[0].daemon is True
+    block_event.set()
+    threads[0].join(timeout=0.5)
+    assert not threads[0].is_alive()
+
+
+def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
+    signal_calls = []
+
+    def fake_signal(sig, handler):
+        signal_calls.append(sig)
+        return None
+
+    from stt_server import main as main_module
+
+    monkeypatch.setattr(main_module.signal, "signal", fake_signal)
+
+    fake_executor = MagicMock()
+    monkeypatch.setattr(
+        main_module.futures, "ThreadPoolExecutor", lambda max_workers: fake_executor
+    )
+
+    class FakeFuture:
+        def wait(self):
+            return None
+
+    class FakeServer:
+        def add_insecure_port(self, *args, **kwargs):
+            return 0
+
+        def start(self):
+            return None
+
+        def wait_for_termination(self, timeout=None):
+            raise RuntimeError("stop")
+
+        def stop(self, grace):
+            return FakeFuture()
+
+    monkeypatch.setattr(main_module.grpc, "server", lambda executor: FakeServer())
+
+    fake_http_handle = MagicMock()
+    monkeypatch.setattr(
+        main_module, "start_http_server", lambda **kwargs: fake_http_handle
+    )
+
+    fake_runtime = MagicMock()
+    fake_servicer = MagicMock()
+    fake_servicer.runtime = fake_runtime
+    monkeypatch.setattr(main_module, "STTGrpcServicer", lambda config: fake_servicer)
+    monkeypatch.setattr(
+        main_module.stt_pb2_grpc,
+        "add_STTBackendServicer_to_server",
+        lambda servicer, server: None,
+    )
+
+    config = ServerConfig()
+
+    error_holder = {}
+
+    def run():
+        try:
+            main_module.serve(config)
+        except RuntimeError as exc:
+            error_holder["exc"] = exc
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join(timeout=1.0)
+
+    assert not thread.is_alive()
+    assert "exc" in error_holder
+    assert signal_calls == []

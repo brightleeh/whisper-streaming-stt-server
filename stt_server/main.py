@@ -95,8 +95,11 @@ def serve(config: ServerConfig) -> None:
         LOGGER.info("Received signal %s; shutting down", signum)
         stop_event.set()
 
-    signal.signal(signal.SIGTERM, _handle_signal)
-    signal.signal(signal.SIGINT, _handle_signal)
+    if threading.current_thread() is threading.main_thread():
+        signal.signal(signal.SIGTERM, _handle_signal)
+        signal.signal(signal.SIGINT, _handle_signal)
+    else:
+        LOGGER.warning("Signal handlers not installed (not running on main thread)")
 
     server.start()
     server_state["grpc_running"] = True

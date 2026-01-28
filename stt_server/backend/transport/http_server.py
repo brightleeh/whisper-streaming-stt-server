@@ -1,6 +1,7 @@
 import threading
+import time
 from dataclasses import dataclass
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import uvicorn
 from fastapi import FastAPI, Response
@@ -30,25 +31,34 @@ class LoadModelRequest(BaseModel):
 class HttpServerHandle:
     server: uvicorn.Server
     thread: threading.Thread
+    load_threads: List[threading.Thread]
+    load_threads_lock: threading.Lock
 
     def stop(self, timeout: Optional[float] = None) -> None:
         if self.thread.is_alive():
             self.server.should_exit = True
             self.thread.join(timeout=timeout)
+        with self.load_threads_lock:
+            threads = list(self.load_threads)
+        if threads:
+            deadline = time.monotonic() + timeout if timeout is not None else None
+            for thread in threads:
+                remaining = None
+                if deadline is not None:
+                    remaining = max(0.0, deadline - time.monotonic())
+                thread.join(timeout=remaining)
 
 
-def start_http_server(
-    runtime: ApplicationRuntime,
-    server_state: Dict[str, bool],
-    host: str,
-    port: int,
-) -> HttpServerHandle:
-    """Start FastAPI app for /metrics and /health in a background thread."""
+def build_http_app(
+    runtime: ApplicationRuntime, server_state: Dict[str, bool]
+) -> Tuple[FastAPI, List[threading.Thread], threading.Lock]:
+    """Create the FastAPI app and load-model thread tracking state."""
     app = FastAPI()
-
     metrics = runtime.metrics
     model_registry = runtime.model_registry
     health_snapshot = runtime.health_snapshot
+    load_threads: List[threading.Thread] = []
+    load_threads_lock = threading.Lock()
 
     @app.get("/metrics")
     def metrics_endpoint() -> Response:
@@ -75,9 +85,14 @@ def start_http_server(
             )
 
         # Load in a separate thread to prevent blocking the main loop
-        threading.Thread(
-            target=model_registry.load_model, args=(req.model_id, req.model_dump())
-        ).start()
+        thread = threading.Thread(
+            target=model_registry.load_model,
+            args=(req.model_id, req.model_dump()),
+            daemon=True,
+        )
+        with load_threads_lock:
+            load_threads.append(thread)
+        thread.start()
 
         return JSONResponse(
             {
@@ -104,13 +119,28 @@ def start_http_server(
     def list_models_endpoint() -> JSONResponse:
         return JSONResponse({"models": model_registry.list_models()})
 
+    return app, load_threads, load_threads_lock
+
+
+def start_http_server(
+    runtime: ApplicationRuntime,
+    server_state: Dict[str, bool],
+    host: str,
+    port: int,
+) -> HttpServerHandle:
+    """Start FastAPI app for /metrics and /health in a background thread."""
+    app, load_threads, load_threads_lock = build_http_app(runtime, server_state)
     config = uvicorn.Config(app, host=host, port=port, log_level="info")
     server = uvicorn.Server(config)
-    server.install_signal_handlers = lambda: None
 
     def run_server() -> None:
         server.run()
 
     thread = threading.Thread(target=run_server, daemon=True)
     thread.start()
-    return HttpServerHandle(server=server, thread=thread)
+    return HttpServerHandle(
+        server=server,
+        thread=thread,
+        load_threads=load_threads,
+        load_threads_lock=load_threads_lock,
+    )
