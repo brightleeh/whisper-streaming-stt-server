@@ -166,6 +166,7 @@ safety:
 logging:
   level: "INFO"
   file: null
+  faster_whisper_level: null # Optional override (default WARNING when unset)
 
 storage:
   persist_audio: false
@@ -220,8 +221,54 @@ Each client first calls `CreateSession`, passing an application-defined `session
 
 The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 
-- `GET /metrics`: plain-text counters/gauges (active sessions, API-key session counts, decode latency aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts) that can be scraped or converted to Prometheus format later.
+- `GET /metrics`: JSON counters/gauges (active sessions, API-key session counts, decode timing aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts).
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models are loaded, and worker pools are healthy; otherwise `500`.
+- `GET /system`: JSON process/system metrics (CPU, RAM, thread counts). Uses `psutil` when available; otherwise falls back to basic RSS info. Optional GPU metrics can be enabled with `STT_ENABLE_GPU_METRICS=1` when `pynvml` is installed.
+
+### Terminal dashboard (optional)
+
+Use the terminal dashboard to poll `/metrics` and `/system` on a fixed interval:
+
+```bash
+python -m tools.dashboard.monitor_dashboard
+```
+
+Common options:
+
+- `--metrics-url` / `--system-url` to target a remote server.
+- `--interval` to control refresh cadence (seconds).
+- `--once` to fetch a single snapshot.
+- `--no-clear` to avoid clearing the terminal between updates.
+
+### Decode timing breakdown
+
+Decode timing is measured inside the server for every decode task. The timing is split into distinct phases so you can see where time is being spent:
+
+- **buffer wait time**: time spent accumulating audio before the decode is scheduled
+- **queue wait time**: time spent waiting for an available model worker after the decode is scheduled
+- **inference time**: time spent executing the model
+- **response emit time**: time spent yielding results back to the client
+- **total decode time**: sum of buffer wait + queue wait + inference + response emit
+
+```mermaid
+flowchart LR
+  Buffering["Buffering audio until decode is scheduled"]
+  QueueWait["Queue wait (waiting for available model worker)"]
+  Inference["Inference (model execution)"]
+  ResponseEmit["Response emit (yielding results to the client)"]
+  Buffering --> QueueWait --> Inference --> ResponseEmit
+```
+
+These totals are attached to each `StreamingRecognize` call as trailing metadata:
+
+- `stt-decode-buffer-wait-sec`
+- `stt-decode-queue-wait-sec`
+- `stt-decode-inference-sec`
+- `stt-decode-response-emit-sec`
+- `stt-decode-total-sec`
+- `stt-decode-count`
+
+The `sec` suffix means seconds. Bench session logs print the same values per stream to help correlate client-observed latency with server-side decode timing.
 
 ## Admin (Control Plane)
 
@@ -285,6 +332,7 @@ python -m stt_server.main --log-metrics
 - `--config <path>` points to the server YAML (default: `config/server.yaml`).
 - `--model-config <path>` points to the model/decode YAML (default: `config/model.yaml`).
 - `--log-level` / `--log-file` override the logging section (console/file).
+- `--faster-whisper-log-level` overrides the `faster_whisper` logger level (default WARNING).
 - `--vad-silence` / `--vad-threshold` configure the VAD gate (silence duration +
   Silero VAD probability threshold, 0-1) that triggers final decoding.
 - `--speech-threshold` sets the minimum RMS required before buffering is treated
@@ -292,7 +340,7 @@ python -m stt_server.main --log-metrics
 - `--decode-timeout` specifies the wait time for outstanding decode tasks
   during draining (<=0 waits indefinitely).
 - `--metrics-port` sets the FastAPI metrics/health server port (default 8000).
-- Sessions auto-disconnect after 60 seconds of silence; adjust in code if needed.
+- Sessions auto-disconnect after 60 seconds of silence; adjust `server.session_timeout_sec` in `config/server.yaml` (or set your own config file).
 
 3. In another terminal, run the sample **realtime file** client:
    ```bash
@@ -322,6 +370,24 @@ python -m stt_server.main --log-metrics
    - Defaults to the `accurate` profile; override with `--decode-profile realtime`.
    - Accepts the same `--language`, `--task`, attributes, token, and `--vad-*` flags as the realtime clients.
    - Batch ignores `chunk_ms`/`realtime` fields in the config; it always sends a single chunk.
+
+## Load testing (bench)
+
+Run the gRPC load-test script from the repo root:
+
+```bash
+python -m tools.bench.grpc_load_test --channels 100 --iterations 1 --warmup-iterations 1 --log-sessions
+```
+
+Per-session logs can be emitted in structured formats:
+
+- `--session-log-format` supports `jsonl` (default), `csv`, `tsv`, and `markdown`.
+- `--log-sessions` prints per-session logs to stdout (limited by `--max-session-logs`).
+- `--session-log-path <path>` writes **all** session logs to a file using the selected format.
+- `--warmup-iterations` runs warm-up iterations per channel that are excluded from the stats.
+- `--ramp-steps` / `--ramp-interval-sec` ramp channels up in batches instead of firing all at once.
+
+The per-session fields include the decode timing breakdown (`decode_buffer_wait_seconds`, `decode_queue_wait_seconds`, `decode_inference_seconds`, `decode_response_emit_seconds`, `decode_total_seconds`). Durations are rounded to three decimal places. Markdown output includes a header, start/end time, and column definitions; CSV/TSV/JSONL outputs contain only data rows.
 
 ## Docker
 
@@ -367,7 +433,7 @@ kubectl rollout restart deployment/stt-server
 
 ## Server-side audio capture
 
-Enable `storage.persist_audio: true` to have the backend archive one WAV file per session inside `storage.directory`. Retention is enforced lazily right after each session finishes:
+Enable `storage.persist_audio: true` to have the backend archive one WAV file per session inside `storage.directory`. Audio chunks are queued to a background writer thread to avoid blocking the streaming loop. Retention is enforced lazily right after each session finishes:
 
 - `max_bytes`: cap total on-disk bytes (oldest files removed first).
 - `max_files`: keep at most _N_ WAV files (oldest deleted first).
