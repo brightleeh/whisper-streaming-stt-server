@@ -20,7 +20,7 @@ def test_decode_stream_logic_err2001_timeout():
     mock_future.done.return_value = False
     scheduler._increment_pending()
     stream.pending_partials = 1
-    stream.pending_results.append((mock_future, False, 0.0, False))
+    stream.pending_results.append((mock_future, False, 0.0, False, 0.0))
 
     with patch(
         "stt_server.backend.component.decode_scheduler.futures.wait"
@@ -47,7 +47,7 @@ def test_decode_stream_logic_err2002_task_failed():
     mock_future.result.side_effect = ValueError("Model crash")
     scheduler._increment_pending()
     stream.pending_partials = 1
-    stream.pending_results.append((mock_future, False, 0.0, False))
+    stream.pending_results.append((mock_future, False, 0.0, False, 0.0))
 
     with pytest.raises(RuntimeError) as exc:
         list(stream.emit_ready(block=False))
@@ -58,3 +58,56 @@ def test_decode_stream_logic_err2002_task_failed():
     assert scheduler.pending_decodes() == 0
     assert stream.pending_partials == 0
     assert stream.pending_results == []
+
+
+def test_decode_stream_timing_summary_after_emit_ready():
+    hooks = DecodeSchedulerHooks(on_decode_result=MagicMock())
+    language_lookup = MagicMock()
+    language_lookup.get_name.return_value = "English"
+    scheduler = DecodeScheduler(MagicMock(), 0.0, language_lookup, hooks=hooks)
+    stream = DecodeStream(scheduler)
+
+    class FakeSegment:
+        def __init__(self, text: str, start: float, end: float) -> None:
+            self.text = text
+            self.start = start
+            self.end = end
+
+    class FakeResult:
+        def __init__(self) -> None:
+            self.segments = [FakeSegment("hello", 0.0, 0.1)]
+            self.language_code = "en"
+            self.language_probability = 0.9
+            self.latency_sec = 0.25
+            self.rtf = 0.5
+            self.queue_wait_sec = 0.3
+            self.audio_duration = 0.1
+
+    fake_result = FakeResult()
+    mock_future = MagicMock(spec=futures.Future)
+    mock_future.done.return_value = True
+    mock_future.result.return_value = fake_result
+
+    buffer_wait_sec = 0.12
+    scheduler._increment_pending()
+    stream.pending_results.append((mock_future, True, 0.0, False, buffer_wait_sec))
+
+    with patch(
+        "stt_server.backend.component.decode_scheduler.time.perf_counter",
+        side_effect=[10.0, 10.05],
+    ):
+        list(stream.emit_ready(block=False))
+
+    (
+        buffer_wait_total,
+        queue_wait_total,
+        inference_total,
+        response_emit_total,
+        decode_count,
+    ) = stream.timing_summary()
+
+    assert buffer_wait_total == pytest.approx(buffer_wait_sec)
+    assert queue_wait_total == pytest.approx(fake_result.queue_wait_sec)
+    assert inference_total == pytest.approx(fake_result.latency_sec)
+    assert response_emit_total == pytest.approx(0.05)
+    assert decode_count == 1
