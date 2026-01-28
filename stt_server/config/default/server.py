@@ -35,6 +35,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
     "logging": {
         "level": "log_level",
         "file": "log_file",
+        "faster_whisper_level": "faster_whisper_log_level",
     },
     "storage": {
         "persist_audio": "persist_audio",

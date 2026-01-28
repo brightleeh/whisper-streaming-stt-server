@@ -21,12 +21,21 @@ LOG_QUEUE: "queue.Queue[logging.LogRecord]" = queue.Queue()
 QUEUE_LISTENER: Optional[logging.handlers.QueueListener] = None
 
 
-def configure_logging(level: str, log_file: Optional[str]) -> None:
+def _resolve_level(value: Optional[str], fallback: int) -> int:
+    if not value:
+        return fallback
+    upper = value.upper()
+    if upper == "TRACE":
+        return TRACE_LEVEL_NUM
+    return getattr(logging, upper, fallback)
+
+
+def configure_logging(
+    level: str, log_file: Optional[str], faster_whisper_level: Optional[str] = None
+) -> None:
     """Configure root logging with queue-based handlers."""
     global QUEUE_LISTENER
-    numeric_level = getattr(logging, level.upper(), logging.INFO)
-    if level.upper() == "TRACE":
-        numeric_level = TRACE_LEVEL_NUM
+    numeric_level = _resolve_level(level, logging.INFO)
 
     formatter = logging.Formatter(
         "%(asctime)s [%(levelname)s] %(name)s [%(filename)s:%(lineno)d]: %(message)s"
@@ -57,6 +66,12 @@ def configure_logging(level: str, log_file: Optional[str]) -> None:
     root_logger.handlers.clear()
     root_logger.setLevel(numeric_level)
     root_logger.addHandler(queue_handler)
+
+    faster_whisper_logger = logging.getLogger("faster_whisper")
+    faster_whisper_default_level = logging.WARNING
+    faster_whisper_logger.setLevel(
+        _resolve_level(faster_whisper_level, faster_whisper_default_level)
+    )
 
     QUEUE_LISTENER = logging.handlers.QueueListener(
         LOG_QUEUE, *handlers, respect_handler_level=True

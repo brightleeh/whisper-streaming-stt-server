@@ -1,4 +1,5 @@
 import argparse
+import os
 import signal
 import threading
 from concurrent import futures
@@ -29,6 +30,8 @@ def serve(config: ServerConfig) -> None:
     server_state = {"grpc_running": False}
     stop_event = threading.Event()
     shutdown_once = threading.Event()
+    shutdown_done = threading.Event()
+    force_exit_scheduled = threading.Event()
     grpc_executor = futures.ThreadPoolExecutor(max_workers=config.max_sessions)
     server = grpc.server(grpc_executor)
     model_cfg = ModelRuntimeConfig(
@@ -90,10 +93,28 @@ def serve(config: ServerConfig) -> None:
             http_handle.stop(timeout=grace + 1)
             servicer.runtime.shutdown()
             grpc_executor.shutdown(wait=False)
+            shutdown_done.set()
+
+    def _force_exit_after(delay: float) -> None:
+        if shutdown_done.wait(timeout=delay):
+            return
+        LOGGER.error("Graceful shutdown timed out; forcing exit")
+        os._exit(1)
 
     def _handle_signal(signum: int, _frame) -> None:  # type: ignore[no-untyped-def]
+        if shutdown_once.is_set():
+            LOGGER.error("Second signal %s received; forcing exit", signum)
+            os._exit(1)
         LOGGER.info("Received signal %s; shutting down", signum)
         stop_event.set()
+        if not force_exit_scheduled.is_set():
+            force_exit_scheduled.set()
+            delay = (
+                config.decode_timeout_sec if config.decode_timeout_sec > 0 else 5.0
+            ) + 2.0
+            threading.Thread(
+                target=_force_exit_after, args=(delay,), daemon=True
+            ).start()
 
     if threading.current_thread() is threading.main_thread():
         signal.signal(signal.SIGTERM, _handle_signal)
@@ -202,6 +223,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional log file path; overrides config",
     )
     parser.add_argument(
+        "--faster-whisper-log-level",
+        default=None,
+        help="Override faster_whisper logger level (e.g. DEBUG, INFO, WARNING)",
+    )
+    parser.add_argument(
         "--vad-silence",
         type=float,
         default=None,
@@ -267,6 +293,8 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.log_level = args.log_level
     if args.log_file is not None:
         config.log_file = args.log_file
+    if args.faster_whisper_log_level is not None:
+        config.faster_whisper_log_level = args.faster_whisper_log_level
     if args.vad_silence is not None:
         config.vad_silence = args.vad_silence
     if args.vad_threshold is not None:
@@ -274,7 +302,9 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
     if args.sample_rate is not None:
         config.sample_rate = args.sample_rate
 
-    configure_logging(config.log_level, config.log_file)
+    configure_logging(
+        config.log_level, config.log_file, config.faster_whisper_log_level
+    )
     if effective_config_path.exists():
         LOGGER.info("Loaded server config from %s", effective_config_path)
     else:

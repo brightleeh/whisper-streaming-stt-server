@@ -55,6 +55,7 @@ class ServerConfig:
     speech_rms_threshold: float = DEFAULT_SPEECH_RMS_THRESHOLD
     log_level: str = DEFAULT_LOG_LEVEL
     log_file: Optional[str] = DEFAULT_LOG_FILE
+    faster_whisper_log_level: Optional[str] = None
     sample_rate: int = DEFAULT_SAMPLE_RATE
     session_timeout_sec: float = 60.0
     persist_audio: bool = DEFAULT_PERSIST_AUDIO

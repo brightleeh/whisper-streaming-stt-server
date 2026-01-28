@@ -93,6 +93,8 @@ class ApplicationRuntime:
             on_error=self.metrics.record_error,
             on_decode_result=self.metrics.record_decode,
             on_vad_utterance_end=self.metrics.decrease_active_vad_utterances,
+            on_decode_cancelled=self.metrics.record_decode_cancelled,
+            on_decode_orphaned=self.metrics.record_decode_orphaned,
         )
         stream_hooks = StreamOrchestratorHooks(
             on_vad_trigger=self.metrics.record_vad_trigger,

@@ -13,6 +13,8 @@ class Metrics:
         self._decode_count = 0
         self._decode_total = 0.0
         self._decode_max = 0.0
+        self._decode_cancelled = 0
+        self._decode_orphaned = 0
         self._rtf_count = 0
         self._rtf_total = 0.0
         self._rtf_max = 0.0
@@ -45,6 +47,14 @@ class Metrics:
                 self._rtf_total += rtf
                 self._rtf_max = max(self._rtf_max, rtf)
 
+    def record_decode_cancelled(self, count: int) -> None:
+        with self._lock:
+            self._decode_cancelled += max(count, 0)
+
+    def record_decode_orphaned(self, count: int) -> None:
+        with self._lock:
+            self._decode_orphaned += max(count, 0)
+
     def record_vad_trigger(self) -> None:
         with self._lock:
             self._vad_triggers += 1
@@ -73,6 +83,8 @@ class Metrics:
                 "decode_latency_total": self._decode_total,
                 "decode_latency_count": self._decode_count,
                 "decode_latency_max": self._decode_max,
+                "decode_cancelled": self._decode_cancelled,
+                "decode_orphaned": self._decode_orphaned,
                 "rtf_total": self._rtf_total,
                 "rtf_count": self._rtf_count,
                 "rtf_max": self._rtf_max,
@@ -92,6 +104,8 @@ class Metrics:
                 "active_sessions": self._active_sessions,
                 "decode_latency_avg": decode_avg,
                 "decode_latency_max": self._decode_max,
+                "decode_cancelled": float(self._decode_cancelled),
+                "decode_orphaned": float(self._decode_orphaned),
                 "rtf_avg": rtf_avg,
                 "rtf_max": self._rtf_max,
                 "vad_triggers": self._vad_triggers,

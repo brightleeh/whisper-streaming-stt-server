@@ -17,6 +17,7 @@ safety:
 logging:
   level: "INFO" # TRACE/DEBUG/INFO/WARN/ERROR
   file: null # Optional log file path
+  faster_whisper_level: null # Optional: override faster_whisper logger level
 
 storage:
   persist_audio: false # Enable server-side audio capture

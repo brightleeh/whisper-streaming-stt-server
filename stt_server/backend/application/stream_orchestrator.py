@@ -147,12 +147,14 @@ class StreamOrchestrator:
         audio_recorder: Optional[SessionAudioRecorder] = None
         audio_received_sec = 0.0
         buffer_start_sec = 0.0
+        client_disconnected = False
 
         # Initialize Watchdog variables
         last_activity = time.monotonic()
         stop_watchdog = threading.Event()
         timeout_event = threading.Event()
         stream_finished = threading.Event()
+        disconnect_event = threading.Event()
 
         def watchdog_loop():
             while not stop_watchdog.is_set():
@@ -184,6 +186,31 @@ class StreamOrchestrator:
                 if stop_watchdog.wait(remaining):
                     break
 
+        def on_disconnect() -> None:
+            if disconnect_event.is_set():
+                return
+            disconnect_event.set()
+            current_session_id = session_state.session_id if session_state else None
+            LOGGER.info(
+                "Client disconnect callback received for session %s", current_session_id
+            )
+            if decode_stream:
+                cancelled, running = decode_stream.cancel_pending()
+                if cancelled:
+                    LOGGER.info(
+                        "Cancelled %d pending decodes for session_id=%s",
+                        cancelled,
+                        current_session_id or "unknown",
+                    )
+                if running:
+                    LOGGER.info(
+                        "Pending decodes already running; cannot cancel (count=%d, session_id=%s)",
+                        running,
+                        current_session_id or "unknown",
+                    )
+
+        context.add_callback(on_disconnect)
+
         # Start Watchdog thread (run as daemon thread)
         watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
         watchdog_thread.start()
@@ -204,6 +231,12 @@ class StreamOrchestrator:
             sample_rate: Optional[int] = None
 
             for chunk in request_iterator:
+                if disconnect_event.is_set():
+                    LOGGER.info("Stopping stream due to disconnect signal.")
+                    final_reason = "client_disconnect"
+                    client_disconnected = True
+                    buffer = bytearray()
+                    break
                 # Check for timeout signal at the start of the loop
                 if timeout_event.is_set():
                     LOGGER.info("Stopping stream due to timeout signal.")
@@ -219,6 +252,22 @@ class StreamOrchestrator:
                         "Client disconnected; stopping session %s", current_session_id
                     )
                     final_reason = "client_disconnect"
+                    client_disconnected = True
+                    if decode_stream:
+                        cancelled, running = decode_stream.cancel_pending()
+                        if cancelled:
+                            LOGGER.info(
+                                "Cancelled %d pending decodes for session_id=%s",
+                                cancelled,
+                                current_session_id or "unknown",
+                            )
+                        if running:
+                            LOGGER.info(
+                                "Pending decodes already running; cannot cancel (count=%d, session_id=%s)",
+                                running,
+                                current_session_id or "unknown",
+                            )
+                    buffer = bytearray()
                     break
                 if (
                     chunk.session_id
@@ -340,8 +389,10 @@ class StreamOrchestrator:
 
             # Process remaining buffer after loop ends
             if decode_stream:
-                if buffer and buffer_is_speech(
-                    buffer, self._config.speech_rms_threshold
+                if (
+                    not client_disconnected
+                    and buffer
+                    and buffer_is_speech(buffer, self._config.speech_rms_threshold)
                 ):
                     decode_stream.schedule_decode(
                         bytes(buffer),

@@ -30,11 +30,17 @@ def _noop_decode(_: float, __: float) -> None:
     return None
 
 
+def _noop_count(_: int) -> None:
+    return None
+
+
 @dataclass(frozen=True)
 class DecodeSchedulerHooks:
     on_error: Callable[[grpc.StatusCode], None] = _noop_status
     on_decode_result: Callable[[float, float], None] = _noop_decode
     on_vad_utterance_end: Callable[[], None] = _noop
+    on_decode_cancelled: Callable[[int], None] = _noop_count
+    on_decode_orphaned: Callable[[int], None] = _noop_count
 
 
 class DecodeScheduler:
@@ -82,6 +88,12 @@ class DecodeScheduler:
 
     def _on_vad_utterance_end(self) -> None:
         self._hooks.on_vad_utterance_end()
+
+    def _on_decode_cancelled(self, count: int) -> None:
+        self._hooks.on_decode_cancelled(count)
+
+    def _on_decode_orphaned(self, count: int) -> None:
+        self._hooks.on_decode_orphaned(count)
 
 
 class DecodeStream:
@@ -157,6 +169,29 @@ class DecodeStream:
     def has_pending_results(self) -> bool:
         with self._lock:
             return bool(self.pending_results)
+
+    def cancel_pending(self) -> Tuple[int, int]:
+        with self._lock:
+            if not self.pending_results:
+                return 0, 0
+            pending = list(self.pending_results)
+            self.pending_results.clear()
+            partials_to_drop = sum(1 for _, is_final, _, _ in pending if not is_final)
+            if partials_to_drop:
+                self.pending_partials = max(0, self.pending_partials - partials_to_drop)
+        cancelled = 0
+        not_cancelled = 0
+        for future, _, _, _ in pending:
+            if future.cancel():
+                cancelled += 1
+            else:
+                not_cancelled += 1
+            self.scheduler._decrement_pending()
+        if cancelled:
+            self.scheduler._on_decode_cancelled(cancelled)
+        if not_cancelled:
+            self.scheduler._on_decode_orphaned(not_cancelled)
+        return cancelled, not_cancelled
 
     def emit_ready(self, block: bool) -> Iterable[stt_pb2.STTResult]:
         ready: List[Tuple[futures.Future, bool, float, bool]] = []
