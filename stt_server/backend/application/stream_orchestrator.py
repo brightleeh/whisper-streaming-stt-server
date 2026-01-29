@@ -86,6 +86,29 @@ class StreamOrchestratorHooks:
     decode_hooks: DecodeSchedulerHooks = field(default_factory=DecodeSchedulerHooks)
 
 
+@dataclass
+class _StreamState:
+    session_state: Optional[SessionState] = None
+    vad_state: Optional[VADGate] = None
+    decode_stream: Optional[DecodeStream] = None
+    session_logged: bool = False
+    final_reason: str = "stream_end"
+    session_start: float = field(default_factory=time.monotonic)
+    vad_count: int = 0
+    audio_recorder: Optional[SessionAudioRecorder] = None
+    audio_received_sec: float = 0.0
+    buffer_start_sec: float = 0.0
+    buffer_start_time: Optional[float] = None
+    client_disconnected: bool = False
+    buffer: bytearray = field(default_factory=bytearray)
+    sample_rate: Optional[int] = None
+    last_activity: float = field(default_factory=time.monotonic)
+    stop_watchdog: threading.Event = field(default_factory=threading.Event)
+    timeout_event: threading.Event = field(default_factory=threading.Event)
+    disconnect_event: threading.Event = field(default_factory=threading.Event)
+    stop_stream: bool = False
+
+
 class StreamOrchestrator:
     """Executes the streaming recognition loop for the gRPC servicer."""
 
@@ -199,15 +222,10 @@ class StreamOrchestrator:
             return False
         return True
 
-    def run(
-        self,
-        request_iterator: Iterable[stt_pb2.AudioChunk],
-        context: grpc.ServicerContext,
-    ) -> Iterator[stt_pb2.STTResult]:
-        session_state: Optional[SessionState] = None
-        vad_state: Optional[VADGate] = None
-        decode_stream = None
-        metadata = {k.lower(): v for (k, v) in context.invocation_metadata()}
+    def _build_metadata(self, context: grpc.ServicerContext) -> Dict[str, str | bytes]:
+        return {k.lower(): v for (k, v) in context.invocation_metadata()}
+
+    def _apply_metadata_session_id(self, metadata: Dict[str, str | bytes]) -> None:
         metadata_session_id = metadata.get("session-id") or metadata.get("session_id")
         if metadata_session_id:
             if isinstance(metadata_session_id, bytes):
@@ -219,427 +237,476 @@ class StreamOrchestrator:
                     metadata_session_id = None
             if metadata_session_id:
                 set_session_id(str(metadata_session_id).strip())
-        session_logged = False
-        final_reason = "stream_end"
-        session_start = time.monotonic()
-        vad_count = 0
-        audio_recorder: Optional[SessionAudioRecorder] = None
-        audio_received_sec = 0.0
-        buffer_start_sec = 0.0
-        buffer_start_time: Optional[float] = None
-        client_disconnected = False
 
-        # Initialize Watchdog variables
-        last_activity = time.monotonic()
-        stop_watchdog = threading.Event()
-        timeout_event = threading.Event()
-        disconnect_event = threading.Event()
+    def _mark_activity(self, state: _StreamState) -> None:
+        state.last_activity = time.monotonic()
 
-        def _mark_activity() -> None:
-            nonlocal last_activity
-            last_activity = time.monotonic()
+    def _emit_with_activity(
+        self, state: _StreamState, block: bool
+    ) -> Iterator[stt_pb2.STTResult]:
+        if not state.decode_stream:
+            return
+        self._mark_activity(state)
+        for result in self._emit_results_with_session(
+            state.decode_stream, block, state.session_state
+        ):
+            self._mark_activity(state)
+            yield result
 
-        def _emit_with_activity(
-            stream: DecodeStream,
-            block: bool,
-            state: Optional[SessionState],
-        ) -> Iterator[stt_pb2.STTResult]:
-            _mark_activity()
-            for result in self._emit_results_with_session(stream, block, state):
-                _mark_activity()
+    def _watchdog_loop(self, state: _StreamState) -> None:
+        while not state.stop_watchdog.is_set():
+            if state.decode_stream and state.decode_stream.has_pending_results():
+                self._mark_activity(state)
+            # Calculate time elapsed since last activity
+            elapsed = time.monotonic() - state.last_activity
+            remaining = self._config.session_timeout_sec - elapsed
+
+            if remaining <= 0:
+                LOGGER.warning("Session timeout detected.")
+                state.timeout_event.set()
+                return
+
+            # Wait for remaining time (wake up immediately if stop signal received)
+            if state.stop_watchdog.wait(remaining):
+                break
+
+    def _start_watchdog(self, state: _StreamState) -> threading.Thread:
+        thread = threading.Thread(
+            target=lambda: self._watchdog_loop(state), daemon=True
+        )
+        thread.start()
+        return thread
+
+    def _cancel_pending_decodes(
+        self, decode_stream: Optional[DecodeStream], session_id: Optional[str]
+    ) -> None:
+        if not decode_stream:
+            return
+        cancelled, running = decode_stream.cancel_pending()
+        if cancelled:
+            LOGGER.info(
+                "Cancelled %d pending decodes for session_id=%s",
+                cancelled,
+                session_id or "unknown",
+            )
+        if running:
+            LOGGER.info(
+                "Pending decodes already running; cannot cancel (count=%d, session_id=%s)",
+                running,
+                session_id or "unknown",
+            )
+
+    def _handle_disconnect(self, state: _StreamState) -> None:
+        if state.disconnect_event.is_set():
+            return
+        state.disconnect_event.set()
+        current_session_id = (
+            state.session_state.session_id if state.session_state else None
+        )
+        LOGGER.info(
+            "Client disconnect callback received for session %s", current_session_id
+        )
+        self._cancel_pending_decodes(state.decode_stream, current_session_id)
+
+    def _bootstrap_stream(
+        self,
+        state: _StreamState,
+        metadata: Dict[str, str | bytes],
+        context: grpc.ServicerContext,
+    ) -> None:
+        state.session_state = self._session_facade.resolve_from_metadata(
+            metadata, context
+        )
+        if state.session_state:
+            set_session_id(state.session_state.session_id)
+            state.session_logged = self._log_session_start(state.session_state)
+            state.vad_state = self._create_vad_state(state.session_state)
+        state.decode_stream = self._decode_scheduler.new_stream()
+        if state.session_state and state.decode_stream:
+            state.decode_stream.set_session_id(state.session_state.session_id)
+            state.decode_stream.set_model_id(state.session_state.session_info.model_id)
+
+    def _handle_vad_trigger(
+        self,
+        state: _StreamState,
+        vad_update: Any,
+    ) -> Iterator[stt_pb2.STTResult]:
+        if not state.vad_state or not state.decode_stream or not state.session_state:
+            return
+        if not buffer_is_speech(state.buffer, self._config.speech_rms_threshold):
+            LOGGER.info(
+                "Skipping decode: chunk RMS %.4f below speech threshold %.4f",
+                vad_update.chunk_rms,
+                self._config.speech_rms_threshold,
+            )
+            LOGGER.info(
+                "session_id=%s ignored low-energy buffer",
+                state.session_state.session_id if state.session_state else "unknown",
+            )
+            state.buffer = bytearray()
+            state.buffer_start_time = None
+            state.vad_state.reset_after_trigger()
+            return
+        self._on_vad_trigger()
+        state.vad_count += 1
+        self._on_vad_utterance_start()
+        session_info = state.session_state.session_info
+        is_final = session_info.vad_mode == stt_pb2.VAD_AUTO_END
+        effective_rate = state.sample_rate or self._config.default_sample_rate
+        if state.disconnect_event.is_set() or state.timeout_event.is_set():
+            LOGGER.info("Skipping decode due to shutdown signal.")
+            state.final_reason = (
+                "client_disconnect" if state.disconnect_event.is_set() else "timeout"
+            )
+            state.client_disconnected = state.disconnect_event.is_set()
+            state.stop_stream = True
+            return
+        if not self._ensure_decode_capacity(
+            state.decode_stream, is_final, state.session_state
+        ):
+            state.buffer = bytearray()
+            state.buffer_start_time = None
+            state.vad_state.reset_after_trigger()
+            return
+        state.decode_stream.schedule_decode(
+            bytes(state.buffer),
+            effective_rate,
+            state.session_state.decode_options,
+            is_final,
+            state.buffer_start_sec,
+            count_vad=True,
+            buffer_started_at=state.buffer_start_time,
+        )
+        self._mark_activity(state)
+        state.buffer = bytearray()
+        state.buffer_start_time = None
+        LOGGER.info(
+            "VAD count=%d for current session (pending=%d, mode=%s, active_vad=%d)",
+            state.vad_count,
+            state.decode_stream.pending_partial_decodes(),
+            (
+                "AUTO_END"
+                if session_info.vad_mode == stt_pb2.VAD_AUTO_END
+                else "CONTINUE"
+            ),
+            self._active_vad_utterances(),
+        )
+        if is_final:
+            for result in self._emit_with_activity(state, False):
+                yield result
+            state.final_reason = "auto_vad_finalized"
+            state.stop_stream = True
+            return
+        state.vad_state.reset_after_trigger()
+
+    def _handle_final_chunk(
+        self, state: _StreamState, context: grpc.ServicerContext
+    ) -> Iterator[stt_pb2.STTResult]:
+        if not state.decode_stream:
+            return
+        if state.buffer:
+            effective_rate = state.sample_rate or self._config.default_sample_rate
+            if state.disconnect_event.is_set() or state.timeout_event.is_set():
+                LOGGER.info("Skipping final decode due to shutdown signal.")
+                state.final_reason = (
+                    "client_disconnect"
+                    if state.disconnect_event.is_set()
+                    else "timeout"
+                )
+                state.client_disconnected = state.disconnect_event.is_set()
+                state.stop_stream = True
+                return
+            self._ensure_decode_capacity(state.decode_stream, True, state.session_state)
+            state.decode_stream.schedule_decode(
+                bytes(state.buffer),
+                effective_rate,
+                state.session_state.decode_options if state.session_state else {},
+                True,
+                state.buffer_start_sec,
+                count_vad=False,
+                buffer_started_at=state.buffer_start_time,
+            )
+            self._mark_activity(state)
+            state.buffer = bytearray()
+            state.buffer_start_time = None
+        for result in self._emit_with_activity(state, False):
+            yield result
+        state.final_reason = "client_sent_final_chunk"
+        state.stop_stream = True
+
+    def _drain_pending_results(
+        self, state: _StreamState, context: grpc.ServicerContext
+    ) -> Iterator[stt_pb2.STTResult]:
+        if state.timeout_event.is_set():
+            LOGGER.info("Stopping stream due to timeout signal.")
+            state.final_reason = "timeout"
+            abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
+        if state.decode_stream:
+            if (
+                not state.client_disconnected
+                and state.buffer
+                and buffer_is_speech(state.buffer, self._config.speech_rms_threshold)
+            ):
+                self._ensure_decode_capacity(
+                    state.decode_stream, True, state.session_state
+                )
+                state.decode_stream.schedule_decode(
+                    bytes(state.buffer),
+                    state.sample_rate or self._config.default_sample_rate,
+                    state.session_state.decode_options if state.session_state else {},
+                    True,
+                    state.buffer_start_sec,
+                    count_vad=False,
+                    buffer_started_at=state.buffer_start_time,
+                )
+                self._mark_activity(state)
+            state.buffer_start_time = None
+
+            while True:
+                if state.timeout_event.is_set():
+                    LOGGER.info("Stopping stream due to timeout signal.")
+                    state.final_reason = "timeout"
+                    abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
+                emitted = list(
+                    self._emit_with_activity(
+                        state,
+                        block=state.decode_stream.has_pending_results(),
+                    )
+                )
+                if not emitted:
+                    break
+                for result in emitted:
+                    yield result
+
+    def _handle_chunk(
+        self,
+        state: _StreamState,
+        chunk: stt_pb2.AudioChunk,
+        context: grpc.ServicerContext,
+    ) -> Iterator[stt_pb2.STTResult]:
+        if state.disconnect_event.is_set():
+            LOGGER.info("Stopping stream due to disconnect signal.")
+            state.final_reason = "client_disconnect"
+            state.client_disconnected = True
+            state.buffer = bytearray()
+            state.buffer_start_time = None
+            state.stop_stream = True
+            return
+        if state.timeout_event.is_set():
+            LOGGER.info("Stopping stream due to timeout signal.")
+            state.final_reason = "timeout"
+            abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
+
+        # Update activity timestamp
+        self._mark_activity(state)
+
+        current_session_id = (
+            state.session_state.session_id if state.session_state else None
+        )
+        if current_session_id:
+            set_session_id(current_session_id)
+        if not context.is_active():
+            LOGGER.info("Client disconnected; stopping session %s", current_session_id)
+            state.final_reason = "client_disconnect"
+            state.client_disconnected = True
+            self._cancel_pending_decodes(state.decode_stream, current_session_id)
+            state.buffer = bytearray()
+            state.buffer_start_time = None
+            state.stop_stream = True
+            return
+        if (
+            chunk.session_id
+            and current_session_id
+            and chunk.session_id != current_session_id
+        ):
+            LOGGER.warning(
+                "Received chunk with mismatched session_id=%s (expected %s)",
+                chunk.session_id,
+                current_session_id,
+            )
+            return
+
+        if state.session_state is None:
+            state.session_state = self._session_facade.ensure_session_from_chunk(
+                state.session_state, chunk, context
+            )
+
+        if state.session_state and state.decode_stream:
+            state.decode_stream.set_session_id(state.session_state.session_id)
+            set_session_id(state.session_state.session_id)
+        if state.session_state and not state.session_logged:
+            state.session_logged = self._log_session_start(state.session_state)
+        if state.vad_state is None:
+            state.vad_state = self._create_vad_state(state.session_state)
+
+        self._session_facade.validate_token(state.session_state, chunk, context)
+
+        if state.vad_state is None:
+            # Should not happen, but guard against update before initialization.
+            state.vad_state = self._create_vad_state(state.session_state)
+
+        state.sample_rate = (
+            chunk.sample_rate
+            if chunk.sample_rate > 0
+            else state.sample_rate or self._config.default_sample_rate
+        )
+        state.audio_recorder = self._capture_audio_chunk(
+            state.audio_recorder,
+            state.session_state,
+            state.sample_rate,
+            chunk.pcm16,
+        )
+
+        if not state.buffer and chunk.pcm16:
+            state.buffer_start_sec = state.audio_received_sec
+            state.buffer_start_time = time.perf_counter()
+        state.buffer.extend(chunk.pcm16)
+        state.audio_received_sec += audio.chunk_duration_seconds(
+            len(chunk.pcm16), state.sample_rate
+        )
+        vad_update = state.vad_state.update(chunk.pcm16, state.sample_rate)
+
+        if vad_update.triggered:
+            for result in self._handle_vad_trigger(state, vad_update):
+                yield result
+            if state.stop_stream:
+                return
+
+        if not chunk.is_final:
+            if state.disconnect_event.is_set() or state.timeout_event.is_set():
+                LOGGER.info("Skipping buffer management due to shutdown signal.")
+                state.final_reason = (
+                    "client_disconnect"
+                    if state.disconnect_event.is_set()
+                    else "timeout"
+                )
+                state.client_disconnected = state.disconnect_event.is_set()
+                state.stop_stream = True
+                return
+            (
+                state.buffer,
+                state.buffer_start_sec,
+                state.buffer_start_time,
+            ) = self._enforce_buffer_limit(
+                state.buffer,
+                state.buffer_start_sec,
+                state.buffer_start_time,
+                state.audio_received_sec,
+                state.sample_rate,
+                state.session_state,
+                state.decode_stream,
+                activity_callback=lambda: self._mark_activity(state),
+            )
+
+        for result in self._emit_with_activity(state, False):
+            yield result
+
+        if chunk.is_final:
+            for result in self._handle_final_chunk(state, context):
                 yield result
 
-        def watchdog_loop():
-            nonlocal last_activity
-            while not stop_watchdog.is_set():
-                if decode_stream and decode_stream.has_pending_results():
-                    _mark_activity()
-                # Calculate time elapsed since last activity
-                elapsed = time.monotonic() - last_activity
-                remaining = self._config.session_timeout_sec - elapsed
+    def _finalize_stream(
+        self, state: _StreamState, context: grpc.ServicerContext
+    ) -> None:
+        # Send termination signal to stop watchdog cleanly
+        state.stop_watchdog.set()
 
-                if remaining <= 0:
-                    LOGGER.warning("Session timeout detected.")
-                    timeout_event.set()
-                    return
+        if state.timeout_event.is_set():
+            state.final_reason = "timeout"
 
-                # Wait for remaining time (wake up immediately if stop signal received)
-                if stop_watchdog.wait(remaining):
-                    break
+        if state.vad_state:
+            state.vad_state.close()
 
-        def on_disconnect() -> None:
-            if disconnect_event.is_set():
-                return
-            disconnect_event.set()
-            current_session_id = session_state.session_id if session_state else None
-            LOGGER.info(
-                "Client disconnect callback received for session %s", current_session_id
+        if state.decode_stream:
+            (
+                buffer_wait_total,
+                queue_wait_total,
+                inference_total,
+                response_emit_total,
+                decode_count,
+            ) = state.decode_stream.timing_summary()
+            try:
+                # Decode timing totals per stream (accumulated across decode tasks):
+                # - buffer_wait: time spent buffering audio before scheduling decode
+                # - queue_wait: time waiting for a worker after scheduling decode
+                # - inference: model execution time
+                # - response_emit: time spent yielding results to the client
+                # - total: sum of buffer_wait + queue_wait + inference + response_emit
+                context.set_trailing_metadata(
+                    (
+                        (
+                            "stt-decode-buffer-wait-sec",
+                            f"{buffer_wait_total:.6f}",
+                        ),
+                        (
+                            "stt-decode-queue-wait-sec",
+                            f"{queue_wait_total:.6f}",
+                        ),
+                        ("stt-decode-inference-sec", f"{inference_total:.6f}"),
+                        (
+                            "stt-decode-response-emit-sec",
+                            f"{response_emit_total:.6f}",
+                        ),
+                        (
+                            "stt-decode-total-sec",
+                            f"{(buffer_wait_total + queue_wait_total + inference_total + response_emit_total):.6f}",
+                        ),
+                        ("stt-decode-count", str(decode_count)),
+                    )
+                )
+            except Exception:
+                pass
+
+        if state.audio_recorder and self._audio_storage:
+            self._audio_storage.finalize_recording(
+                state.audio_recorder, state.final_reason
             )
-            if decode_stream:
-                cancelled, running = decode_stream.cancel_pending()
-                if cancelled:
-                    LOGGER.info(
-                        "Cancelled %d pending decodes for session_id=%s",
-                        cancelled,
-                        current_session_id or "unknown",
-                    )
-                if running:
-                    LOGGER.info(
-                        "Pending decodes already running; cannot cancel (count=%d, session_id=%s)",
-                        running,
-                        current_session_id or "unknown",
-                    )
+        if state.session_state:
+            duration = time.monotonic() - state.session_start
+            LOGGER.info(
+                "Streaming finished for session_id=%s reason=%s vad_count=%d duration=%.2fs",
+                state.session_state.session_id,
+                state.final_reason,
+                state.vad_count,
+                duration,
+            )
+        self._session_facade.remove_session(
+            state.session_state, reason=state.final_reason
+        )
+        clear_session_id()
 
-        context.add_callback(on_disconnect)
+    def run(
+        self,
+        request_iterator: Iterable[stt_pb2.AudioChunk],
+        context: grpc.ServicerContext,
+    ) -> Iterator[stt_pb2.STTResult]:
+        state = _StreamState()
+        metadata = self._build_metadata(context)
+        self._apply_metadata_session_id(metadata)
 
-        # Start Watchdog thread (run as daemon thread)
-        watchdog_thread = threading.Thread(target=watchdog_loop, daemon=True)
-        watchdog_thread.start()
+        context.add_callback(lambda: self._handle_disconnect(state))
+        self._start_watchdog(state)
 
         try:
-            session_state = self._session_facade.resolve_from_metadata(
-                metadata, context
-            )
-            if session_state:
-                set_session_id(session_state.session_id)
-                session_logged = self._log_session_start(session_state)
-                vad_state = self._create_vad_state(session_state)
-            decode_stream = self._decode_scheduler.new_stream()
-            if session_state and decode_stream:
-                decode_stream.set_session_id(session_state.session_id)
-                decode_stream.set_model_id(session_state.session_info.model_id)
-
-            buffer = bytearray()
-            sample_rate: Optional[int] = None
-
+            self._bootstrap_stream(state, metadata, context)
             for chunk in request_iterator:
-                if disconnect_event.is_set():
-                    LOGGER.info("Stopping stream due to disconnect signal.")
-                    final_reason = "client_disconnect"
-                    client_disconnected = True
-                    buffer = bytearray()
-                    buffer_start_time = None
-                    break
-                # Check for timeout signal at the start of the loop
-                if timeout_event.is_set():
-                    LOGGER.info("Stopping stream due to timeout signal.")
-                    final_reason = "timeout"
-                    abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
-
-                # Update activity timestamp
-                _mark_activity()
-
-                current_session_id = session_state.session_id if session_state else None
-                if current_session_id:
-                    set_session_id(current_session_id)
-                if not context.is_active():
-                    LOGGER.info(
-                        "Client disconnected; stopping session %s", current_session_id
-                    )
-                    final_reason = "client_disconnect"
-                    client_disconnected = True
-                    if decode_stream:
-                        cancelled, running = decode_stream.cancel_pending()
-                        if cancelled:
-                            LOGGER.info(
-                                "Cancelled %d pending decodes for session_id=%s",
-                                cancelled,
-                                current_session_id or "unknown",
-                            )
-                        if running:
-                            LOGGER.info(
-                                "Pending decodes already running; cannot cancel (count=%d, session_id=%s)",
-                                running,
-                                current_session_id or "unknown",
-                            )
-                    buffer = bytearray()
-                    buffer_start_time = None
-                    break
-                if (
-                    chunk.session_id
-                    and current_session_id
-                    and chunk.session_id != current_session_id
-                ):
-                    LOGGER.warning(
-                        "Received chunk with mismatched session_id=%s (expected %s)",
-                        chunk.session_id,
-                        current_session_id,
-                    )
-                    continue
-
-                if session_state is None:
-                    session_state = self._session_facade.ensure_session_from_chunk(
-                        session_state, chunk, context
-                    )
-
-                if session_state and decode_stream:
-                    decode_stream.set_session_id(session_state.session_id)
-                    set_session_id(session_state.session_id)
-                if session_state and not session_logged:
-                    session_logged = self._log_session_start(session_state)
-                if vad_state is None:
-                    vad_state = self._create_vad_state(session_state)
-
-                self._session_facade.validate_token(session_state, chunk, context)
-
-                if vad_state is None:
-                    # Should not happen, but guard against update before initialization.
-                    vad_state = self._create_vad_state(session_state)
-
-                sample_rate = (
-                    chunk.sample_rate
-                    if chunk.sample_rate > 0
-                    else sample_rate or self._config.default_sample_rate
-                )
-                audio_recorder = self._capture_audio_chunk(
-                    audio_recorder,
-                    session_state,
-                    sample_rate,
-                    chunk.pcm16,
-                )
-
-                if not buffer and chunk.pcm16:
-                    buffer_start_sec = audio_received_sec
-                    buffer_start_time = time.perf_counter()
-                buffer.extend(chunk.pcm16)
-                audio_received_sec += audio.chunk_duration_seconds(
-                    len(chunk.pcm16), sample_rate
-                )
-                vad_update = vad_state.update(chunk.pcm16, sample_rate)
-
-                if vad_update.triggered:
-                    if not buffer_is_speech(buffer, self._config.speech_rms_threshold):
-                        LOGGER.info(
-                            "Skipping decode: chunk RMS %.4f below speech threshold %.4f",
-                            vad_update.chunk_rms,
-                            self._config.speech_rms_threshold,
-                        )
-                        LOGGER.info(
-                            "session_id=%s ignored low-energy buffer",
-                            session_state.session_id if session_state else "unknown",
-                        )
-                        buffer = bytearray()
-                        buffer_start_time = None
-                        vad_state.reset_after_trigger()
-                        continue
-                    self._on_vad_trigger()
-                    vad_count += 1
-                    self._on_vad_utterance_start()
-                    session_info = session_state.session_info
-                    is_final = session_info.vad_mode == stt_pb2.VAD_AUTO_END
-                    if disconnect_event.is_set() or timeout_event.is_set():
-                        LOGGER.info("Skipping decode due to shutdown signal.")
-                        final_reason = (
-                            "client_disconnect"
-                            if disconnect_event.is_set()
-                            else "timeout"
-                        )
-                        client_disconnected = disconnect_event.is_set()
-                        break
-                    if not self._ensure_decode_capacity(
-                        decode_stream, is_final, session_state
-                    ):
-                        buffer = bytearray()
-                        buffer_start_time = None
-                        vad_state.reset_after_trigger()
-                        continue
-                    decode_stream.schedule_decode(
-                        bytes(buffer),
-                        sample_rate,
-                        session_state.decode_options,
-                        is_final,
-                        buffer_start_sec,
-                        count_vad=True,
-                        buffer_started_at=buffer_start_time,
-                    )
-                    _mark_activity()
-                    buffer = bytearray()
-                    buffer_start_time = None
-                    LOGGER.info(
-                        "VAD count=%d for current session (pending=%d, mode=%s, active_vad=%d)",
-                        vad_count,
-                        decode_stream.pending_partial_decodes(),
-                        (
-                            "AUTO_END"
-                            if session_info.vad_mode == stt_pb2.VAD_AUTO_END
-                            else "CONTINUE"
-                        ),
-                        self._active_vad_utterances(),
-                    )
-                    if is_final:
-                        yield from _emit_with_activity(
-                            decode_stream, False, session_state
-                        )
-                        final_reason = "auto_vad_finalized"
-                        break
-                    vad_state.reset_after_trigger()
-
-                if not chunk.is_final:
-                    if disconnect_event.is_set() or timeout_event.is_set():
-                        LOGGER.info(
-                            "Skipping buffer management due to shutdown signal."
-                        )
-                        final_reason = (
-                            "client_disconnect"
-                            if disconnect_event.is_set()
-                            else "timeout"
-                        )
-                        client_disconnected = disconnect_event.is_set()
-                        break
-                    buffer, buffer_start_sec, buffer_start_time = (
-                        self._enforce_buffer_limit(
-                            buffer,
-                            buffer_start_sec,
-                            buffer_start_time,
-                            audio_received_sec,
-                            sample_rate,
-                            session_state,
-                            decode_stream,
-                            activity_callback=_mark_activity,
-                        )
-                    )
-
-                yield from _emit_with_activity(decode_stream, False, session_state)
-
-                if chunk.is_final:
-                    if buffer:
-                        if disconnect_event.is_set() or timeout_event.is_set():
-                            LOGGER.info("Skipping final decode due to shutdown signal.")
-                            final_reason = (
-                                "client_disconnect"
-                                if disconnect_event.is_set()
-                                else "timeout"
-                            )
-                            client_disconnected = disconnect_event.is_set()
-                            break
-                        self._ensure_decode_capacity(decode_stream, True, session_state)
-                        decode_stream.schedule_decode(
-                            bytes(buffer),
-                            sample_rate,
-                            session_state.decode_options,
-                            True,
-                            buffer_start_sec,
-                            count_vad=False,
-                            buffer_started_at=buffer_start_time,
-                        )
-                        _mark_activity()
-                        buffer = bytearray()
-                        buffer_start_time = None
-                    yield from _emit_with_activity(decode_stream, False, session_state)
-                    final_reason = "client_sent_final_chunk"
+                for result in self._handle_chunk(state, chunk, context):
+                    yield result
+                if state.stop_stream:
                     break
 
-            # Process remaining buffer after loop ends
-            if timeout_event.is_set():
-                LOGGER.info("Stopping stream due to timeout signal.")
-                final_reason = "timeout"
-                abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
-            if decode_stream:
-                if (
-                    not client_disconnected
-                    and buffer
-                    and buffer_is_speech(buffer, self._config.speech_rms_threshold)
-                ):
-                    self._ensure_decode_capacity(decode_stream, True, session_state)
-                    decode_stream.schedule_decode(
-                        bytes(buffer),
-                        sample_rate or self._config.default_sample_rate,
-                        session_state.decode_options if session_state else {},
-                        True,
-                        buffer_start_sec,
-                        count_vad=False,
-                        buffer_started_at=buffer_start_time,
-                    )
-                    _mark_activity()
-                buffer_start_time = None
-
-                while True:
-                    if timeout_event.is_set():
-                        LOGGER.info("Stopping stream due to timeout signal.")
-                        final_reason = "timeout"
-                        abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
-                    emitted = list(
-                        _emit_with_activity(
-                            decode_stream,
-                            block=decode_stream.has_pending_results(),
-                            state=session_state,
-                        )
-                    )
-                    if not emitted:
-                        break
-                    for result in emitted:
-                        yield result
+            for result in self._drain_pending_results(state, context):
+                yield result
 
         except Exception as e:
             # Handle errors occurring during timeout abort
-            if timeout_event.is_set():
-                final_reason = "timeout"
+            if state.timeout_event.is_set():
+                state.final_reason = "timeout"
             else:
                 raise e
 
         finally:
-            # Send termination signal to stop watchdog cleanly
-            stop_watchdog.set()
-
-            if timeout_event.is_set():
-                final_reason = "timeout"
-
-            if vad_state:
-                vad_state.close()
-
-            if decode_stream:
-                (
-                    buffer_wait_total,
-                    queue_wait_total,
-                    inference_total,
-                    response_emit_total,
-                    decode_count,
-                ) = decode_stream.timing_summary()
-                try:
-                    # Decode timing totals per stream (accumulated across decode tasks):
-                    # - buffer_wait: time spent buffering audio before scheduling decode
-                    # - queue_wait: time waiting for a worker after scheduling decode
-                    # - inference: model execution time
-                    # - response_emit: time spent yielding results to the client
-                    # - total: sum of buffer_wait + queue_wait + inference + response_emit
-                    context.set_trailing_metadata(
-                        (
-                            (
-                                "stt-decode-buffer-wait-sec",
-                                f"{buffer_wait_total:.6f}",
-                            ),
-                            (
-                                "stt-decode-queue-wait-sec",
-                                f"{queue_wait_total:.6f}",
-                            ),
-                            ("stt-decode-inference-sec", f"{inference_total:.6f}"),
-                            (
-                                "stt-decode-response-emit-sec",
-                                f"{response_emit_total:.6f}",
-                            ),
-                            (
-                                "stt-decode-total-sec",
-                                f"{(buffer_wait_total + queue_wait_total + inference_total + response_emit_total):.6f}",
-                            ),
-                            ("stt-decode-count", str(decode_count)),
-                        )
-                    )
-                except Exception:
-                    pass
-
-            if audio_recorder and self._audio_storage:
-                self._audio_storage.finalize_recording(audio_recorder, final_reason)
-            if session_state:
-                duration = time.monotonic() - session_start
-                LOGGER.info(
-                    "Streaming finished for session_id=%s reason=%s vad_count=%d duration=%.2fs",
-                    session_state.session_id,
-                    final_reason,
-                    vad_count,
-                    duration,
-                )
-            self._session_facade.remove_session(session_state, reason=final_reason)
-            clear_session_id()
+            self._finalize_stream(state, context)
 
     def _create_vad_state(self, state: SessionState) -> VADGate:
         info = state.session_info
