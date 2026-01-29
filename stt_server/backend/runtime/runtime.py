@@ -83,6 +83,8 @@ class ApplicationRuntime:
             default_sample_rate=streaming_config.sample_rate,
             decode_timeout_sec=streaming_config.decode_timeout_sec,
             language_lookup=self.supported_languages,
+            max_buffer_sec=streaming_config.max_buffer_sec,
+            max_buffer_bytes=streaming_config.max_buffer_bytes,
             storage_enabled=storage_config.enabled,
             storage_directory=storage_config.directory,
             storage_max_bytes=storage_config.max_bytes,

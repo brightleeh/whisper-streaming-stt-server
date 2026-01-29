@@ -15,6 +15,7 @@ from stt_server.config.default import (
     DEFAULT_LOG_FILE,
     DEFAULT_LOG_LEVEL,
     DEFAULT_LOG_METRICS,
+    DEFAULT_MAX_BUFFER_SEC,
     DEFAULT_MAX_SESSIONS,
     DEFAULT_METRICS_PORT,
     DEFAULT_MODEL_NAME,
@@ -58,6 +59,8 @@ class ServerConfig:
     faster_whisper_log_level: Optional[str] = None
     sample_rate: int = DEFAULT_SAMPLE_RATE
     session_timeout_sec: float = 60.0
+    max_buffer_sec: Optional[float] = DEFAULT_MAX_BUFFER_SEC
+    max_buffer_bytes: Optional[int] = None
     persist_audio: bool = DEFAULT_PERSIST_AUDIO
     audio_storage_dir: str = DEFAULT_AUDIO_STORAGE_DIR
     audio_storage_max_bytes: Optional[int] = None

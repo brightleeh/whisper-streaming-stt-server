@@ -5,6 +5,8 @@ server:
   decode_timeout_sec: 30 # Seconds to wait for decode tasks when draining
   log_metrics: false # Emit decode metrics logs
   session_timeout_sec: 60 # Seconds of inactivity before aborting a session
+  max_buffer_sec: 60 # Max buffered audio seconds before partial decode/trim (null disables)
+  max_buffer_bytes: null # Max buffered audio bytes before partial decode/trim (null disables)
   sample_rate: 16000 # Fallback sample rate when chunks omit it
 
 vad:

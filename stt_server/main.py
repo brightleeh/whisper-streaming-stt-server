@@ -8,14 +8,13 @@ from pathlib import Path
 import grpc
 
 from gen.stt.python.v1 import stt_pb2_grpc
-from stt_server.backend.transport import (
+from stt_server.backend.runtime.config import (
     ModelRuntimeConfig,
     ServicerConfig,
     StorageRuntimeConfig,
     StreamingRuntimeConfig,
-    STTGrpcServicer,
-    start_http_server,
 )
+from stt_server.backend.transport import STTGrpcServicer, start_http_server
 from stt_server.config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_MODEL_CONFIG_PATH,
@@ -53,6 +52,8 @@ def serve(config: ServerConfig) -> None:
         session_timeout_sec=config.session_timeout_sec,
         sample_rate=config.sample_rate,
         decode_timeout_sec=config.decode_timeout_sec,
+        max_buffer_sec=config.max_buffer_sec,
+        max_buffer_bytes=config.max_buffer_bytes,
     )
     storage_cfg = StorageRuntimeConfig(
         enabled=config.persist_audio,

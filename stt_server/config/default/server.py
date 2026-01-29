@@ -11,6 +11,7 @@ DEFAULT_VAD_SILENCE = 0.8
 DEFAULT_VAD_THRESHOLD = 0.5
 DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
+DEFAULT_MAX_BUFFER_SEC = 60.0
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FILE = None
 DEFAULT_PERSIST_AUDIO = False
@@ -22,6 +23,8 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_sessions": "max_sessions",
         "metrics_port": "metrics_port",
         "decode_timeout_sec": "decode_timeout_sec",
+        "max_buffer_sec": "max_buffer_sec",
+        "max_buffer_bytes": "max_buffer_bytes",
         "log_metrics": "log_metrics",
         "sample_rate": "sample_rate",
     },
@@ -56,6 +59,7 @@ __all__ = [
     "DEFAULT_VAD_THRESHOLD",
     "DEFAULT_SPEECH_RMS_THRESHOLD",
     "DEFAULT_SAMPLE_RATE",
+    "DEFAULT_MAX_BUFFER_SEC",
     "DEFAULT_LOG_LEVEL",
     "DEFAULT_LOG_FILE",
     "DEFAULT_PERSIST_AUDIO",

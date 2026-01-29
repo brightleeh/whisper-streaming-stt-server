@@ -49,6 +49,10 @@ class StreamOrchestratorConfig:
     storage_max_files: Optional[int]
     storage_max_age_days: Optional[int]
 
+    # Buffer control settings
+    max_buffer_sec: Optional[float] = 60.0
+    max_buffer_bytes: Optional[int] = None
+
 
 def _noop() -> None:
     return None
@@ -358,6 +362,19 @@ class StreamOrchestrator:
                         break
                     vad_state.reset_after_trigger()
 
+                if not chunk.is_final:
+                    buffer, buffer_start_sec, buffer_start_time = (
+                        self._enforce_buffer_limit(
+                            buffer,
+                            buffer_start_sec,
+                            buffer_start_time,
+                            audio_received_sec,
+                            sample_rate,
+                            session_state,
+                            decode_stream,
+                        )
+                    )
+
                 yield from self._emit_results_with_session(
                     decode_stream, False, session_state
                 )
@@ -518,6 +535,75 @@ class StreamOrchestrator:
             )
         recorder.append(pcm16)
         return recorder
+
+    def _buffer_limit_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
+        limit_bytes: Optional[int] = None
+        max_bytes = self._config.max_buffer_bytes
+        if max_bytes is not None and max_bytes > 0:
+            limit_bytes = int(max_bytes)
+        max_sec = self._config.max_buffer_sec
+        if max_sec is not None and max_sec > 0:
+            rate = sample_rate or self._config.default_sample_rate
+            sec_limit = int(max_sec * rate * 2)
+            if sec_limit > 0:
+                limit_bytes = (
+                    sec_limit if limit_bytes is None else min(limit_bytes, sec_limit)
+                )
+        return limit_bytes
+
+    def _enforce_buffer_limit(
+        self,
+        buffer: bytearray,
+        buffer_start_sec: float,
+        buffer_start_time: Optional[float],
+        audio_received_sec: float,
+        sample_rate: Optional[int],
+        session_state: Optional[SessionState],
+        decode_stream: Optional[DecodeStream],
+    ) -> tuple[bytearray, float, Optional[float]]:
+        limit_bytes = self._buffer_limit_bytes(sample_rate)
+        if limit_bytes is None or len(buffer) <= limit_bytes:
+            return buffer, buffer_start_sec, buffer_start_time
+
+        if (
+            session_state
+            and decode_stream
+            and session_state.session_info.vad_mode == stt_pb2.VAD_CONTINUE
+        ):
+            if not buffer_is_speech(buffer, self._config.speech_rms_threshold):
+                LOGGER.info(
+                    "Buffer limit reached with low-energy audio; dropping buffer."
+                )
+                return bytearray(), audio_received_sec, None
+            LOGGER.warning(
+                "Buffer limit reached (%d bytes); scheduling partial decode.",
+                len(buffer),
+            )
+            decode_stream.schedule_decode(
+                bytes(buffer),
+                sample_rate or self._config.default_sample_rate,
+                session_state.decode_options,
+                False,
+                buffer_start_sec,
+                count_vad=False,
+                buffer_started_at=buffer_start_time,
+            )
+            return bytearray(), audio_received_sec, None
+
+        overflow = len(buffer) - limit_bytes
+        if overflow > 0:
+            del buffer[:overflow]
+            rate = sample_rate or self._config.default_sample_rate
+            dropped_sec = audio.chunk_duration_seconds(overflow, rate)
+            buffer_start_sec += dropped_sec
+            if buffer_start_time is not None:
+                buffer_start_time += dropped_sec
+            LOGGER.warning(
+                "Buffer limit reached (%d bytes); trimmed %.2fs of audio.",
+                limit_bytes,
+                dropped_sec,
+            )
+        return buffer, buffer_start_sec, buffer_start_time
 
     def _emit_results_with_session(
         self,

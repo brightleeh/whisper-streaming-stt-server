@@ -26,6 +26,8 @@ class StreamingRuntimeConfig:
     session_timeout_sec: float = 60.0
     sample_rate: int = 16000
     decode_timeout_sec: float = 30.0
+    max_buffer_sec: Optional[float] = 60.0
+    max_buffer_bytes: Optional[int] = None
 
 
 @dataclass
