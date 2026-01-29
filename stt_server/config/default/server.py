@@ -20,6 +20,7 @@ DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FILE = None
 DEFAULT_PERSIST_AUDIO = False
 DEFAULT_AUDIO_STORAGE_DIR = "data/audio"
+DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS = 256
 
 SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
     "server": {
@@ -47,6 +48,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
     "storage": {
         "persist_audio": "persist_audio",
         "directory": "audio_storage_dir",
+        "queue_max_chunks": "audio_storage_queue_max_chunks",
         "max_bytes": "audio_storage_max_bytes",
         "max_files": "audio_storage_max_files",
         "max_age_days": "audio_storage_max_age_days",
@@ -78,5 +80,6 @@ __all__ = [
     "DEFAULT_LOG_FILE",
     "DEFAULT_PERSIST_AUDIO",
     "DEFAULT_AUDIO_STORAGE_DIR",
+    "DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS",
     "SERVER_SECTION_MAP",
 ]

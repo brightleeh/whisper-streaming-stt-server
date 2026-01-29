@@ -38,6 +38,7 @@ class StreamingRuntimeConfig:
 class StorageRuntimeConfig:
     enabled: bool = False
     directory: str = "data/audio"
+    queue_max_chunks: Optional[int] = 256
     max_bytes: Optional[int] = None
     max_files: Optional[int] = None
     max_age_days: Optional[int] = None

@@ -62,6 +62,7 @@ def serve(config: ServerConfig) -> None:
     storage_cfg = StorageRuntimeConfig(
         enabled=config.persist_audio,
         directory=config.audio_storage_dir,
+        queue_max_chunks=config.audio_storage_queue_max_chunks,
         max_bytes=config.audio_storage_max_bytes,
         max_files=config.audio_storage_max_files,
         max_age_days=config.audio_storage_max_age_days,

@@ -91,6 +91,7 @@ class ApplicationRuntime:
             health_min_success_ratio=streaming_config.health_min_success_ratio,
             storage_enabled=storage_config.enabled,
             storage_directory=storage_config.directory,
+            storage_queue_max_chunks=storage_config.queue_max_chunks,
             storage_max_bytes=storage_config.max_bytes,
             storage_max_files=storage_config.max_files,
             storage_max_age_days=storage_config.max_age_days,

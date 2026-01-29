@@ -24,6 +24,7 @@ logging:
 storage:
   persist_audio: false # Enable server-side audio capture
   directory: "data/audio" # Directory to store captured audio
+  queue_max_chunks: 256 # Max queued PCM chunks before dropping oldest
   max_bytes: null # Optional cap on total bytes in directory
   max_files: null # Optional maximum number of stored files
   max_age_days: null # Optional retention window in days

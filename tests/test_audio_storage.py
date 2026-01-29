@@ -19,3 +19,10 @@ def test_audio_recorder_discard_empty(tmp_path):
     saved = recorder.finalize()
     assert saved is None
     assert not path.exists()
+
+
+def test_audio_recorder_queue_maxsize(tmp_path):
+    path = tmp_path / "queue.wav"
+    recorder = SessionAudioRecorder("sess", path, sample_rate=16000, queue_max_chunks=1)
+    assert recorder._queue.maxsize == 1
+    recorder.finalize()

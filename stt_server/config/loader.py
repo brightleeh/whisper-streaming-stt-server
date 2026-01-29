@@ -6,6 +6,7 @@ import yaml
 
 from stt_server.config.default import (
     DEFAULT_AUDIO_STORAGE_DIR,
+    DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS,
     DEFAULT_COMPUTE_TYPE,
     DEFAULT_DECODE_PROFILE,
     DEFAULT_DECODE_TIMEOUT,
@@ -71,6 +72,9 @@ class ServerConfig:
     health_min_success_ratio: float = DEFAULT_HEALTH_MIN_SUCCESS_RATIO
     persist_audio: bool = DEFAULT_PERSIST_AUDIO
     audio_storage_dir: str = DEFAULT_AUDIO_STORAGE_DIR
+    audio_storage_queue_max_chunks: Optional[int] = (
+        DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS
+    )
     audio_storage_max_bytes: Optional[int] = None
     audio_storage_max_files: Optional[int] = None
     audio_storage_max_age_days: Optional[int] = None

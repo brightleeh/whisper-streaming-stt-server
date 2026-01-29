@@ -31,12 +31,19 @@ class AudioStorageConfig:
     max_bytes: Optional[int] = None
     max_files: Optional[int] = None
     max_age_days: Optional[int] = None
+    queue_max_chunks: Optional[int] = None
 
 
 class SessionAudioRecorder:
     """Streams PCM16 audio into a WAV file for a single session."""
 
-    def __init__(self, session_id: str, path: Path, sample_rate: int) -> None:
+    def __init__(
+        self,
+        session_id: str,
+        path: Path,
+        sample_rate: int,
+        queue_max_chunks: Optional[int] = None,
+    ) -> None:
         self.session_id = session_id
         self.path = path
         self.sample_rate = max(sample_rate, 1)
@@ -47,7 +54,10 @@ class SessionAudioRecorder:
         self._wave.setframerate(self.sample_rate)
         self._closed = False
         self._lock = threading.Lock()
-        self._queue: "queue.Queue[Optional[bytes]]" = queue.Queue()
+        max_chunks = (
+            int(queue_max_chunks) if queue_max_chunks and queue_max_chunks > 0 else 0
+        )
+        self._queue: "queue.Queue[Optional[bytes]]" = queue.Queue(maxsize=max_chunks)
         self._writer = threading.Thread(target=self._writer_loop, daemon=True)
         self._writer.start()
 
@@ -76,8 +86,24 @@ class SessionAudioRecorder:
         try:
             self._queue.put_nowait(pcm16)
         except queue.Full:
+            dropped = 0
+            try:
+                self._queue.get_nowait()
+                dropped = 1
+            except queue.Empty:
+                dropped = 0
+            try:
+                self._queue.put_nowait(pcm16)
+            except queue.Full:
+                LOGGER.warning(
+                    "Audio queue full; dropping chunk session_id=%s path=%s",
+                    self.session_id,
+                    self.path,
+                )
+                return
             LOGGER.warning(
-                "Audio queue full; dropping chunk session_id=%s path=%s",
+                "Audio queue full; dropped %d old chunk(s) session_id=%s path=%s",
+                dropped,
                 self.session_id,
                 self.path,
             )
@@ -126,6 +152,11 @@ class AudioStorageManager:
             if config.max_age_days and config.max_age_days > 0
             else None
         )
+        self._queue_max_chunks = (
+            int(config.queue_max_chunks)
+            if config.queue_max_chunks and config.queue_max_chunks > 0
+            else None
+        )
 
     def start_recording(
         self, session_id: str, sample_rate: int
@@ -140,7 +171,12 @@ class AudioStorageManager:
             path,
             sample_rate,
         )
-        return SessionAudioRecorder(session_id, path, sample_rate)
+        return SessionAudioRecorder(
+            session_id,
+            path,
+            sample_rate,
+            queue_max_chunks=self._queue_max_chunks,
+        )
 
     def finalize_recording(self, recorder: SessionAudioRecorder, reason: str) -> None:
         path = recorder.finalize()

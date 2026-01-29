@@ -45,9 +45,10 @@ class StreamOrchestratorConfig:
     # Audio storage settings
     storage_enabled: bool
     storage_directory: str
-    storage_max_bytes: Optional[int]
-    storage_max_files: Optional[int]
-    storage_max_age_days: Optional[int]
+    storage_queue_max_chunks: Optional[int] = None
+    storage_max_bytes: Optional[int] = None
+    storage_max_files: Optional[int] = None
+    storage_max_age_days: Optional[int] = None
 
     # Buffer control settings
     max_buffer_sec: Optional[float] = 60.0
@@ -97,14 +98,16 @@ class StreamOrchestrator:
             storage_policy = AudioStorageConfig(
                 enabled=True,
                 directory=storage_directory,
+                queue_max_chunks=config.storage_queue_max_chunks,
                 max_bytes=config.storage_max_bytes,
                 max_files=config.storage_max_files,
                 max_age_days=config.storage_max_age_days,
             )
             self._audio_storage = AudioStorageManager(storage_policy)
             LOGGER.info(
-                "Audio storage enabled directory=%s max_bytes=%s max_files=%s max_age_days=%s",
+                "Audio storage enabled directory=%s queue_max_chunks=%s max_bytes=%s max_files=%s max_age_days=%s",
                 storage_directory,
+                config.storage_queue_max_chunks,
                 config.storage_max_bytes,
                 config.storage_max_files,
                 config.storage_max_age_days,
