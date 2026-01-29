@@ -8,6 +8,12 @@ server:
   max_buffer_sec: 60 # Max buffered audio seconds before partial decode/trim (null disables)
   max_buffer_bytes: null # Max buffered audio bytes before partial decode/trim (null disables)
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
+  max_pending_decodes_global: 64 # Global max queued decodes before backpressure/drop
+  max_total_buffer_bytes: 67108864 # Global buffered audio cap (bytes)
+  decode_queue_timeout_sec: 1.0 # Seconds to wait for a global decode slot (final only)
+  buffer_overlap_sec: 0.5 # Overlap window retained after partial decode (seconds)
+  grpc_max_receive_message_bytes: 8388608 # Max gRPC inbound message size
+  grpc_max_send_message_bytes: 4194304 # Max gRPC outbound message size
   sample_rate: 16000 # Fallback sample rate when chunks omit it
 
 vad:

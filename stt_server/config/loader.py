@@ -7,10 +7,14 @@ import yaml
 from stt_server.config.default import (
     DEFAULT_AUDIO_STORAGE_DIR,
     DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS,
+    DEFAULT_BUFFER_OVERLAP_SEC,
     DEFAULT_COMPUTE_TYPE,
     DEFAULT_DECODE_PROFILE,
+    DEFAULT_DECODE_QUEUE_TIMEOUT_SEC,
     DEFAULT_DECODE_TIMEOUT,
     DEFAULT_DEVICE,
+    DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES,
+    DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES,
     DEFAULT_HEALTH_MAX_TIMEOUT_RATIO,
     DEFAULT_HEALTH_MIN_EVENTS,
     DEFAULT_HEALTH_MIN_SUCCESS_RATIO,
@@ -21,8 +25,10 @@ from stt_server.config.default import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_LOG_METRICS,
     DEFAULT_MAX_BUFFER_SEC,
+    DEFAULT_MAX_PENDING_DECODES_GLOBAL,
     DEFAULT_MAX_PENDING_DECODES_PER_STREAM,
     DEFAULT_MAX_SESSIONS,
+    DEFAULT_MAX_TOTAL_BUFFER_BYTES,
     DEFAULT_METRICS_PORT,
     DEFAULT_MODEL_NAME,
     DEFAULT_MODEL_POOL_SIZE,
@@ -72,6 +78,14 @@ class ServerConfig:
     max_buffer_sec: Optional[float] = DEFAULT_MAX_BUFFER_SEC
     max_buffer_bytes: Optional[int] = None
     max_pending_decodes_per_stream: int = DEFAULT_MAX_PENDING_DECODES_PER_STREAM
+    max_pending_decodes_global: int = DEFAULT_MAX_PENDING_DECODES_GLOBAL
+    max_total_buffer_bytes: Optional[int] = DEFAULT_MAX_TOTAL_BUFFER_BYTES
+    decode_queue_timeout_sec: float = DEFAULT_DECODE_QUEUE_TIMEOUT_SEC
+    buffer_overlap_sec: float = DEFAULT_BUFFER_OVERLAP_SEC
+    grpc_max_receive_message_bytes: Optional[int] = (
+        DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES
+    )
+    grpc_max_send_message_bytes: Optional[int] = DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES
     health_window_sec: float = DEFAULT_HEALTH_WINDOW_SEC
     health_min_events: int = DEFAULT_HEALTH_MIN_EVENTS
     health_max_timeout_ratio: float = DEFAULT_HEALTH_MAX_TIMEOUT_RATIO

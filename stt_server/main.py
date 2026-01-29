@@ -32,7 +32,22 @@ def serve(config: ServerConfig) -> None:
     shutdown_done = threading.Event()
     force_exit_scheduled = threading.Event()
     grpc_executor = futures.ThreadPoolExecutor(max_workers=config.max_sessions)
-    server = grpc.server(grpc_executor)
+    grpc_options = []
+    if (
+        config.grpc_max_receive_message_bytes
+        and config.grpc_max_receive_message_bytes > 0
+    ):
+        grpc_options.append(
+            ("grpc.max_receive_message_length", config.grpc_max_receive_message_bytes)
+        )
+    if config.grpc_max_send_message_bytes and config.grpc_max_send_message_bytes > 0:
+        grpc_options.append(
+            ("grpc.max_send_message_length", config.grpc_max_send_message_bytes)
+        )
+    if grpc_options:
+        server = grpc.server(grpc_executor, options=grpc_options)
+    else:
+        server = grpc.server(grpc_executor)
     model_cfg = ModelRuntimeConfig(
         model_size=config.model,
         device=config.device,
@@ -61,6 +76,10 @@ def serve(config: ServerConfig) -> None:
         max_buffer_sec=config.max_buffer_sec,
         max_buffer_bytes=config.max_buffer_bytes,
         max_pending_decodes_per_stream=config.max_pending_decodes_per_stream,
+        max_pending_decodes_global=config.max_pending_decodes_global,
+        max_total_buffer_bytes=config.max_total_buffer_bytes,
+        decode_queue_timeout_sec=config.decode_queue_timeout_sec,
+        buffer_overlap_sec=config.buffer_overlap_sec,
         health_window_sec=config.health_window_sec,
         health_min_events=config.health_min_events,
         health_max_timeout_ratio=config.health_max_timeout_ratio,

@@ -62,6 +62,10 @@ class StreamOrchestratorConfig:
     max_buffer_sec: Optional[float] = 60.0
     max_buffer_bytes: Optional[int] = None
     max_pending_decodes_per_stream: int = 8
+    max_pending_decodes_global: int = 64
+    max_total_buffer_bytes: Optional[int] = 64 * 1024 * 1024
+    decode_queue_timeout_sec: float = 1.0
+    buffer_overlap_sec: float = 0.5
 
     # Health check thresholds
     health_window_sec: float = 60.0
@@ -100,6 +104,7 @@ class _StreamState:
     buffer_start_sec: float = 0.0
     buffer_start_time: Optional[float] = None
     client_disconnected: bool = False
+    buffer_has_new_audio: bool = False
     buffer: bytearray = field(default_factory=bytearray)
     sample_rate: Optional[int] = None
     last_activity: float = field(default_factory=time.monotonic)
@@ -125,6 +130,8 @@ class StreamOrchestrator:
         self._hooks = hooks or StreamOrchestratorHooks()
         self._decode_scheduler = self._create_decode_scheduler(config)
         self._audio_storage: Optional[AudioStorageManager] = None
+        self._buffer_bytes_lock = threading.Lock()
+        self._buffer_bytes_total = 0
         configure_vad_model_pool(config.vad_model_pool_size, config.vad_model_prewarm)
         if config.storage_enabled:
             storage_directory = Path(config.storage_directory).expanduser()
@@ -170,6 +177,7 @@ class StreamOrchestrator:
             self,
             decode_timeout_sec=config.decode_timeout_sec,
             language_lookup=config.language_lookup,
+            max_pending_decodes_global=config.max_pending_decodes_global,
             health_window_sec=config.health_window_sec,
             health_min_events=config.health_min_events,
             health_max_timeout_ratio=config.health_max_timeout_ratio,
@@ -240,6 +248,112 @@ class StreamOrchestrator:
 
     def _mark_activity(self, state: _StreamState) -> None:
         state.last_activity = time.monotonic()
+
+    def _update_buffer_total(self, delta: int) -> None:
+        if delta == 0:
+            return
+        with self._buffer_bytes_lock:
+            self._buffer_bytes_total = max(0, self._buffer_bytes_total + delta)
+
+    def _apply_global_buffer_limit(self, state: _StreamState, incoming_len: int) -> int:
+        if incoming_len <= 0:
+            return 0
+        limit = self._config.max_total_buffer_bytes
+        if not limit or limit <= 0:
+            self._update_buffer_total(incoming_len)
+            return incoming_len
+
+        with self._buffer_bytes_lock:
+            total = self._buffer_bytes_total
+            overflow = total + incoming_len - limit
+            if overflow <= 0:
+                self._buffer_bytes_total = total + incoming_len
+                return incoming_len
+
+            drop_from_buffer = min(overflow, len(state.buffer))
+            if drop_from_buffer > 0:
+                del state.buffer[:drop_from_buffer]
+                self._buffer_bytes_total = max(
+                    0, self._buffer_bytes_total - drop_from_buffer
+                )
+                rate = state.sample_rate or self._config.default_sample_rate
+                dropped_sec = audio.chunk_duration_seconds(drop_from_buffer, rate)
+                state.buffer_start_sec += dropped_sec
+                if state.buffer_start_time is not None:
+                    state.buffer_start_time += dropped_sec
+                overflow -= drop_from_buffer
+
+            if overflow > 0:
+                LOGGER.warning(
+                    "Global buffer limit reached; dropping %d bytes of incoming audio",
+                    overflow,
+                )
+            incoming_keep = max(0, incoming_len - overflow)
+            self._buffer_bytes_total = max(0, self._buffer_bytes_total + incoming_keep)
+            return incoming_keep
+
+    def _clear_buffer(self, state: _StreamState) -> None:
+        if state.buffer and state.buffer_has_new_audio:
+            self._update_buffer_total(-len(state.buffer))
+            state.buffer = bytearray()
+        state.buffer_start_time = None
+        state.buffer_has_new_audio = False
+
+    def _acquire_decode_slot(
+        self,
+        state: _StreamState,
+        is_final: bool,
+        context: grpc.ServicerContext,
+    ) -> bool:
+        limit = self._config.max_pending_decodes_global
+        if not limit or limit <= 0:
+            return True
+        timeout = self._config.decode_queue_timeout_sec if is_final else 0.0
+        acquired = self._decode_scheduler.acquire_pending_slot(
+            block=is_final, timeout=timeout
+        )
+        if acquired:
+            return True
+        if not is_final:
+            LOGGER.warning(
+                "Global pending decode limit reached; dropping partial decode (session_id=%s)",
+                state.session_state.session_id if state.session_state else "unknown",
+            )
+            return False
+        LOGGER.error(
+            "Global pending decode limit reached; aborting session (session_id=%s)",
+            state.session_state.session_id if state.session_state else "unknown",
+        )
+        state.final_reason = "decode_backpressure"
+        abort_with_error(context, ErrorCode.DECODE_TIMEOUT)
+        return False
+
+    def _schedule_decode(
+        self,
+        state: _StreamState,
+        pcm: bytes,
+        is_final: bool,
+        offset_sec: float,
+        count_vad: bool,
+        buffer_started_at: Optional[float],
+        context: grpc.ServicerContext,
+    ) -> bool:
+        if not state.decode_stream:
+            return False
+        if not self._acquire_decode_slot(state, is_final, context):
+            return False
+        state.decode_stream.schedule_decode(
+            pcm,
+            state.sample_rate or self._config.default_sample_rate,
+            state.session_state.decode_options if state.session_state else {},
+            is_final,
+            offset_sec,
+            count_vad=count_vad,
+            buffer_started_at=buffer_started_at,
+            holds_slot=True,
+        )
+        self._mark_activity(state)
+        return True
 
     def _emit_with_activity(
         self, state: _StreamState, block: bool
@@ -330,6 +444,7 @@ class StreamOrchestrator:
         self,
         state: _StreamState,
         vad_update: Any,
+        context: grpc.ServicerContext,
     ) -> Iterator[stt_pb2.STTResult]:
         if not state.vad_state or not state.decode_stream or not state.session_state:
             return
@@ -343,8 +458,7 @@ class StreamOrchestrator:
                 "session_id=%s ignored low-energy buffer",
                 state.session_state.session_id if state.session_state else "unknown",
             )
-            state.buffer = bytearray()
-            state.buffer_start_time = None
+            self._clear_buffer(state)
             state.vad_state.reset_after_trigger()
             return
         self._on_vad_trigger()
@@ -352,7 +466,6 @@ class StreamOrchestrator:
         self._on_vad_utterance_start()
         session_info = state.session_state.session_info
         is_final = session_info.vad_mode == stt_pb2.VAD_AUTO_END
-        effective_rate = state.sample_rate or self._config.default_sample_rate
         if state.disconnect_event.is_set() or state.timeout_event.is_set():
             LOGGER.info("Skipping decode due to shutdown signal.")
             state.final_reason = (
@@ -364,22 +477,19 @@ class StreamOrchestrator:
         if not self._ensure_decode_capacity(
             state.decode_stream, is_final, state.session_state
         ):
-            state.buffer = bytearray()
-            state.buffer_start_time = None
+            self._clear_buffer(state)
             state.vad_state.reset_after_trigger()
             return
-        state.decode_stream.schedule_decode(
+        self._schedule_decode(
+            state,
             bytes(state.buffer),
-            effective_rate,
-            state.session_state.decode_options,
-            is_final,
-            state.buffer_start_sec,
+            is_final=is_final,
+            offset_sec=state.buffer_start_sec,
             count_vad=True,
             buffer_started_at=state.buffer_start_time,
+            context=context,
         )
-        self._mark_activity(state)
-        state.buffer = bytearray()
-        state.buffer_start_time = None
+        self._clear_buffer(state)
         LOGGER.info(
             "VAD count=%d for current session (pending=%d, mode=%s, active_vad=%d)",
             state.vad_count,
@@ -404,8 +514,7 @@ class StreamOrchestrator:
     ) -> Iterator[stt_pb2.STTResult]:
         if not state.decode_stream:
             return
-        if state.buffer:
-            effective_rate = state.sample_rate or self._config.default_sample_rate
+        if state.buffer and state.buffer_has_new_audio:
             if state.disconnect_event.is_set() or state.timeout_event.is_set():
                 LOGGER.info("Skipping final decode due to shutdown signal.")
                 state.final_reason = (
@@ -417,18 +526,16 @@ class StreamOrchestrator:
                 state.stop_stream = True
                 return
             self._ensure_decode_capacity(state.decode_stream, True, state.session_state)
-            state.decode_stream.schedule_decode(
+            self._schedule_decode(
+                state,
                 bytes(state.buffer),
-                effective_rate,
-                state.session_state.decode_options if state.session_state else {},
-                True,
-                state.buffer_start_sec,
+                is_final=True,
+                offset_sec=state.buffer_start_sec,
                 count_vad=False,
                 buffer_started_at=state.buffer_start_time,
+                context=context,
             )
-            self._mark_activity(state)
-            state.buffer = bytearray()
-            state.buffer_start_time = None
+            self._clear_buffer(state)
         for result in self._emit_with_activity(state, False):
             yield result
         state.final_reason = "client_sent_final_chunk"
@@ -445,21 +552,22 @@ class StreamOrchestrator:
             if (
                 not state.client_disconnected
                 and state.buffer
+                and state.buffer_has_new_audio
                 and buffer_is_speech(state.buffer, self._config.speech_rms_threshold)
             ):
                 self._ensure_decode_capacity(
                     state.decode_stream, True, state.session_state
                 )
-                state.decode_stream.schedule_decode(
+                if self._schedule_decode(
+                    state,
                     bytes(state.buffer),
-                    state.sample_rate or self._config.default_sample_rate,
-                    state.session_state.decode_options if state.session_state else {},
-                    True,
-                    state.buffer_start_sec,
+                    is_final=True,
+                    offset_sec=state.buffer_start_sec,
                     count_vad=False,
                     buffer_started_at=state.buffer_start_time,
-                )
-                self._mark_activity(state)
+                    context=context,
+                ):
+                    self._clear_buffer(state)
             state.buffer_start_time = None
 
             while True:
@@ -488,8 +596,7 @@ class StreamOrchestrator:
             LOGGER.info("Stopping stream due to disconnect signal.")
             state.final_reason = "client_disconnect"
             state.client_disconnected = True
-            state.buffer = bytearray()
-            state.buffer_start_time = None
+            self._clear_buffer(state)
             state.stop_stream = True
             return
         if state.timeout_event.is_set():
@@ -510,8 +617,7 @@ class StreamOrchestrator:
             state.final_reason = "client_disconnect"
             state.client_disconnected = True
             self._cancel_pending_decodes(state.decode_stream, current_session_id)
-            state.buffer = bytearray()
-            state.buffer_start_time = None
+            self._clear_buffer(state)
             state.stop_stream = True
             return
         if (
@@ -560,14 +666,24 @@ class StreamOrchestrator:
         if not state.buffer and chunk.pcm16:
             state.buffer_start_sec = state.audio_received_sec
             state.buffer_start_time = time.perf_counter()
-        state.buffer.extend(chunk.pcm16)
+        incoming = chunk.pcm16
+        incoming_len = len(incoming)
+        if incoming_len:
+            allowed = self._apply_global_buffer_limit(state, incoming_len)
+            if allowed < incoming_len:
+                incoming = incoming[-allowed:] if allowed > 0 else b""
+        if incoming:
+            state.buffer.extend(incoming)
+            state.buffer_has_new_audio = True
+        elif not state.buffer:
+            state.buffer_start_time = None
         state.audio_received_sec += audio.chunk_duration_seconds(
             len(chunk.pcm16), state.sample_rate
         )
         vad_update = state.vad_state.update(chunk.pcm16, state.sample_rate)
 
         if vad_update.triggered:
-            for result in self._handle_vad_trigger(state, vad_update):
+            for result in self._handle_vad_trigger(state, vad_update, context):
                 yield result
             if state.stop_stream:
                 return
@@ -583,20 +699,7 @@ class StreamOrchestrator:
                 state.client_disconnected = state.disconnect_event.is_set()
                 state.stop_stream = True
                 return
-            (
-                state.buffer,
-                state.buffer_start_sec,
-                state.buffer_start_time,
-            ) = self._enforce_buffer_limit(
-                state.buffer,
-                state.buffer_start_sec,
-                state.buffer_start_time,
-                state.audio_received_sec,
-                state.sample_rate,
-                state.session_state,
-                state.decode_stream,
-                activity_callback=lambda: self._mark_activity(state),
-            )
+            self._enforce_buffer_limit(state, context)
 
         for result in self._emit_with_activity(state, False):
             yield result
@@ -661,6 +764,9 @@ class StreamOrchestrator:
             self._audio_storage.finalize_recording(
                 state.audio_recorder, state.final_reason
             )
+        if state.buffer:
+            self._update_buffer_total(-len(state.buffer))
+            state.buffer = bytearray()
         if state.session_state:
             duration = time.monotonic() - state.session_start
             LOGGER.info(
@@ -757,61 +863,87 @@ class StreamOrchestrator:
 
     def _enforce_buffer_limit(
         self,
-        buffer: bytearray,
-        buffer_start_sec: float,
-        buffer_start_time: Optional[float],
-        audio_received_sec: float,
-        sample_rate: Optional[int],
-        session_state: Optional[SessionState],
-        decode_stream: Optional[DecodeStream],
-        activity_callback: Optional[Callable[[], None]] = None,
-    ) -> tuple[bytearray, float, Optional[float]]:
-        limit_bytes = self._buffer_limit_bytes(sample_rate)
+        state: _StreamState,
+        context: grpc.ServicerContext,
+    ) -> None:
+        buffer = state.buffer
+        limit_bytes = self._buffer_limit_bytes(state.sample_rate)
         if limit_bytes is None or len(buffer) <= limit_bytes:
-            return buffer, buffer_start_sec, buffer_start_time
+            return
 
         if (
-            session_state
-            and decode_stream
-            and session_state.session_info.vad_mode == stt_pb2.VAD_CONTINUE
+            state.session_state
+            and state.decode_stream
+            and state.session_state.session_info.vad_mode == stt_pb2.VAD_CONTINUE
         ):
             if not buffer_is_speech(buffer, self._config.speech_rms_threshold):
                 LOGGER.info(
                     "Buffer limit reached with low-energy audio; dropping buffer."
                 )
-                return bytearray(), audio_received_sec, None
+                self._clear_buffer(state)
+                return
             LOGGER.warning(
                 "Buffer limit reached (%d bytes); scheduling partial decode.",
                 len(buffer),
             )
-            if self._ensure_decode_capacity(decode_stream, False, session_state):
-                decode_stream.schedule_decode(
-                    bytes(buffer),
-                    sample_rate or self._config.default_sample_rate,
-                    session_state.decode_options,
-                    False,
-                    buffer_start_sec,
-                    count_vad=False,
-                    buffer_started_at=buffer_start_time,
-                )
-                if activity_callback:
-                    activity_callback()
-            return bytearray(), audio_received_sec, None
+            if not self._ensure_decode_capacity(
+                state.decode_stream, False, state.session_state
+            ):
+                self._clear_buffer(state)
+                return
+            rate = state.sample_rate or self._config.default_sample_rate
+            window_drop = max(0, len(buffer) - limit_bytes)
+            window_offset_sec = state.buffer_start_sec + audio.chunk_duration_seconds(
+                window_drop, rate
+            )
+            window = bytes(buffer[-limit_bytes:])
+            if not self._schedule_decode(
+                state,
+                window,
+                is_final=False,
+                offset_sec=window_offset_sec,
+                count_vad=False,
+                buffer_started_at=state.buffer_start_time,
+                context=context,
+            ):
+                self._clear_buffer(state)
+                return
+            overlap_sec = max(0.0, self._config.buffer_overlap_sec)
+            overlap_bytes = int(overlap_sec * rate * 2)
+            retain = min(overlap_bytes, len(buffer))
+            dropped = len(buffer) - retain
+            if dropped > 0:
+                new_buffer = bytearray(buffer[-retain:]) if retain > 0 else bytearray()
+                dropped_sec = audio.chunk_duration_seconds(dropped, rate)
+                state.buffer_start_sec += dropped_sec
+                if state.buffer_start_time is not None:
+                    state.buffer_start_time += dropped_sec
+            else:
+                new_buffer = bytearray()
+            before_len = len(state.buffer)
+            state.buffer = new_buffer
+            self._update_buffer_total(len(state.buffer) - before_len)
+            state.buffer_has_new_audio = False
+            return
 
+        before_len = len(buffer)
         overflow = len(buffer) - limit_bytes
         if overflow > 0:
             del buffer[:overflow]
-            rate = sample_rate or self._config.default_sample_rate
+            rate = state.sample_rate or self._config.default_sample_rate
             dropped_sec = audio.chunk_duration_seconds(overflow, rate)
-            buffer_start_sec += dropped_sec
-            if buffer_start_time is not None:
-                buffer_start_time += dropped_sec
+            state.buffer_start_sec += dropped_sec
+            if state.buffer_start_time is not None:
+                state.buffer_start_time += dropped_sec
             LOGGER.warning(
                 "Buffer limit reached (%d bytes); trimmed %.2fs of audio.",
                 limit_bytes,
                 dropped_sec,
             )
-        return buffer, buffer_start_sec, buffer_start_time
+        after_len = len(buffer)
+        if after_len != before_len:
+            self._update_buffer_total(after_len - before_len)
+        state.buffer = buffer
 
     def _emit_results_with_session(
         self,

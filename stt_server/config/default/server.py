@@ -15,6 +15,12 @@ DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_MAX_BUFFER_SEC = 60.0
 DEFAULT_MAX_PENDING_DECODES_PER_STREAM = 8
+DEFAULT_MAX_PENDING_DECODES_GLOBAL = 64
+DEFAULT_MAX_TOTAL_BUFFER_BYTES = 64 * 1024 * 1024
+DEFAULT_DECODE_QUEUE_TIMEOUT_SEC = 1.0
+DEFAULT_BUFFER_OVERLAP_SEC = 0.5
+DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES = 8 * 1024 * 1024
+DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES = 4 * 1024 * 1024
 DEFAULT_HEALTH_WINDOW_SEC = 60.0
 DEFAULT_HEALTH_MIN_EVENTS = 5
 DEFAULT_HEALTH_MAX_TIMEOUT_RATIO = 0.5
@@ -34,6 +40,12 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_buffer_sec": "max_buffer_sec",
         "max_buffer_bytes": "max_buffer_bytes",
         "max_pending_decodes_per_stream": "max_pending_decodes_per_stream",
+        "max_pending_decodes_global": "max_pending_decodes_global",
+        "max_total_buffer_bytes": "max_total_buffer_bytes",
+        "decode_queue_timeout_sec": "decode_queue_timeout_sec",
+        "buffer_overlap_sec": "buffer_overlap_sec",
+        "grpc_max_receive_message_bytes": "grpc_max_receive_message_bytes",
+        "grpc_max_send_message_bytes": "grpc_max_send_message_bytes",
         "log_metrics": "log_metrics",
         "sample_rate": "sample_rate",
     },
@@ -80,6 +92,12 @@ __all__ = [
     "DEFAULT_SPEECH_RMS_THRESHOLD",
     "DEFAULT_SAMPLE_RATE",
     "DEFAULT_MAX_BUFFER_SEC",
+    "DEFAULT_MAX_PENDING_DECODES_GLOBAL",
+    "DEFAULT_MAX_TOTAL_BUFFER_BYTES",
+    "DEFAULT_DECODE_QUEUE_TIMEOUT_SEC",
+    "DEFAULT_BUFFER_OVERLAP_SEC",
+    "DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES",
+    "DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES",
     "DEFAULT_MAX_PENDING_DECODES_PER_STREAM",
     "DEFAULT_HEALTH_WINDOW_SEC",
     "DEFAULT_HEALTH_MIN_EVENTS",

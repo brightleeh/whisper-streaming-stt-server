@@ -48,7 +48,9 @@ def test_graceful_shutdown_on_signal(monkeypatch):
             return FakeFuture()
 
     fake_server = FakeServer()
-    monkeypatch.setattr(main_module.grpc, "server", lambda executor: fake_server)
+    monkeypatch.setattr(
+        main_module.grpc, "server", lambda executor, **_kwargs: fake_server
+    )
 
     fake_http_handle = MagicMock()
     monkeypatch.setattr(
@@ -109,7 +111,9 @@ def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
         def stop(self, grace):
             return FakeFuture()
 
-    monkeypatch.setattr(main_module.grpc, "server", lambda executor: FakeServer())
+    monkeypatch.setattr(
+        main_module.grpc, "server", lambda executor, **_kwargs: FakeServer()
+    )
 
     fake_http_handle = MagicMock()
     monkeypatch.setattr(

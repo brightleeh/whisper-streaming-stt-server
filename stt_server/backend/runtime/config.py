@@ -31,6 +31,10 @@ class StreamingRuntimeConfig:
     max_buffer_sec: Optional[float] = 60.0
     max_buffer_bytes: Optional[int] = None
     max_pending_decodes_per_stream: int = 8
+    max_pending_decodes_global: int = 64
+    max_total_buffer_bytes: Optional[int] = 64 * 1024 * 1024
+    decode_queue_timeout_sec: float = 1.0
+    buffer_overlap_sec: float = 0.5
     health_window_sec: float = 60.0
     health_min_events: int = 5
     health_max_timeout_ratio: float = 0.5

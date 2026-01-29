@@ -22,7 +22,7 @@ def test_decode_stream_logic_err2001_timeout():
     mock_future.cancel.return_value = True
     scheduler._increment_pending()
     stream.pending_partials = 1
-    stream.pending_results.append((mock_future, False, 0.0, False, 0.0))
+    stream.pending_results.append((mock_future, False, 0.0, False, 0.0, False))
 
     with patch(
         "stt_server.backend.component.decode_scheduler.futures.wait"
@@ -49,7 +49,7 @@ def test_decode_stream_logic_err2002_task_failed():
     mock_future.result.side_effect = ValueError("Model crash")
     scheduler._increment_pending()
     stream.pending_partials = 1
-    stream.pending_results.append((mock_future, False, 0.0, False, 0.0))
+    stream.pending_results.append((mock_future, False, 0.0, False, 0.0, False))
 
     with pytest.raises(STTError) as exc:
         list(stream.emit_ready(block=False))
@@ -92,7 +92,9 @@ def test_decode_stream_timing_summary_after_emit_ready():
 
     buffer_wait_sec = 0.12
     scheduler._increment_pending()
-    stream.pending_results.append((mock_future, True, 0.0, False, buffer_wait_sec))
+    stream.pending_results.append(
+        (mock_future, True, 0.0, False, buffer_wait_sec, False)
+    )
 
     with patch(
         "stt_server.backend.component.decode_scheduler.time.perf_counter",
@@ -129,9 +131,9 @@ def test_decode_stream_drop_pending_partials_updates_counts():
     stream.pending_partials = 2
     stream.pending_results.extend(
         [
-            (futures_list[0], False, 0.0, False, 0.0),
-            (futures_list[1], True, 0.0, False, 0.0),
-            (futures_list[2], False, 0.0, False, 0.0),
+            (futures_list[0], False, 0.0, False, 0.0, False),
+            (futures_list[1], True, 0.0, False, 0.0, False),
+            (futures_list[2], False, 0.0, False, 0.0, False),
         ]
     )
 
