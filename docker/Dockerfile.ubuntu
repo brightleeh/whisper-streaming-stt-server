@@ -22,10 +22,15 @@ RUN python3 -m pip install --no-cache-dir --upgrade pip \
 
 COPY proto /app/proto
 RUN mkdir -p /app/gen/stt/python/v1 \
+    && touch /app/gen/__init__.py \
+    && touch /app/gen/stt/__init__.py \
+    && touch /app/gen/stt/python/__init__.py \ 
+    && touch /app/gen/stt/python/v1/__init__.py \
     && python3 -m grpc_tools.protoc \
     -I /app/proto \
     --python_out=/app/gen/stt/python/v1 \
     --grpc_python_out=/app/gen/stt/python/v1 \
+    --mypy_out=/app/gen/stt/python/v1 \
     /app/proto/stt.proto \
     && cat > /app/gen/stt/python/v1/__init__.py <<'PY'
 import sys as _sys
