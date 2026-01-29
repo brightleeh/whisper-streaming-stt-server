@@ -48,6 +48,16 @@ def test_http_load_model_thread_daemon_and_tracked(monkeypatch):
     threads[0].join(timeout=0.5)
     assert not threads[0].is_alive()
 
+    runtime.model_registry.load_model.side_effect = None
+    runtime.model_registry.load_model.return_value = None
+    response = client.post(
+        "/admin/load_model", json={"model_id": "another-model"}, headers=headers
+    )
+    assert response.status_code == 200
+    with load_threads_lock:
+        threads = list(load_threads)
+    assert len(threads) == 1
+
 
 def _build_runtime():
     runtime = MagicMock()

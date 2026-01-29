@@ -121,6 +121,10 @@ class HttpServerHandle:
                 if deadline is not None:
                     remaining = max(0.0, deadline - time.monotonic())
                 thread.join(timeout=remaining)
+        with self.load_threads_lock:
+            self.load_threads[:] = [
+                thread for thread in self.load_threads if thread.is_alive()
+            ]
 
 
 def build_http_app(
@@ -133,6 +137,12 @@ def build_http_app(
     health_snapshot = runtime.health_snapshot
     load_threads: List[threading.Thread] = []
     load_threads_lock = threading.Lock()
+
+    def _prune_load_threads() -> None:
+        with load_threads_lock:
+            if not load_threads:
+                return
+            load_threads[:] = [thread for thread in load_threads if thread.is_alive()]
 
     @app.exception_handler(STTError)
     async def stt_error_handler(_request: Request, exc: STTError) -> JSONResponse:
@@ -208,6 +218,7 @@ def build_http_app(
         if not callable(load_fn):
             raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
+        _prune_load_threads()
         if model_registry.is_loaded(req.model_id):
             raise STTError(
                 ErrorCode.MODEL_ALREADY_LOADED,
