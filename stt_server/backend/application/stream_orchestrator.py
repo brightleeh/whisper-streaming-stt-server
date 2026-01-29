@@ -21,7 +21,11 @@ from stt_server.backend.component.decode_scheduler import (
     DecodeSchedulerHooks,
     DecodeStream,
 )
-from stt_server.backend.component.vad_gate import VADGate, buffer_is_speech
+from stt_server.backend.component.vad_gate import (
+    VADGate,
+    buffer_is_speech,
+    configure_vad_model_pool,
+)
 from stt_server.config.languages import SupportedLanguages
 from stt_server.errors import ErrorCode, abort_with_error
 from stt_server.utils import audio
@@ -49,6 +53,10 @@ class StreamOrchestratorConfig:
     storage_max_bytes: Optional[int] = None
     storage_max_files: Optional[int] = None
     storage_max_age_days: Optional[int] = None
+
+    # VAD model pool settings
+    vad_model_pool_size: Optional[int] = None
+    vad_model_prewarm: Optional[int] = None
 
     # Buffer control settings
     max_buffer_sec: Optional[float] = 60.0
@@ -94,6 +102,7 @@ class StreamOrchestrator:
         self._hooks = hooks or StreamOrchestratorHooks()
         self._decode_scheduler = self._create_decode_scheduler(config)
         self._audio_storage: Optional[AudioStorageManager] = None
+        configure_vad_model_pool(config.vad_model_pool_size, config.vad_model_prewarm)
         if config.storage_enabled:
             storage_directory = Path(config.storage_directory).expanduser()
             storage_policy = AudioStorageConfig(
@@ -542,6 +551,9 @@ class StreamOrchestrator:
 
             if timeout_event.is_set():
                 final_reason = "timeout"
+
+            if vad_state:
+                vad_state.close()
 
             if decode_stream:
                 (

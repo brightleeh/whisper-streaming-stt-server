@@ -83,6 +83,8 @@ class ApplicationRuntime:
             default_sample_rate=streaming_config.sample_rate,
             decode_timeout_sec=streaming_config.decode_timeout_sec,
             language_lookup=self.supported_languages,
+            vad_model_pool_size=streaming_config.vad_model_pool_size,
+            vad_model_prewarm=streaming_config.vad_model_prewarm,
             max_buffer_sec=streaming_config.max_buffer_sec,
             max_buffer_bytes=streaming_config.max_buffer_bytes,
             max_pending_decodes_per_stream=streaming_config.max_pending_decodes_per_stream,

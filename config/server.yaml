@@ -13,6 +13,8 @@ server:
 vad:
   silence: 0.5 # Seconds of trailing silence to trigger decode
   threshold: 0.5 # Silero VAD speech probability threshold (0-1)
+  model_pool_size: 4 # VAD model pool size (0 uses max_sessions)
+  model_prewarm: 1 # Prewarm VAD models on startup
 
 safety:
   speech_rms_threshold: 0.00 # Minimum RMS required before decoding buffered audio

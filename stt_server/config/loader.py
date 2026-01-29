@@ -31,6 +31,8 @@ from stt_server.config.default import (
     DEFAULT_SAMPLE_RATE,
     DEFAULT_SPEECH_RMS_THRESHOLD,
     DEFAULT_TASK,
+    DEFAULT_VAD_MODEL_POOL_SIZE,
+    DEFAULT_VAD_MODEL_PREWARM,
     DEFAULT_VAD_SILENCE,
     DEFAULT_VAD_THRESHOLD,
     MODEL_SECTION_MAP,
@@ -59,6 +61,8 @@ class ServerConfig:
     log_metrics: bool = DEFAULT_LOG_METRICS
     vad_silence: float = DEFAULT_VAD_SILENCE
     vad_threshold: float = DEFAULT_VAD_THRESHOLD
+    vad_model_pool_size: int = DEFAULT_VAD_MODEL_POOL_SIZE
+    vad_model_prewarm: int = DEFAULT_VAD_MODEL_PREWARM
     speech_rms_threshold: float = DEFAULT_SPEECH_RMS_THRESHOLD
     log_level: str = DEFAULT_LOG_LEVEL
     log_file: Optional[str] = DEFAULT_LOG_FILE

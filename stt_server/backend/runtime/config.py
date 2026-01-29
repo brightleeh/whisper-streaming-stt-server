@@ -22,6 +22,8 @@ class ModelRuntimeConfig:
 class StreamingRuntimeConfig:
     vad_silence: float = 0.8
     vad_threshold: float = 0.5
+    vad_model_pool_size: int = 4
+    vad_model_prewarm: int = 1
     speech_rms_threshold: float = 0.02
     session_timeout_sec: float = 60.0
     sample_rate: int = 16000

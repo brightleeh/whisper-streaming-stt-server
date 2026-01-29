@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import threading
 from collections import deque
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Optional, Protocol, TypeAlias, cast
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING, Optional, Protocol, TypeAlias, cast
 import numpy as np
 
 from stt_server.utils import audio
+from stt_server.utils.logger import LOGGER
 
 try:
     import torch
@@ -39,6 +41,10 @@ class VADModel(Protocol):
 
 _SILERO_SAMPLE_RATE = 16000
 _SILERO_BASE_MODEL: Optional[VADModel] = None
+_VAD_POOL_LOCK = threading.Lock()
+_VAD_POOL: "deque[VADModel]" = deque()
+_VAD_POOL_MAX_SIZE = 0
+_VAD_POOL_TOTAL_CREATED = 0
 
 
 def _load_silero_base_model():
@@ -64,6 +70,77 @@ def _new_silero_model():
     if hasattr(model, "reset_states"):
         model.reset_states()
     return model
+
+
+def configure_vad_model_pool(
+    max_size: Optional[int] = None, prewarm: Optional[int] = None
+) -> None:
+    global _VAD_POOL_MAX_SIZE, _VAD_POOL_TOTAL_CREATED
+    max_size_value = int(max_size) if max_size is not None else 0
+    prewarm_value = int(prewarm) if prewarm is not None else 0
+    max_size_value = max(0, max_size_value)
+    prewarm_value = max(0, prewarm_value)
+    if max_size_value == 0:
+        with _VAD_POOL_LOCK:
+            _VAD_POOL.clear()
+            _VAD_POOL_MAX_SIZE = 0
+            _VAD_POOL_TOTAL_CREATED = 0
+        return
+
+    with _VAD_POOL_LOCK:
+        _VAD_POOL_MAX_SIZE = max_size_value
+        while len(_VAD_POOL) > _VAD_POOL_MAX_SIZE:
+            _VAD_POOL.pop()
+            _VAD_POOL_TOTAL_CREATED = max(0, _VAD_POOL_TOTAL_CREATED - 1)
+
+    target_pool = min(prewarm_value, max_size_value)
+    while True:
+        with _VAD_POOL_LOCK:
+            if len(_VAD_POOL) >= target_pool:
+                break
+            if _VAD_POOL_TOTAL_CREATED >= _VAD_POOL_MAX_SIZE:
+                break
+        try:
+            model = _new_silero_model()
+        except Exception:
+            LOGGER.exception("Failed to prewarm VAD model pool")
+            break
+        with _VAD_POOL_LOCK:
+            if len(_VAD_POOL) >= _VAD_POOL_MAX_SIZE:
+                break
+            _VAD_POOL.append(model)
+            _VAD_POOL_TOTAL_CREATED += 1
+
+
+def _acquire_vad_model() -> VADModel:
+    global _VAD_POOL_TOTAL_CREATED
+    with _VAD_POOL_LOCK:
+        if _VAD_POOL_MAX_SIZE > 0 and _VAD_POOL:
+            model = _VAD_POOL.popleft()
+            if hasattr(model, "reset_states"):
+                model.reset_states()
+            return model
+        if _VAD_POOL_MAX_SIZE > 0:
+            overflow = _VAD_POOL_TOTAL_CREATED >= _VAD_POOL_MAX_SIZE
+            _VAD_POOL_TOTAL_CREATED += 1
+        else:
+            overflow = False
+    if overflow:
+        LOGGER.warning("VAD pool exhausted; creating overflow model instance.")
+    return _new_silero_model()
+
+
+def _release_vad_model(model: VADModel) -> None:
+    global _VAD_POOL_TOTAL_CREATED
+    with _VAD_POOL_LOCK:
+        if _VAD_POOL_MAX_SIZE <= 0:
+            return
+        if len(_VAD_POOL) >= _VAD_POOL_MAX_SIZE:
+            _VAD_POOL_TOTAL_CREATED = max(0, _VAD_POOL_TOTAL_CREATED - 1)
+            return
+        if hasattr(model, "reset_states"):
+            model.reset_states()
+        _VAD_POOL.append(model)
 
 
 def _silero_frame_probability(model: VADModel, frame: np.ndarray) -> float:
@@ -97,7 +174,7 @@ class VADGate:
         self.vad_silence = vad_silence
         self.speech_active = False
         self.silence_duration = 0.0
-        self._vad_model = _new_silero_model() if vad_threshold > 0 else None
+        self._vad_model = _acquire_vad_model() if vad_threshold > 0 else None
         self._vad_chunks: "deque[np.ndarray]" = deque()
         self._vad_chunk_offset = 0
         self._vad_buffered = 0
@@ -172,6 +249,12 @@ class VADGate:
     def reset_after_trigger(self) -> None:
         self.speech_active = False
         self.silence_duration = 0.0
+
+    def close(self) -> None:
+        if self._vad_model is None:
+            return
+        _release_vad_model(self._vad_model)
+        self._vad_model = None
 
 
 def buffer_is_speech(buffer_bytes: bytes, threshold: float) -> bool:

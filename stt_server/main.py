@@ -45,9 +45,15 @@ def serve(config: ServerConfig) -> None:
         decode_profiles=config.decode_profiles,
         default_decode_profile=config.default_decode_profile,
     )
+    vad_pool_size = config.vad_model_pool_size
+    if vad_pool_size <= 0:
+        vad_pool_size = config.max_sessions
+    vad_prewarm = max(0, config.vad_model_prewarm)
     streaming_cfg = StreamingRuntimeConfig(
         vad_silence=config.vad_silence,
         vad_threshold=config.vad_threshold,
+        vad_model_pool_size=vad_pool_size,
+        vad_model_prewarm=vad_prewarm,
         speech_rms_threshold=config.speech_rms_threshold,
         session_timeout_sec=config.session_timeout_sec,
         sample_rate=config.sample_rate,
