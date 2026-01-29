@@ -288,6 +288,21 @@ These endpoints allow operators to manage Whisper models without restarting the 
 
 **Note:** Admin endpoints are intended for operator use only and should be protected or restricted in production environments.
 
+### Admin API security (recommended)
+
+Admin endpoints are **disabled by default**. To enable them, set:
+
+- `STT_ADMIN_ENABLED=true`
+- `STT_ADMIN_TOKEN=<token>`
+
+Requests must include an `Authorization: Bearer <token>` header.
+
+To restrict model loading via `model_path`, set:
+
+- `STT_ADMIN_ALLOW_MODEL_PATH=true` to allow `model_path`
+- `STT_ADMIN_MODEL_PATH_ALLOWLIST` (comma-separated prefixes) to whitelist paths/IDs
+  - Examples: `/models/`, `openai/`
+
 ## Assets
 
 - `stt_client/assets/hello.wav`: sourced from https://github.com/SkelterLabsInc/stt-dataset-example
@@ -314,6 +329,8 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 - `ERR4001` (HTTP 501): admin API not enabled
 - `ERR4002` (HTTP 409): model already loaded
 - `ERR4003` (HTTP 400): model not found or is default (unload failed)
+- `ERR4004` (HTTP 401): invalid or missing admin token
+- `ERR4005` (HTTP 403): `model_path` not allowed
 
 ## Run
 

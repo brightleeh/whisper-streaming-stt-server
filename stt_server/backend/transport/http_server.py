@@ -1,4 +1,5 @@
 import logging
+import os
 import threading
 import time
 from copy import deepcopy
@@ -21,6 +22,10 @@ from stt_server.config.default.model import (
 from stt_server.errors import ErrorCode, STTError, http_payload_for, http_status_for
 
 _ACCESS_LOG_IGNORED_PATHS = frozenset({"/metrics", "/system", "/health"})
+_ADMIN_ENABLE_ENV = "STT_ADMIN_ENABLED"
+_ADMIN_TOKEN_ENV = "STT_ADMIN_TOKEN"
+_ADMIN_ALLOW_MODEL_PATH_ENV = "STT_ADMIN_ALLOW_MODEL_PATH"
+_ADMIN_MODEL_PATH_ALLOWLIST_ENV = "STT_ADMIN_MODEL_PATH_ALLOWLIST"
 
 
 class _AccessLogPathFilter(logging.Filter):
@@ -48,6 +53,38 @@ def _build_uvicorn_log_config() -> Dict[str, Any]:
     access_handler["filters"] = [*access_filters, "ignore_internal_endpoints"]
     log_config["handlers"]["access"] = access_handler
     return log_config
+
+
+def _env_enabled(name: str) -> bool:
+    value = os.getenv(name, "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
+
+
+def _admin_token() -> str:
+    return os.getenv(_ADMIN_TOKEN_ENV, "").strip()
+
+
+def _require_admin(request: Request) -> None:
+    if not _env_enabled(_ADMIN_ENABLE_ENV) or not _admin_token():
+        raise STTError(ErrorCode.ADMIN_API_DISABLED)
+    auth = request.headers.get("authorization", "").strip()
+    if not auth.lower().startswith("bearer "):
+        raise STTError(ErrorCode.ADMIN_UNAUTHORIZED)
+    token = auth[7:].strip()
+    if token != _admin_token():
+        raise STTError(ErrorCode.ADMIN_UNAUTHORIZED)
+
+
+def _model_path_allowed(model_path: Optional[str]) -> bool:
+    if not model_path:
+        return True
+    if not _env_enabled(_ADMIN_ALLOW_MODEL_PATH_ENV):
+        return False
+    allowlist_raw = os.getenv(_ADMIN_MODEL_PATH_ALLOWLIST_ENV, "")
+    allowlist = [item.strip() for item in allowlist_raw.split(",") if item.strip()]
+    if not allowlist:
+        return True
+    return any(model_path.startswith(prefix) for prefix in allowlist)
 
 
 class LoadModelRequest(BaseModel):
@@ -119,7 +156,8 @@ def build_http_app(
         return JSONResponse(collect_system_metrics(), status_code=200)
 
     @app.post("/admin/load_model")
-    def load_model_endpoint(req: LoadModelRequest) -> JSONResponse:
+    def load_model_endpoint(req: LoadModelRequest, request: Request) -> JSONResponse:
+        _require_admin(request)
         if not model_registry.load_model:
             raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
@@ -128,6 +166,8 @@ def build_http_app(
                 ErrorCode.MODEL_ALREADY_LOADED,
                 f"Model '{req.model_id}' is already loaded",
             )
+        if not _model_path_allowed(req.model_path):
+            raise STTError(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
 
         # Load in a separate thread to prevent blocking the main loop
         thread = threading.Thread(
@@ -148,8 +188,9 @@ def build_http_app(
 
     @app.post("/admin/unload_model")
     def unload_model_endpoint(
-        model_id: str, drain_timeout_sec: float | None = None
+        model_id: str, request: Request, drain_timeout_sec: float | None = None
     ) -> JSONResponse:
+        _require_admin(request)
         if not model_registry.unload_model:
             raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
@@ -161,7 +202,8 @@ def build_http_app(
         raise STTError(ErrorCode.MODEL_UNLOAD_FAILED)
 
     @app.get("/admin/list_models")
-    def list_models_endpoint() -> JSONResponse:
+    def list_models_endpoint(request: Request) -> JSONResponse:
+        _require_admin(request)
         return JSONResponse({"models": model_registry.list_models()})
 
     return app, load_threads, load_threads_lock

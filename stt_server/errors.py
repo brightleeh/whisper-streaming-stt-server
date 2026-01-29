@@ -30,6 +30,8 @@ class ErrorCode(str, Enum):
     ADMIN_API_DISABLED = "ERR4001"
     MODEL_ALREADY_LOADED = "ERR4002"
     MODEL_UNLOAD_FAILED = "ERR4003"
+    ADMIN_UNAUTHORIZED = "ERR4004"
+    ADMIN_MODEL_PATH_FORBIDDEN = "ERR4005"
 
 
 @dataclass(frozen=True)
@@ -118,6 +120,18 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.FAILED_PRECONDITION,
         400,
         "Model not found or is default",
+    ),
+    ErrorCode.ADMIN_UNAUTHORIZED: ErrorSpec(
+        ErrorCode.ADMIN_UNAUTHORIZED,
+        grpc.StatusCode.UNAUTHENTICATED,
+        401,
+        "Invalid or missing admin token",
+    ),
+    ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN: ErrorSpec(
+        ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN,
+        grpc.StatusCode.PERMISSION_DENIED,
+        403,
+        "model_path is not allowed",
     ),
 }
 

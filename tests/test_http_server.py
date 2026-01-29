@@ -7,7 +7,13 @@ from stt_server.backend.transport.http_server import build_http_app
 from stt_server.errors import ErrorCode, http_payload_for, http_status_for
 
 
-def test_http_load_model_thread_daemon_and_tracked():
+def _enable_admin(monkeypatch, token="secret-token"):
+    monkeypatch.setenv("STT_ADMIN_ENABLED", "true")
+    monkeypatch.setenv("STT_ADMIN_TOKEN", token)
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_http_load_model_thread_daemon_and_tracked(monkeypatch):
     runtime = MagicMock()
     runtime.metrics = MagicMock()
     runtime.health_snapshot.return_value = {"model_pool_healthy": True}
@@ -26,8 +32,11 @@ def test_http_load_model_thread_daemon_and_tracked():
         runtime, {"grpc_running": True}
     )
     client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
 
-    response = client.post("/admin/load_model", json={"model_id": "test-model"})
+    response = client.post(
+        "/admin/load_model", json={"model_id": "test-model"}, headers=headers
+    )
     assert response.status_code == 200
     assert load_started.wait(timeout=0.5)
 
@@ -47,9 +56,11 @@ def _build_runtime():
     return runtime
 
 
-def test_http_admin_api_disabled_returns_error_payload():
+def test_http_admin_api_disabled_returns_error_payload(monkeypatch):
     runtime = _build_runtime()
     runtime.model_registry.load_model = None
+    monkeypatch.delenv("STT_ADMIN_ENABLED", raising=False)
+    monkeypatch.delenv("STT_ADMIN_TOKEN", raising=False)
 
     app, _, _ = build_http_app(runtime, {"grpc_running": True})
     client = TestClient(app)
@@ -60,14 +71,17 @@ def test_http_admin_api_disabled_returns_error_payload():
     assert response.json() == http_payload_for(ErrorCode.ADMIN_API_DISABLED)
 
 
-def test_http_admin_model_already_loaded_returns_error_payload():
+def test_http_admin_model_already_loaded_returns_error_payload(monkeypatch):
     runtime = _build_runtime()
     runtime.model_registry.is_loaded.return_value = True
 
     app, _, _ = build_http_app(runtime, {"grpc_running": True})
     client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
 
-    response = client.post("/admin/load_model", json={"model_id": "test-model"})
+    response = client.post(
+        "/admin/load_model", json={"model_id": "test-model"}, headers=headers
+    )
 
     assert response.status_code == http_status_for(ErrorCode.MODEL_ALREADY_LOADED)
     assert response.json() == http_payload_for(
@@ -75,32 +89,85 @@ def test_http_admin_model_already_loaded_returns_error_payload():
     )
 
 
-def test_http_admin_unload_model_failed_returns_error_payload():
+def test_http_admin_unload_model_failed_returns_error_payload(monkeypatch):
     runtime = _build_runtime()
     runtime.model_registry.unload_model.return_value = False
 
     app, _, _ = build_http_app(runtime, {"grpc_running": True})
     client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
 
-    response = client.post("/admin/unload_model", params={"model_id": "test-model"})
+    response = client.post(
+        "/admin/unload_model",
+        params={"model_id": "test-model"},
+        headers=headers,
+    )
 
     assert response.status_code == http_status_for(ErrorCode.MODEL_UNLOAD_FAILED)
     assert response.json() == http_payload_for(ErrorCode.MODEL_UNLOAD_FAILED)
 
 
-def test_http_admin_unload_model_passes_drain_timeout():
+def test_http_admin_unload_model_passes_drain_timeout(monkeypatch):
     runtime = _build_runtime()
     runtime.model_registry.unload_model.return_value = True
 
     app, _, _ = build_http_app(runtime, {"grpc_running": True})
     client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
 
     response = client.post(
         "/admin/unload_model",
         params={"model_id": "test-model", "drain_timeout_sec": 0.25},
+        headers=headers,
     )
 
     assert response.status_code == 200
     runtime.model_registry.unload_model.assert_called_with(
         "test-model", drain_timeout_sec=0.25
     )
+
+
+def test_http_admin_list_models_with_token_succeeds(monkeypatch):
+    runtime = _build_runtime()
+    runtime.model_registry.list_models.return_value = ["model-a", "model-b"]
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.get("/admin/list_models", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"models": ["model-a", "model-b"]}
+
+
+def test_http_admin_unauthorized_returns_error_payload(monkeypatch):
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    _enable_admin(monkeypatch, token="expected")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.post("/admin/load_model", json={"model_id": "test-model"})
+
+    assert response.status_code == http_status_for(ErrorCode.ADMIN_UNAUTHORIZED)
+    assert response.json() == http_payload_for(ErrorCode.ADMIN_UNAUTHORIZED)
+
+
+def test_http_admin_model_path_forbidden_returns_error_payload(monkeypatch):
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    headers = _enable_admin(monkeypatch)
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.post(
+        "/admin/load_model",
+        json={"model_id": "test-model", "model_path": "/tmp/evil"},
+        headers=headers,
+    )
+
+    assert response.status_code == http_status_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
+    assert response.json() == http_payload_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
