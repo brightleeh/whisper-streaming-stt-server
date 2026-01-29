@@ -83,7 +83,12 @@ class ModelRegistry:
                 return
 
             LOGGER.info("Loading model '%s' with config=%s", model_id, config)
-            pool_size = config.get("pool_size", DEFAULT_MODEL_POOL_SIZE)
+            try:
+                pool_size = int(config.get("pool_size", DEFAULT_MODEL_POOL_SIZE))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("pool_size must be an integer >= 1") from exc
+            if pool_size <= 0:
+                raise ValueError("pool_size must be >= 1")
             workers: List[ModelWorker] = []
 
             # Extract worker-specific arguments

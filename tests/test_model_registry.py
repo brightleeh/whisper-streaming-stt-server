@@ -1,3 +1,5 @@
+import pytest
+
 from stt_server.backend.application import model_registry
 from stt_server.backend.application.model_registry import ModelRegistry
 
@@ -44,3 +46,9 @@ def test_unload_model_passes_drain_timeout(monkeypatch):
 
     assert registry.unload_model("model-b", drain_timeout_sec=1.5) is True
     assert timeouts == [1.5, 1.5]
+
+
+def test_load_model_rejects_non_positive_pool_size():
+    registry = ModelRegistry()
+    with pytest.raises(ValueError):
+        registry.load_model("model-a", {"pool_size": 0})
