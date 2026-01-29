@@ -2,6 +2,8 @@ import threading
 import time
 from unittest.mock import MagicMock
 
+import pytest
+
 from gen.stt.python.v1 import stt_pb2
 from stt_server.backend.application.session_manager import (
     SessionFacade,
@@ -229,6 +231,68 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
     args, kwargs = fake_stream.scheduled[0]
     assert args[3] is False  # is_final
     assert kwargs.get("count_vad") is False
+
+
+def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
+    session_registry = SessionRegistry()
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    config = StreamOrchestratorConfig(
+        vad_threshold=0.0,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        max_chunk_ms=10,
+        storage_enabled=False,
+        storage_directory=".",
+        storage_max_bytes=None,
+        storage_max_files=None,
+        storage_max_age_days=None,
+    )
+
+    session_id = "session-oversized-chunk"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=0.0,
+            token="",
+            token_required=False,
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream((0.0, 0.0, 0.0, 0.0, 0))
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+
+    sample_rate = 16000
+    oversized_pcm16 = b"\x00\x00" * 1000
+    chunks = [
+        stt_pb2.AudioChunk(
+            pcm16=oversized_pcm16, sample_rate=sample_rate, session_id=session_id
+        )
+    ]
+
+    context = FakeContext()
+    with pytest.raises(RuntimeError, match="ERR1007"):
+        list(orchestrator.run(iter(chunks), context))  # type: ignore[arg-type]
+
+    assert len(context.abort_calls) == 1
+    code, details, _abort_thread = context.abort_calls[0]
+    assert code == status_for(ErrorCode.AUDIO_CHUNK_TOO_LARGE)
+    assert "ERR1007" in details
 
 
 def test_stream_orchestrator_timeout_ignored_while_pending_decode(monkeypatch):

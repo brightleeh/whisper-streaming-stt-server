@@ -25,6 +25,7 @@ from stt_server.config.default import (
     DEFAULT_LOG_LEVEL,
     DEFAULT_LOG_METRICS,
     DEFAULT_MAX_BUFFER_SEC,
+    DEFAULT_MAX_CHUNK_MS,
     DEFAULT_MAX_PENDING_DECODES_GLOBAL,
     DEFAULT_MAX_PENDING_DECODES_PER_STREAM,
     DEFAULT_MAX_SESSIONS,
@@ -77,6 +78,7 @@ class ServerConfig:
     session_timeout_sec: float = 60.0
     max_buffer_sec: Optional[float] = DEFAULT_MAX_BUFFER_SEC
     max_buffer_bytes: Optional[int] = None
+    max_chunk_ms: Optional[int] = DEFAULT_MAX_CHUNK_MS
     max_pending_decodes_per_stream: int = DEFAULT_MAX_PENDING_DECODES_PER_STREAM
     max_pending_decodes_global: int = DEFAULT_MAX_PENDING_DECODES_GLOBAL
     max_total_buffer_bytes: Optional[int] = DEFAULT_MAX_TOTAL_BUFFER_BYTES

@@ -30,6 +30,7 @@ class StreamingRuntimeConfig:
     decode_timeout_sec: float = 30.0
     max_buffer_sec: Optional[float] = 60.0
     max_buffer_bytes: Optional[int] = None
+    max_chunk_ms: Optional[int] = 2000
     max_pending_decodes_per_stream: int = 8
     max_pending_decodes_global: int = 64
     max_total_buffer_bytes: Optional[int] = 64 * 1024 * 1024

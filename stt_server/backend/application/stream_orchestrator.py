@@ -61,6 +61,7 @@ class StreamOrchestratorConfig:
     # Buffer control settings
     max_buffer_sec: Optional[float] = 60.0
     max_buffer_bytes: Optional[int] = None
+    max_chunk_ms: Optional[int] = 2000
     max_pending_decodes_per_stream: int = 8
     max_pending_decodes_global: int = 64
     max_total_buffer_bytes: Optional[int] = 64 * 1024 * 1024
@@ -656,6 +657,19 @@ class StreamOrchestrator:
             if chunk.sample_rate > 0
             else state.sample_rate or self._config.default_sample_rate
         )
+        max_chunk_bytes = self._max_chunk_bytes(state.sample_rate)
+        if max_chunk_bytes is not None and len(chunk.pcm16) > max_chunk_bytes:
+            LOGGER.warning(
+                "Chunk size exceeds limit (bytes=%d max=%d session_id=%s)",
+                len(chunk.pcm16),
+                max_chunk_bytes,
+                state.session_state.session_id if state.session_state else "unknown",
+            )
+            abort_with_error(
+                context,
+                ErrorCode.AUDIO_CHUNK_TOO_LARGE,
+                detail=f"chunk bytes {len(chunk.pcm16)} exceeds max {max_chunk_bytes}",
+            )
         state.audio_recorder = self._capture_audio_chunk(
             state.audio_recorder,
             state.session_state,
@@ -860,6 +874,15 @@ class StreamOrchestrator:
                     sec_limit if limit_bytes is None else min(limit_bytes, sec_limit)
                 )
         return limit_bytes
+
+    def _max_chunk_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
+        max_ms = self._config.max_chunk_ms
+        if max_ms is None or max_ms <= 0:
+            return None
+        rate = sample_rate or self._config.default_sample_rate
+        if rate <= 0:
+            return None
+        return int((max_ms / 1000.0) * rate * 2)
 
     def _enforce_buffer_limit(
         self,

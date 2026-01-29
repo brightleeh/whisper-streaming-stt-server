@@ -7,6 +7,7 @@ server:
   session_timeout_sec: 60 # Seconds of inactivity before aborting a session
   max_buffer_sec: 60 # Max buffered audio seconds before partial decode/trim (null disables)
   max_buffer_bytes: null # Max buffered audio bytes before partial decode/trim (null disables)
+  max_chunk_ms: 2000 # Max single chunk duration in milliseconds (null disables)
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
   max_pending_decodes_global: 64 # Global max queued decodes before backpressure/drop
   max_total_buffer_bytes: 67108864 # Global buffered audio cap (bytes)

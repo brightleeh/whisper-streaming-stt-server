@@ -22,6 +22,8 @@ CONFIG_KEYS = {
     "server",
     "vad_mode",
     "metrics",
+    "grpc_max_receive_message_bytes",
+    "grpc_max_send_message_bytes",
     "vad_silence",
     "vad_threshold",
     "require_token",
@@ -88,6 +90,23 @@ def merge_transcript(prefix: str, next_text: str) -> str:
     return f"{prefix} {next_text}"
 
 
+def _create_channel(
+    target: str,
+    grpc_max_receive_message_bytes: Optional[int],
+    grpc_max_send_message_bytes: Optional[int],
+) -> grpc.Channel:
+    options = []
+    if grpc_max_receive_message_bytes and grpc_max_receive_message_bytes > 0:
+        options.append(
+            ("grpc.max_receive_message_length", grpc_max_receive_message_bytes)
+        )
+    if grpc_max_send_message_bytes and grpc_max_send_message_bytes > 0:
+        options.append(("grpc.max_send_message_length", grpc_max_send_message_bytes))
+    if options:
+        return grpc.insecure_channel(target, options=options)
+    return grpc.insecure_channel(target)
+
+
 def _format_value(key: str, value: Any) -> str:
     if isinstance(value, float):
         suffix = "s" if key.endswith("_sec") else ""
@@ -151,10 +170,14 @@ def run(
     task: str,
     decode_profile: str,
     report_metrics: bool,
+    grpc_max_receive_message_bytes: Optional[int],
+    grpc_max_send_message_bytes: Optional[int],
     vad_silence: Optional[float],
     vad_threshold: Optional[float],
 ) -> None:
-    channel = grpc.insecure_channel(target)
+    channel = _create_channel(
+        target, grpc_max_receive_message_bytes, grpc_max_send_message_bytes
+    )
     stub = stt_pb2_grpc.STTBackendStub(channel)
     session_id = attributes.get("session_id") or str(int(time.time() * 1000))
     attributes["session_id"] = session_id
@@ -343,6 +366,18 @@ def main() -> None:
         help="Print client-side performance metrics after streaming",
     )
     parser.add_argument(
+        "--grpc-max-receive-message-bytes",
+        type=int,
+        default=None,
+        help="Max gRPC receive message size in bytes (default: unset)",
+    )
+    parser.add_argument(
+        "--grpc-max-send-message-bytes",
+        type=int,
+        default=None,
+        help="Max gRPC send message size in bytes (default: unset)",
+    )
+    parser.add_argument(
         "--attr",
         "--meta",
         dest="attributes",
@@ -388,6 +423,8 @@ def main() -> None:
         task=args.task,
         decode_profile=args.decode_profile,
         report_metrics=args.metrics,
+        grpc_max_receive_message_bytes=args.grpc_max_receive_message_bytes,
+        grpc_max_send_message_bytes=args.grpc_max_send_message_bytes,
         vad_silence=args.vad_silence,
         vad_threshold=args.vad_threshold,
     )

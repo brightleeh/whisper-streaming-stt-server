@@ -17,6 +17,7 @@ class ErrorCode(str, Enum):
     SESSION_ID_MISSING = "ERR1004"
     SESSION_TOKEN_INVALID = "ERR1005"
     SESSION_TIMEOUT = "ERR1006"
+    AUDIO_CHUNK_TOO_LARGE = "ERR1007"
 
     # decode (ERR200x)
     DECODE_TIMEOUT = "ERR2001"
@@ -78,6 +79,12 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.DEADLINE_EXCEEDED,
         504,
         "Session timeout due to inactivity",
+    ),
+    ErrorCode.AUDIO_CHUNK_TOO_LARGE: ErrorSpec(
+        ErrorCode.AUDIO_CHUNK_TOO_LARGE,
+        grpc.StatusCode.INVALID_ARGUMENT,
+        400,
+        "audio chunk exceeds maximum size",
     ),
     ErrorCode.DECODE_TIMEOUT: ErrorSpec(
         ErrorCode.DECODE_TIMEOUT,

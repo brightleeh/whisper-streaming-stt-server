@@ -75,6 +75,7 @@ def serve(config: ServerConfig) -> None:
         decode_timeout_sec=config.decode_timeout_sec,
         max_buffer_sec=config.max_buffer_sec,
         max_buffer_bytes=config.max_buffer_bytes,
+        max_chunk_ms=config.max_chunk_ms,
         max_pending_decodes_per_stream=config.max_pending_decodes_per_stream,
         max_pending_decodes_global=config.max_pending_decodes_global,
         max_total_buffer_bytes=config.max_total_buffer_bytes,

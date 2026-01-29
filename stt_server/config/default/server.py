@@ -14,6 +14,7 @@ DEFAULT_VAD_MODEL_PREWARM = 1
 DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_MAX_BUFFER_SEC = 60.0
+DEFAULT_MAX_CHUNK_MS = 2000
 DEFAULT_MAX_PENDING_DECODES_PER_STREAM = 8
 DEFAULT_MAX_PENDING_DECODES_GLOBAL = 64
 DEFAULT_MAX_TOTAL_BUFFER_BYTES = 64 * 1024 * 1024
@@ -39,6 +40,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "decode_timeout_sec": "decode_timeout_sec",
         "max_buffer_sec": "max_buffer_sec",
         "max_buffer_bytes": "max_buffer_bytes",
+        "max_chunk_ms": "max_chunk_ms",
         "max_pending_decodes_per_stream": "max_pending_decodes_per_stream",
         "max_pending_decodes_global": "max_pending_decodes_global",
         "max_total_buffer_bytes": "max_total_buffer_bytes",
@@ -92,6 +94,7 @@ __all__ = [
     "DEFAULT_SPEECH_RMS_THRESHOLD",
     "DEFAULT_SAMPLE_RATE",
     "DEFAULT_MAX_BUFFER_SEC",
+    "DEFAULT_MAX_CHUNK_MS",
     "DEFAULT_MAX_PENDING_DECODES_GLOBAL",
     "DEFAULT_MAX_TOTAL_BUFFER_BYTES",
     "DEFAULT_DECODE_QUEUE_TIMEOUT_SEC",

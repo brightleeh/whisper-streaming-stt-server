@@ -3,6 +3,8 @@ chunk_ms: 100 # int, chunk size in milliseconds
 sample_rate: 16000 # int, capture sample rate in Hz
 device: null # string, CoreAudio device name/index; null uses default mic
 metrics: false # bool, print capture duration and RTF on exit
+grpc_max_receive_message_bytes: 8388608 # int, max gRPC receive message size (bytes)
+grpc_max_send_message_bytes: 8388608 # int, max gRPC send message size (bytes)
 vad_mode: "continue" # string: "continue" | "auto"
 require_token: false # bool, request a session token for chunk validation
 language: "" # string, BCP-47 code; empty for auto-detect

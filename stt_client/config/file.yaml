@@ -3,6 +3,8 @@ server: "localhost:50051" # string, gRPC target in host:port format
 chunk_ms: 100 # int, chunk size in milliseconds
 realtime: true # bool, true=paced streaming; false=send as fast as possible
 metrics: true # bool, print client metrics after streaming
+grpc_max_receive_message_bytes: 8388608 # int, max gRPC receive message size (bytes)
+grpc_max_send_message_bytes: 8388608 # int, max gRPC send message size (bytes)
 recognition_timeout_sec: 60 # float, seconds to wait for results after sending
 vad_mode: "continue" # string: "continue" | "auto"
 require_token: false # bool, request a session token for chunk validation

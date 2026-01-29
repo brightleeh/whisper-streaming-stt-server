@@ -87,6 +87,7 @@ class ApplicationRuntime:
             vad_model_prewarm=streaming_config.vad_model_prewarm,
             max_buffer_sec=streaming_config.max_buffer_sec,
             max_buffer_bytes=streaming_config.max_buffer_bytes,
+            max_chunk_ms=streaming_config.max_chunk_ms,
             max_pending_decodes_per_stream=streaming_config.max_pending_decodes_per_stream,
             max_pending_decodes_global=streaming_config.max_pending_decodes_global,
             max_total_buffer_bytes=streaming_config.max_total_buffer_bytes,
