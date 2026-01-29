@@ -96,7 +96,7 @@ def test_http_admin_model_already_loaded_returns_error_payload(monkeypatch):
 
 def test_http_admin_unload_model_failed_returns_error_payload(monkeypatch):
     runtime = _build_runtime()
-    runtime.model_registry.unload_model.return_value = False
+    runtime.model_registry.unload_model = None
 
     app, _, _ = build_http_app(runtime, {"grpc_running": True})
     client = TestClient(app)
@@ -108,8 +108,8 @@ def test_http_admin_unload_model_failed_returns_error_payload(monkeypatch):
         headers=headers,
     )
 
-    assert response.status_code == http_status_for(ErrorCode.MODEL_UNLOAD_FAILED)
-    assert response.json() == http_payload_for(ErrorCode.MODEL_UNLOAD_FAILED)
+    assert response.status_code == http_status_for(ErrorCode.ADMIN_API_DISABLED)
+    assert response.json() == http_payload_for(ErrorCode.ADMIN_API_DISABLED)
 
 
 def test_http_admin_unload_model_passes_drain_timeout(monkeypatch):

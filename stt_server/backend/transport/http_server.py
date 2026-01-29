@@ -28,6 +28,7 @@ _ADMIN_ENABLE_ENV = "STT_ADMIN_ENABLED"
 _ADMIN_TOKEN_ENV = "STT_ADMIN_TOKEN"
 _ADMIN_ALLOW_MODEL_PATH_ENV = "STT_ADMIN_ALLOW_MODEL_PATH"
 _ADMIN_MODEL_PATH_ALLOWLIST_ENV = "STT_ADMIN_MODEL_PATH_ALLOWLIST"
+LOGGER = logging.getLogger("stt_server.http_server")
 
 
 class _AccessLogPathFilter(logging.Filter):
@@ -203,7 +204,8 @@ def build_http_app(
     @app.post("/admin/load_model")
     def load_model_endpoint(req: LoadModelRequest, request: Request) -> JSONResponse:
         _require_admin(request)
-        if not model_registry.load_model:
+        load_fn = getattr(model_registry, "load_model", None)
+        if not callable(load_fn):
             raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
         if model_registry.is_loaded(req.model_id):
@@ -215,11 +217,13 @@ def build_http_app(
             raise STTError(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
 
         # Load in a separate thread to prevent blocking the main loop
-        thread = threading.Thread(
-            target=model_registry.load_model,
-            args=(req.model_id, req.model_dump()),
-            daemon=True,
-        )
+        def _load_model_safe() -> None:
+            try:
+                load_fn(req.model_id, req.model_dump())
+            except Exception:
+                LOGGER.exception("Failed to load model '%s'", req.model_id)
+
+        thread = threading.Thread(target=_load_model_safe, daemon=True)
         with load_threads_lock:
             load_threads.append(thread)
         thread.start()
@@ -236,12 +240,11 @@ def build_http_app(
         model_id: str, request: Request, drain_timeout_sec: float | None = None
     ) -> JSONResponse:
         _require_admin(request)
-        if not model_registry.unload_model:
+        unload_fn = getattr(model_registry, "unload_model", None)
+        if not callable(unload_fn):
             raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
-        success = model_registry.unload_model(
-            model_id, drain_timeout_sec=drain_timeout_sec
-        )
+        success = unload_fn(model_id, drain_timeout_sec=drain_timeout_sec)
         if success:
             return JSONResponse({"status": "unloaded", "model_id": model_id})
         raise STTError(ErrorCode.MODEL_UNLOAD_FAILED)
