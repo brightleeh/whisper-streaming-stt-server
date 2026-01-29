@@ -147,11 +147,15 @@ def build_http_app(
         )
 
     @app.post("/admin/unload_model")
-    def unload_model_endpoint(model_id: str) -> JSONResponse:
+    def unload_model_endpoint(
+        model_id: str, drain_timeout_sec: float | None = None
+    ) -> JSONResponse:
         if not model_registry.unload_model:
             raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
-        success = model_registry.unload_model(model_id)
+        success = model_registry.unload_model(
+            model_id, drain_timeout_sec=drain_timeout_sec
+        )
         if success:
             return JSONResponse({"status": "unloaded", "model_id": model_id})
         raise STTError(ErrorCode.MODEL_UNLOAD_FAILED)

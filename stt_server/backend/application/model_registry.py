@@ -143,8 +143,11 @@ class ModelRegistry:
             self._rr_counters[model_id] = (idx + 1) % len(pool)
             return worker
 
-    def unload_model(self, model_id: str) -> bool:
-        """Unload a model to free resources."""
+    def unload_model(
+        self, model_id: str, drain_timeout_sec: Optional[float] = None
+    ) -> bool:
+        """Unload a model to free resources (blocks until workers finish)."""
+        workers: List[ModelWorker] = []
         with self._lock:
             if model_id not in self._pools:
                 return False
@@ -153,13 +156,21 @@ class ModelRegistry:
                 LOGGER.warning("Cannot unload the last remaining model '%s'", model_id)
                 return False
 
-            del self._pools[model_id]
+            workers = self._pools.pop(model_id)
             del self._configs[model_id]
             del self._rr_counters[model_id]
             LOGGER.info("Unloaded model '%s'", model_id)
-
-            # Force garbage collection advice could be placed here
-            return True
+        # Close workers outside the lock to avoid blocking other operations.
+        timeout = None
+        if drain_timeout_sec is not None:
+            timeout = max(0.0, float(drain_timeout_sec))
+        for worker in workers:
+            try:
+                worker.close(timeout)
+            except Exception:
+                LOGGER.exception("Failed to close model worker")
+        # Force garbage collection advice could be placed here
+        return True
 
     def close(self) -> None:
         """Close all model workers and clear registry state."""

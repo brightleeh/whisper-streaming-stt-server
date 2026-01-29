@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from concurrent import futures
 from typing import Any, Dict, List, NamedTuple, Optional
@@ -37,9 +38,19 @@ class ModelWorker:
         self.log_metrics = log_metrics
         self.executor = futures.ThreadPoolExecutor(max_workers=1)
         self.base_options = base_options.copy() if base_options else {}
+        self._active_lock = threading.Lock()
+        self._active_cond = threading.Condition(self._active_lock)
+        self._active_tasks = 0
         if language:
             # language parameter controls the input language Whisper should expect.
             self.base_options.setdefault("language", language)
+
+    def _on_future_done(self, _future: futures.Future) -> None:
+        with self._active_cond:
+            if self._active_tasks > 0:
+                self._active_tasks -= 1
+            if self._active_tasks == 0:
+                self._active_cond.notify_all()
 
     def submit(
         self,
@@ -50,9 +61,13 @@ class ModelWorker:
         """Submit PCM bytes for asynchronous decode."""
         opts = decode_options.copy() if decode_options else None
         submitted_at = time.perf_counter()
-        return self.executor.submit(
+        future = self.executor.submit(
             self._decode, pcm_bytes, src_rate, opts, submitted_at
         )
+        with self._active_cond:
+            self._active_tasks += 1
+        future.add_done_callback(self._on_future_done)
+        return future
 
     def _decode(
         self,
@@ -107,5 +122,21 @@ class ModelWorker:
             queue_wait_sec=queue_wait_sec,
         )
 
-    def close(self) -> None:
-        self.executor.shutdown(wait=True)
+    def wait_for_idle(self, timeout_sec: Optional[float] = None) -> bool:
+        with self._active_cond:
+            if self._active_tasks == 0:
+                return True
+            return self._active_cond.wait_for(
+                lambda: self._active_tasks == 0, timeout=timeout_sec
+            )
+
+    def close(self, timeout_sec: Optional[float] = None) -> None:
+        if timeout_sec is None:
+            self.executor.shutdown(wait=True)
+            return
+        drained = self.wait_for_idle(timeout_sec)
+        if drained:
+            self.executor.shutdown(wait=True)
+            return
+        LOGGER.warning("Timed out waiting for decode tasks; forcing worker shutdown")
+        self.executor.shutdown(wait=False, cancel_futures=True)

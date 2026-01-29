@@ -86,3 +86,21 @@ def test_http_admin_unload_model_failed_returns_error_payload():
 
     assert response.status_code == http_status_for(ErrorCode.MODEL_UNLOAD_FAILED)
     assert response.json() == http_payload_for(ErrorCode.MODEL_UNLOAD_FAILED)
+
+
+def test_http_admin_unload_model_passes_drain_timeout():
+    runtime = _build_runtime()
+    runtime.model_registry.unload_model.return_value = True
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.post(
+        "/admin/unload_model",
+        params={"model_id": "test-model", "drain_timeout_sec": 0.25},
+    )
+
+    assert response.status_code == 200
+    runtime.model_registry.unload_model.assert_called_with(
+        "test-model", drain_timeout_sec=0.25
+    )
