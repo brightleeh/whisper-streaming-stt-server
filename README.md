@@ -156,6 +156,7 @@ server:
   session_timeout_sec: 60
   max_buffer_sec: 60
   max_buffer_bytes: null
+  max_pending_decodes_per_stream: 8
   sample_rate: 16000
 
 vad:
@@ -222,7 +223,7 @@ decode_profiles:
 ```
 
 CLI flags always override YAML entries if provided.
-`model.languages` defines one or more languages to force during decoding (repeat entries to weight certain languages or set to `null`/omit to let Whisper auto-detect). `model.pool_size` controls how many Whisper model instances are preloaded (akin to license count); `server.max_sessions` caps concurrent gRPC streams. The `server.decode_timeout_sec` value controls how long the server waits for a decode task when draining pending work (set to a non-positive value to wait forever). `server.max_buffer_sec` / `server.max_buffer_bytes` cap buffered audio to prevent unbounded growth; when the limit is reached, VAD Continue schedules a partial decode, while VAD Auto-End keeps only the most recent audio window. `storage.queue_max_chunks` bounds the audio capture queue (oldest chunks are dropped when full). The `health.*` thresholds tune how `/health` evaluates recent decode success and timeout ratios. The `safety.speech_rms_threshold` setting helps filter out low level noise by requiring buffered audio to exceed the given RMS before decoding.
+`model.languages` defines one or more languages to force during decoding (repeat entries to weight certain languages or set to `null`/omit to let Whisper auto-detect). `model.pool_size` controls how many Whisper model instances are preloaded (akin to license count); `server.max_sessions` caps concurrent gRPC streams. The `server.decode_timeout_sec` value controls how long the server waits for a decode task when draining pending work (set to a non-positive value to wait forever). `server.max_buffer_sec` / `server.max_buffer_bytes` cap buffered audio to prevent unbounded growth; when the limit is reached, VAD Continue schedules a partial decode, while VAD Auto-End keeps only the most recent audio window. `server.max_pending_decodes_per_stream` bounds queued decodes per stream; when the limit is reached, older partial decodes are dropped to keep recent audio. `storage.queue_max_chunks` bounds the audio capture queue (oldest chunks are dropped when full). The `health.*` thresholds tune how `/health` evaluates recent decode success and timeout ratios. The `safety.speech_rms_threshold` setting helps filter out low level noise by requiring buffered audio to exceed the given RMS before decoding.
 
 Each client first calls `CreateSession`, passing an application-defined `session_id` plus optional `--attr KEY=VALUE` pairs (custom session attributes, `--meta` remains as a CLI alias). They can also request either **VAD Continue** (default) or **VAD Auto-End** via the `--vad-mode` flag; auto-end terminates the session once silence is detected, while continue keeps the session alive for multi-utterance workloads. Use `--require-token` if you want the server to issue a per-session token that must be attached to every audio chunk for light-weight validation. Sessions are cleaned up automatically when the streaming RPC ends.
 

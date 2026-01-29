@@ -12,6 +12,7 @@ DEFAULT_VAD_THRESHOLD = 0.5
 DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_MAX_BUFFER_SEC = 60.0
+DEFAULT_MAX_PENDING_DECODES_PER_STREAM = 8
 DEFAULT_HEALTH_WINDOW_SEC = 60.0
 DEFAULT_HEALTH_MIN_EVENTS = 5
 DEFAULT_HEALTH_MAX_TIMEOUT_RATIO = 0.5
@@ -30,6 +31,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "decode_timeout_sec": "decode_timeout_sec",
         "max_buffer_sec": "max_buffer_sec",
         "max_buffer_bytes": "max_buffer_bytes",
+        "max_pending_decodes_per_stream": "max_pending_decodes_per_stream",
         "log_metrics": "log_metrics",
         "sample_rate": "sample_rate",
     },
@@ -72,6 +74,7 @@ __all__ = [
     "DEFAULT_SPEECH_RMS_THRESHOLD",
     "DEFAULT_SAMPLE_RATE",
     "DEFAULT_MAX_BUFFER_SEC",
+    "DEFAULT_MAX_PENDING_DECODES_PER_STREAM",
     "DEFAULT_HEALTH_WINDOW_SEC",
     "DEFAULT_HEALTH_MIN_EVENTS",
     "DEFAULT_HEALTH_MAX_TIMEOUT_RATIO",

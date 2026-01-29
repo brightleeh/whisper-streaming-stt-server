@@ -54,6 +54,7 @@ def serve(config: ServerConfig) -> None:
         decode_timeout_sec=config.decode_timeout_sec,
         max_buffer_sec=config.max_buffer_sec,
         max_buffer_bytes=config.max_buffer_bytes,
+        max_pending_decodes_per_stream=config.max_pending_decodes_per_stream,
         health_window_sec=config.health_window_sec,
         health_min_events=config.health_min_events,
         health_max_timeout_ratio=config.health_max_timeout_ratio,

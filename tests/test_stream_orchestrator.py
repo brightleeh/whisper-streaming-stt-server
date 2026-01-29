@@ -53,6 +53,12 @@ class FakeDecodeStream:
     def cancel_pending(self):
         return 0, 0
 
+    def pending_count(self):
+        return 0
+
+    def drop_pending_partials(self, max_drop=None):
+        return 0, 0
+
     def has_pending_results(self):
         return False
 

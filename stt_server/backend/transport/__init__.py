@@ -1,6 +1,6 @@
 """Transport layer helpers for the STT server."""
 
-from stt_server.backend.runtime import (
+from stt_server.backend.runtime.config import (
     ModelRuntimeConfig,
     ServicerConfig,
     StorageRuntimeConfig,

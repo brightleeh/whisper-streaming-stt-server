@@ -85,6 +85,7 @@ class ApplicationRuntime:
             language_lookup=self.supported_languages,
             max_buffer_sec=streaming_config.max_buffer_sec,
             max_buffer_bytes=streaming_config.max_buffer_bytes,
+            max_pending_decodes_per_stream=streaming_config.max_pending_decodes_per_stream,
             health_window_sec=streaming_config.health_window_sec,
             health_min_events=streaming_config.health_min_events,
             health_max_timeout_ratio=streaming_config.health_max_timeout_ratio,

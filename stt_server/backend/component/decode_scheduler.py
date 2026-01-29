@@ -251,6 +251,43 @@ class DecodeStream:
         with self._lock:
             return self.pending_partials
 
+    def pending_count(self) -> int:
+        with self._lock:
+            return len(self.pending_results)
+
+    def drop_pending_partials(self, max_drop: Optional[int] = None) -> Tuple[int, int]:
+        if max_drop is not None and max_drop <= 0:
+            return 0, 0
+        dropped: List[Tuple[futures.Future, bool, float, bool, float]] = []
+        with self._lock:
+            if not self.pending_results:
+                return 0, 0
+            remaining: List[Tuple[futures.Future, bool, float, bool, float]] = []
+            remaining_drop = max_drop if max_drop is not None else float("inf")
+            for item in self.pending_results:
+                if remaining_drop > 0 and not item[1]:
+                    dropped.append(item)
+                    remaining_drop -= 1
+                else:
+                    remaining.append(item)
+            if not dropped:
+                return 0, 0
+            self.pending_results[:] = remaining
+            self.pending_partials = max(0, self.pending_partials - len(dropped))
+        cancelled = 0
+        orphaned = 0
+        for future, _, _, _, _ in dropped:
+            if future.cancel():
+                cancelled += 1
+            else:
+                orphaned += 1
+            self.scheduler._decrement_pending()
+        if cancelled:
+            self.scheduler._on_decode_cancelled(cancelled)
+        if orphaned:
+            self.scheduler._on_decode_orphaned(orphaned)
+        return cancelled, orphaned
+
     def has_pending_results(self) -> bool:
         with self._lock:
             return bool(self.pending_results)

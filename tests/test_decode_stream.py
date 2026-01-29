@@ -112,3 +112,31 @@ def test_decode_stream_timing_summary_after_emit_ready():
     assert inference_total == pytest.approx(fake_result.latency_sec)
     assert response_emit_total == pytest.approx(0.05)
     assert decode_count == 1
+
+
+def test_decode_stream_drop_pending_partials_updates_counts():
+    scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock())
+    stream = DecodeStream(scheduler)
+
+    futures_list = [MagicMock(spec=futures.Future) for _ in range(3)]
+    futures_list[0].cancel.return_value = True
+    futures_list[1].cancel.return_value = False
+    futures_list[2].cancel.return_value = True
+
+    for _ in futures_list:
+        scheduler._increment_pending()
+    stream.pending_partials = 2
+    stream.pending_results.extend(
+        [
+            (futures_list[0], False, 0.0, False, 0.0),
+            (futures_list[1], True, 0.0, False, 0.0),
+            (futures_list[2], False, 0.0, False, 0.0),
+        ]
+    )
+
+    cancelled, orphaned = stream.drop_pending_partials(max_drop=1)
+
+    assert cancelled + orphaned == 1
+    assert scheduler.pending_decodes() == 2
+    assert stream.pending_partials == 1
+    assert len(stream.pending_results) == 2

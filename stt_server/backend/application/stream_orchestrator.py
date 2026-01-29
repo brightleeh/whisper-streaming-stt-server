@@ -53,6 +53,7 @@ class StreamOrchestratorConfig:
     # Buffer control settings
     max_buffer_sec: Optional[float] = 60.0
     max_buffer_bytes: Optional[int] = None
+    max_pending_decodes_per_stream: int = 8
 
     # Health check thresholds
     health_window_sec: float = 60.0
@@ -152,6 +153,42 @@ class StreamOrchestrator:
 
     def _active_vad_utterances(self) -> int:
         return self._hooks.active_vad_utterances()
+
+    def _ensure_decode_capacity(
+        self,
+        decode_stream: Optional[DecodeStream],
+        is_final: bool,
+        session_state: Optional[SessionState],
+    ) -> bool:
+        if decode_stream is None:
+            return False
+        limit = self._config.max_pending_decodes_per_stream
+        if limit <= 0:
+            return True
+        pending = decode_stream.pending_count()
+        current_session_id = session_state.session_id if session_state else "unknown"
+        if is_final:
+            if pending >= limit:
+                cancelled, orphaned = decode_stream.drop_pending_partials()
+                if cancelled or orphaned:
+                    LOGGER.warning(
+                        "Dropped %d pending partial decodes for final decode (session_id=%s)",
+                        cancelled + orphaned,
+                        current_session_id,
+                    )
+            return True
+        if pending < limit:
+            return True
+        decode_stream.drop_pending_partials(1)
+        if decode_stream.pending_count() >= limit:
+            LOGGER.warning(
+                "Pending decode limit reached; dropping partial decode (session_id=%s pending=%d limit=%d)",
+                current_session_id,
+                pending,
+                limit,
+            )
+            return False
+        return True
 
     def run(
         self,
@@ -349,6 +386,22 @@ class StreamOrchestrator:
                     self._on_vad_utterance_start()
                     session_info = session_state.session_info
                     is_final = session_info.vad_mode == stt_pb2.VAD_AUTO_END
+                    if disconnect_event.is_set() or timeout_event.is_set():
+                        LOGGER.info("Skipping decode due to shutdown signal.")
+                        final_reason = (
+                            "client_disconnect"
+                            if disconnect_event.is_set()
+                            else "timeout"
+                        )
+                        client_disconnected = disconnect_event.is_set()
+                        break
+                    if not self._ensure_decode_capacity(
+                        decode_stream, is_final, session_state
+                    ):
+                        buffer = bytearray()
+                        buffer_start_time = None
+                        vad_state.reset_after_trigger()
+                        continue
                     decode_stream.schedule_decode(
                         bytes(buffer),
                         sample_rate,
@@ -380,6 +433,17 @@ class StreamOrchestrator:
                     vad_state.reset_after_trigger()
 
                 if not chunk.is_final:
+                    if disconnect_event.is_set() or timeout_event.is_set():
+                        LOGGER.info(
+                            "Skipping buffer management due to shutdown signal."
+                        )
+                        final_reason = (
+                            "client_disconnect"
+                            if disconnect_event.is_set()
+                            else "timeout"
+                        )
+                        client_disconnected = disconnect_event.is_set()
+                        break
                     buffer, buffer_start_sec, buffer_start_time = (
                         self._enforce_buffer_limit(
                             buffer,
@@ -398,6 +462,16 @@ class StreamOrchestrator:
 
                 if chunk.is_final:
                     if buffer:
+                        if disconnect_event.is_set() or timeout_event.is_set():
+                            LOGGER.info("Skipping final decode due to shutdown signal.")
+                            final_reason = (
+                                "client_disconnect"
+                                if disconnect_event.is_set()
+                                else "timeout"
+                            )
+                            client_disconnected = disconnect_event.is_set()
+                            break
+                        self._ensure_decode_capacity(decode_stream, True, session_state)
                         decode_stream.schedule_decode(
                             bytes(buffer),
                             sample_rate,
@@ -426,6 +500,7 @@ class StreamOrchestrator:
                     and buffer
                     and buffer_is_speech(buffer, self._config.speech_rms_threshold)
                 ):
+                    self._ensure_decode_capacity(decode_stream, True, session_state)
                     decode_stream.schedule_decode(
                         bytes(buffer),
                         sample_rate or self._config.default_sample_rate,
@@ -596,15 +671,16 @@ class StreamOrchestrator:
                 "Buffer limit reached (%d bytes); scheduling partial decode.",
                 len(buffer),
             )
-            decode_stream.schedule_decode(
-                bytes(buffer),
-                sample_rate or self._config.default_sample_rate,
-                session_state.decode_options,
-                False,
-                buffer_start_sec,
-                count_vad=False,
-                buffer_started_at=buffer_start_time,
-            )
+            if self._ensure_decode_capacity(decode_stream, False, session_state):
+                decode_stream.schedule_decode(
+                    bytes(buffer),
+                    sample_rate or self._config.default_sample_rate,
+                    session_state.decode_options,
+                    False,
+                    buffer_start_sec,
+                    count_vad=False,
+                    buffer_started_at=buffer_start_time,
+                )
             return bytearray(), audio_received_sec, None
 
         overflow = len(buffer) - limit_bytes
