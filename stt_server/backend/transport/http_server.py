@@ -21,7 +21,9 @@ from stt_server.config.default.model import (
 )
 from stt_server.errors import ErrorCode, STTError, http_payload_for, http_status_for
 
-_ACCESS_LOG_IGNORED_PATHS = frozenset({"/metrics", "/system", "/health"})
+_ACCESS_LOG_IGNORED_PATHS = frozenset(
+    {"/metrics", "/metrics.json", "/system", "/health"}
+)
 _ADMIN_ENABLE_ENV = "STT_ADMIN_ENABLED"
 _ADMIN_TOKEN_ENV = "STT_ADMIN_TOKEN"
 _ADMIN_ALLOW_MODEL_PATH_ENV = "STT_ADMIN_ALLOW_MODEL_PATH"
@@ -138,8 +140,51 @@ def build_http_app(
             status_code=http_status_for(exc.code),
         )
 
+    def _sanitize_metric_name(value: str) -> str:
+        sanitized = []
+        for idx, ch in enumerate(value):
+            if ch.isalnum() or ch == "_":
+                sanitized.append(ch)
+            else:
+                sanitized.append("_")
+            if idx == 0 and sanitized[-1].isdigit():
+                sanitized.insert(0, "m")
+        return "".join(sanitized) or "metric"
+
+    def _flatten_metrics(payload: Dict[str, Any]) -> Dict[str, float]:
+        flat: Dict[str, float] = {}
+        for key, value in payload.items():
+            if value is None:
+                continue
+            if isinstance(value, (int, float, bool)):
+                flat[_sanitize_metric_name(key)] = float(value)
+            elif isinstance(value, dict):
+                for sub_key, sub_val in value.items():
+                    if isinstance(sub_val, (int, float, bool)):
+                        metric_key = _sanitize_metric_name(f"{key}_{sub_key}")
+                        flat[metric_key] = float(sub_val)
+        return flat
+
+    def _prometheus_text(payload: Dict[str, Any]) -> str:
+        flat = _flatten_metrics(payload)
+        lines: List[str] = []
+        for key in sorted(flat.keys()):
+            metric_name = f"stt_{key}"
+            lines.append(
+                f"# HELP {metric_name} Server metric '{key}' exposed as a gauge."
+            )
+            lines.append(f"# TYPE {metric_name} gauge")
+            lines.append(f"{metric_name} {flat[key]}")
+        return "\n".join(lines) + "\n"
+
     @app.get("/metrics")
     def metrics_endpoint() -> Response:
+        payload = metrics.render()
+        text = _prometheus_text(payload)
+        return Response(content=text, media_type="text/plain; version=0.0.4")
+
+    @app.get("/metrics.json")
+    def metrics_json_endpoint() -> JSONResponse:
         return JSONResponse(metrics.render(), status_code=200)
 
     @app.get("/health")

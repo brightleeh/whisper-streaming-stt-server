@@ -6,7 +6,7 @@ Whisper Streaming STT Server is a gRPC service that performs low-latency speech 
 
 The client opens a gRPC channel, calls `CreateSession` to obtain the resolved session settings, then uses the bidirectional `StreamingRecognize` stream to send PCM chunks and receive partial/final transcripts. The server resolves the session, gates audio with VAD, schedules decodes, and optionally persists audio; session teardown handles cleanup and retention.
 
-The gRPC servicer is the transport entrypoint and delegates both session creation and streaming audio to the runtime. The runtime wires the session manager, model registry, and stream orchestrator, while the orchestrator drives VAD, decode scheduling, and optional audio storage. The HTTP server queries runtime health for `/health` and renders metrics output for `/metrics`. It also exposes an admin control plane for runtime model management (e.g., loading, unloading, and listing Whisper models without restarting the server).
+The gRPC servicer is the transport entrypoint and delegates both session creation and streaming audio to the runtime. The runtime wires the session manager, model registry, and stream orchestrator, while the orchestrator drives VAD, decode scheduling, and optional audio storage. The HTTP server queries runtime health for `/health` and renders metrics output for `/metrics` (Prometheus) and `/metrics.json` (JSON). It also exposes an admin control plane for runtime model management (e.g., loading, unloading, and listing Whisper models without restarting the server).
 
 ```mermaid
 flowchart TD
@@ -230,13 +230,14 @@ Each client first calls `CreateSession`, passing an application-defined `session
 
 The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 
-- `GET /metrics`: JSON counters/gauges (active sessions, API-key session counts, decode timing aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts).
+- `GET /metrics`: Prometheus text exposition (flattened counters/gauges).
+- `GET /metrics.json`: JSON counters/gauges (active sessions, API-key session counts, decode timing aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts).
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models are loaded, and worker pools are healthy; otherwise `500`.
 - `GET /system`: JSON process/system metrics (CPU, RAM, thread counts). Uses `psutil` when available; otherwise falls back to basic RSS info. Optional GPU metrics can be enabled with `STT_ENABLE_GPU_METRICS=1` when `pynvml` is installed.
 
 ### Terminal dashboard (optional)
 
-Use the terminal dashboard to poll `/metrics` and `/system` on a fixed interval:
+Use the terminal dashboard to poll `/metrics.json` and `/system` on a fixed interval:
 
 ```bash
 python -m tools.dashboard.monitor_dashboard

@@ -53,6 +53,11 @@ def _build_runtime():
     runtime = MagicMock()
     runtime.metrics = MagicMock()
     runtime.health_snapshot.return_value = {"model_pool_healthy": True}
+    runtime.metrics.render.return_value = {
+        "active_sessions": 2,
+        "decode_latency_max": 1.5,
+        "active_sessions_by_api": {"key-a": 1},
+    }
     return runtime
 
 
@@ -171,3 +176,21 @@ def test_http_admin_model_path_forbidden_returns_error_payload(monkeypatch):
 
     assert response.status_code == http_status_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
     assert response.json() == http_payload_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
+
+
+def test_metrics_endpoints_format(monkeypatch):
+    runtime = _build_runtime()
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    assert "text/plain" in response.headers.get("content-type", "")
+    body = response.text
+    assert "stt_active_sessions 2.0" in body
+    assert "stt_decode_latency_max 1.5" in body
+    assert "stt_active_sessions_by_api_key_a 1.0" in body
+
+    response = client.get("/metrics.json")
+    assert response.status_code == 200
+    assert response.json()["active_sessions"] == 2

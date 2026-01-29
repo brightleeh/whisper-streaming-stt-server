@@ -128,7 +128,7 @@ def _render(metrics: Optional[Dict[str, Any]], system: Optional[Dict[str, Any]])
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Terminal dashboard for STT metrics.")
-    parser.add_argument("--metrics-url", default="http://localhost:8000/metrics")
+    parser.add_argument("--metrics-url", default="http://localhost:8000/metrics.json")
     parser.add_argument("--system-url", default="http://localhost:8000/system")
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--timeout", type=float, default=1.0)

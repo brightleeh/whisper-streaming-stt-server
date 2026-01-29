@@ -130,15 +130,28 @@ def test_server_health_check(grpc_server):
     print(f"\n[PASS] Server /health check returned status {response.status_code}.")
 
 
-def test_server_metrics_check(grpc_server):
-    """Call /metrics endpoint to check response is valid JSON."""
-    url = "http://localhost:8000/metrics"
+def test_server_metrics_json_check(grpc_server):
+    """Call /metrics.json endpoint to check response is valid JSON."""
+    url = "http://localhost:8000/metrics.json"
     response = requests.get(url, timeout=2)
     assert (
         response.status_code == 200
     ), f"Metrics endpoint failed: {response.status_code}"
     assert isinstance(response.json(), dict), "Metrics response is not valid JSON"
-    print("\n[PASS] Server /metrics check returned valid JSON.")
+    print("\n[PASS] Server /metrics.json check returned valid JSON.")
+
+
+def test_server_metrics_text_check(grpc_server):
+    """Call /metrics endpoint to check response is Prometheus text."""
+    url = "http://localhost:8000/metrics"
+    response = requests.get(url, timeout=2)
+    assert (
+        response.status_code == 200
+    ), f"Metrics endpoint failed: {response.status_code}"
+    content_type = response.headers.get("content-type", "")
+    assert "text/plain" in content_type
+    assert "stt_" in response.text
+    print("\n[PASS] Server /metrics check returned Prometheus text.")
 
 
 def test_client_integration(grpc_server):
