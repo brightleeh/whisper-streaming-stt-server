@@ -21,6 +21,7 @@ from stt_server.backend.utils.profile_resolver import (
 )
 from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
+from stt_server.errors import ErrorCode, abort_with_error, format_error
 from stt_server.utils.logger import LOGGER
 
 
@@ -119,11 +120,8 @@ class SessionFacade:
             current_state.session_id if current_state else None
         )
         if not session_id:
-            LOGGER.error("ERR1004 Unknown or missing session_id")
-            context.abort(
-                grpc.StatusCode.UNAUTHENTICATED,
-                "ERR1004 Unknown or missing session_id",
-            )
+            LOGGER.error(format_error(ErrorCode.SESSION_ID_MISSING))
+            abort_with_error(context, ErrorCode.SESSION_ID_MISSING)
         if current_state and session_id == current_state.session_id:
             return current_state
         return self._build_state(session_id, context)
@@ -139,10 +137,8 @@ class SessionFacade:
         session_info = state.session_info
         if session_info.token_required and chunk.session_token != session_info.token:
             self.remove_session(state, reason="invalid_token")
-            LOGGER.error("ERR1005 Invalid session token")
-            context.abort(
-                grpc.StatusCode.PERMISSION_DENIED, "ERR1005 Invalid session token"
-            )
+            LOGGER.error(format_error(ErrorCode.SESSION_TOKEN_INVALID))
+            abort_with_error(context, ErrorCode.SESSION_TOKEN_INVALID)
 
     def remove_session(self, state: Optional[SessionState], reason: str = "") -> None:
         if not state:
@@ -161,11 +157,8 @@ class SessionFacade:
     ) -> SessionState:
         session_info = self._session_registry.get_session(session_id)
         if not session_info:
-            LOGGER.error("ERR1004 Unknown or missing session_id")
-            context.abort(
-                grpc.StatusCode.UNAUTHENTICATED,
-                "ERR1004 Unknown or missing session_id",
-            )
+            LOGGER.error(format_error(ErrorCode.SESSION_ID_MISSING))
+            abort_with_error(context, ErrorCode.SESSION_ID_MISSING)
         return SessionState(
             session_id=session_id,
             session_info=session_info,
@@ -215,11 +208,8 @@ class CreateSessionHandler:
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
     ) -> stt_pb2.SessionResponse:
         if not request.session_id:
-            LOGGER.error("ERR1001 session_id is required")
-            context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT,
-                "ERR1001 session_id is required",
-            )
+            LOGGER.error(format_error(ErrorCode.SESSION_ID_REQUIRED))
+            abort_with_error(context, ErrorCode.SESSION_ID_REQUIRED)
 
         session_id = request.session_id
         vad_mode = (
@@ -283,11 +273,8 @@ class CreateSessionHandler:
         try:
             self._session_registry.create_session(session_id, session_info)
         except ValueError:
-            LOGGER.error("ERR1002 session_id already active")
-            context.abort(
-                grpc.StatusCode.ALREADY_EXISTS,
-                "ERR1002 session_id already active",
-            )
+            LOGGER.error(format_error(ErrorCode.SESSION_ID_ALREADY_ACTIVE))
+            abort_with_error(context, ErrorCode.SESSION_ID_ALREADY_ACTIVE)
 
         response_attributes = dict(request.attributes)
         response_attributes["decode_profile"] = profile_name
@@ -331,11 +318,8 @@ class CreateSessionHandler:
         self, value: float, context: grpc.ServicerContext
     ) -> float:
         if value < 0:
-            LOGGER.error("ERR1003 vad_threshold must be non-negative")
-            context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT,
-                "ERR1003 vad_threshold must be non-negative",
-            )
+            LOGGER.error(format_error(ErrorCode.VAD_THRESHOLD_NEGATIVE))
+            abort_with_error(context, ErrorCode.VAD_THRESHOLD_NEGATIVE)
         if value == 0:
             return self._default_vad_threshold
         return value

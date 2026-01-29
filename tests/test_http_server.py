@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from fastapi.testclient import TestClient
 
 from stt_server.backend.transport.http_server import build_http_app
+from stt_server.errors import ErrorCode, http_payload_for, http_status_for
 
 
 def test_http_load_model_thread_daemon_and_tracked():
@@ -37,3 +38,51 @@ def test_http_load_model_thread_daemon_and_tracked():
     block_event.set()
     threads[0].join(timeout=0.5)
     assert not threads[0].is_alive()
+
+
+def _build_runtime():
+    runtime = MagicMock()
+    runtime.metrics = MagicMock()
+    runtime.health_snapshot.return_value = {"model_pool_healthy": True}
+    return runtime
+
+
+def test_http_admin_api_disabled_returns_error_payload():
+    runtime = _build_runtime()
+    runtime.model_registry.load_model = None
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.post("/admin/load_model", json={"model_id": "test-model"})
+
+    assert response.status_code == http_status_for(ErrorCode.ADMIN_API_DISABLED)
+    assert response.json() == http_payload_for(ErrorCode.ADMIN_API_DISABLED)
+
+
+def test_http_admin_model_already_loaded_returns_error_payload():
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = True
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.post("/admin/load_model", json={"model_id": "test-model"})
+
+    assert response.status_code == http_status_for(ErrorCode.MODEL_ALREADY_LOADED)
+    assert response.json() == http_payload_for(
+        ErrorCode.MODEL_ALREADY_LOADED, "Model 'test-model' is already loaded"
+    )
+
+
+def test_http_admin_unload_model_failed_returns_error_payload():
+    runtime = _build_runtime()
+    runtime.model_registry.unload_model.return_value = False
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.post("/admin/unload_model", params={"model_id": "test-model"})
+
+    assert response.status_code == http_status_for(ErrorCode.MODEL_UNLOAD_FAILED)
+    assert response.json() == http_payload_for(ErrorCode.MODEL_UNLOAD_FAILED)

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 import uvicorn
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from uvicorn.config import LOGGING_CONFIG
@@ -18,6 +18,7 @@ from stt_server.config.default.model import (
     DEFAULT_DEVICE,
     DEFAULT_MODEL_NAME,
 )
+from stt_server.errors import ErrorCode, STTError, http_payload_for, http_status_for
 
 _ACCESS_LOG_IGNORED_PATHS = frozenset({"/metrics", "/system", "/health"})
 
@@ -93,6 +94,13 @@ def build_http_app(
     load_threads: List[threading.Thread] = []
     load_threads_lock = threading.Lock()
 
+    @app.exception_handler(STTError)
+    async def stt_error_handler(_request: Request, exc: STTError) -> JSONResponse:
+        return JSONResponse(
+            http_payload_for(exc.code, exc.detail),
+            status_code=http_status_for(exc.code),
+        )
+
     @app.get("/metrics")
     def metrics_endpoint() -> Response:
         return JSONResponse(metrics.render(), status_code=200)
@@ -113,12 +121,12 @@ def build_http_app(
     @app.post("/admin/load_model")
     def load_model_endpoint(req: LoadModelRequest) -> JSONResponse:
         if not model_registry.load_model:
-            return JSONResponse({"error": "Admin API not enabled"}, status_code=501)
+            raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
         if model_registry.is_loaded(req.model_id):
-            return JSONResponse(
-                {"error": f"Model '{req.model_id}' is already loaded"},
-                status_code=409,
+            raise STTError(
+                ErrorCode.MODEL_ALREADY_LOADED,
+                f"Model '{req.model_id}' is already loaded",
             )
 
         # Load in a separate thread to prevent blocking the main loop
@@ -141,16 +149,12 @@ def build_http_app(
     @app.post("/admin/unload_model")
     def unload_model_endpoint(model_id: str) -> JSONResponse:
         if not model_registry.unload_model:
-            return JSONResponse({"error": "Admin API not enabled"}, status_code=501)
+            raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
         success = model_registry.unload_model(model_id)
         if success:
             return JSONResponse({"status": "unloaded", "model_id": model_id})
-        else:
-            return JSONResponse(
-                {"status": "failed", "message": "Model not found or is default"},
-                status_code=400,
-            )
+        raise STTError(ErrorCode.MODEL_UNLOAD_FAILED)
 
     @app.get("/admin/list_models")
     def list_models_endpoint() -> JSONResponse:

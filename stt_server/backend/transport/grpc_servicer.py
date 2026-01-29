@@ -8,6 +8,7 @@ import grpc
 
 from gen.stt.python.v1 import stt_pb2, stt_pb2_grpc
 from stt_server.backend.runtime import ApplicationRuntime, ServicerConfig
+from stt_server.errors import ErrorCode, STTError, format_error, status_for
 from stt_server.utils.logger import LOGGER
 
 
@@ -31,9 +32,13 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
         except grpc.RpcError as exc:
             self._record_error(exc.code())
             raise
+        except STTError as exc:
+            self._record_error(exc.status)
+            LOGGER.error(str(exc))
+            context.abort(exc.status, str(exc))
         except Exception:
-            self._record_error(grpc.StatusCode.UNKNOWN)
-            LOGGER.exception("ERR3001 Unexpected CreateSession error")
+            self._record_error(status_for(ErrorCode.CREATE_SESSION_UNEXPECTED))
+            LOGGER.exception(format_error(ErrorCode.CREATE_SESSION_UNEXPECTED))
             raise
 
     def StreamingRecognize(  # type: ignore[override]
@@ -46,24 +51,13 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
         except grpc.RpcError as exc:
             self._record_error(exc.code())
             raise
-        except TimeoutError as exc:
-            self._record_error(grpc.StatusCode.INTERNAL)
-            LOGGER.error(
-                f"ERR2001 (INTERNAL): decode timeout waiting for pending tasks: {exc}"
-            )
-            context.abort(
-                grpc.StatusCode.INTERNAL,
-                "ERR2001 (INTERNAL): decode timeout waiting for pending tasks",
-            )
-        except Exception as exc:
-            if "ERR2002" in str(exc) or "Decode task failed" in str(exc):
-                self._record_error(grpc.StatusCode.INTERNAL)
-                LOGGER.error(f"ERR2002 (INTERNAL): decode task failed: {exc}")
-                context.abort(
-                    grpc.StatusCode.INTERNAL, "ERR2002 (INTERNAL): decode task failed"
-                )
-            self._record_error(grpc.StatusCode.UNKNOWN)
-            LOGGER.exception("ERR3002 Unexpected streaming error")
+        except STTError as exc:
+            self._record_error(exc.status)
+            LOGGER.error(str(exc))
+            context.abort(exc.status, str(exc))
+        except Exception:
+            self._record_error(status_for(ErrorCode.STREAM_UNEXPECTED))
+            LOGGER.exception(format_error(ErrorCode.STREAM_UNEXPECTED))
             raise
 
     def _record_error(self, status_code: grpc.StatusCode) -> None:

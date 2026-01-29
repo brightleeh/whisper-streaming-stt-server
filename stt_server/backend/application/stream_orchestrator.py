@@ -23,6 +23,7 @@ from stt_server.backend.component.decode_scheduler import (
 )
 from stt_server.backend.component.vad_gate import VADGate, buffer_is_speech
 from stt_server.config.languages import SupportedLanguages
+from stt_server.errors import ErrorCode, abort_with_error, format_error
 from stt_server.utils import audio
 from stt_server.utils.logger import LOGGER
 
@@ -174,13 +175,8 @@ class StreamOrchestrator:
                         return  # Main thread terminates itself
 
                     # 3. Force abort as main thread might be blocked (I/O wait)
-                    LOGGER.error(
-                        "ERR1006 Session timeout due to inactivity (Force Abort)."
-                    )
-                    context.abort(
-                        grpc.StatusCode.DEADLINE_EXCEEDED,
-                        "ERR1006 Session timeout due to inactivity (Force Abort)",
-                    )
+                    LOGGER.error(format_error(ErrorCode.SESSION_TIMEOUT))
+                    abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
                     break
 
                 # Wait for remaining time (wake up immediately if stop signal received)

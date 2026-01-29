@@ -294,11 +294,12 @@ These endpoints allow operators to manage Whisper models without restarting the 
 
 ## Error codes
 
-Errors are tagged in logs and gRPC error messages with `ERR####`. The gRPC status codes are listed below for clarity.
+Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints (admin/control plane) return a JSON payload with `code` and `message` when they fail. The gRPC status codes are listed below for clarity.
 
 - `ERR1xxx`: request/session validation or authentication failures
 - `ERR2xxx`: decode pipeline/runtime failures
 - `ERR3xxx`: unexpected server exceptions
+- `ERR4xxx`: admin/control-plane HTTP failures
 
 - `ERR1001` (INVALID_ARGUMENT): missing `session_id` in `CreateSession`
 - `ERR1002` (ALREADY_EXISTS): `session_id` already active
@@ -310,6 +311,9 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. The gRPC statu
 - `ERR2002` (INTERNAL): decode task failed
 - `ERR3001` (UNKNOWN): unexpected `CreateSession` error
 - `ERR3002` (UNKNOWN): unexpected `StreamingRecognize` error
+- `ERR4001` (HTTP 501): admin API not enabled
+- `ERR4002` (HTTP 409): model already loaded
+- `ERR4003` (HTTP 400): model not found or is default (unload failed)
 
 ## Run
 
@@ -343,9 +347,11 @@ python -m stt_server.main --log-metrics
 - Sessions auto-disconnect after 60 seconds of silence; adjust `server.session_timeout_sec` in `config/server.yaml` (or set your own config file).
 
 3. In another terminal, run the sample **realtime file** client:
+
    ```bash
    python -m stt_client.realtime.file -c stt_client/config/file.yaml --metrics
    ```
+
    - `-c/--config` loads YAML defaults (e.g., `audio_path`, `decode_profile`, VAD settings). CLI flags override.
    - Add `--no-realtime` to send audio as fast as possible (for throughput tests).
    - Use `--server host:port` or `--chunk-ms value` to tweak target and chunking.
@@ -355,18 +361,24 @@ python -m stt_server.main --log-metrics
      override the server defaults per session.
    - `--attr key=value` (repeatable) attaches arbitrary attributes, and
      `--require-token` asks the server to issue/validate per-session tokens.
+
 4. To stream live audio from a macOS microphone (requires microphone permission):
+
    ```bash
    python -m stt_client.realtime.mic -c stt_client/config/mic.yaml --metrics
    ```
+
    - Defaults to `--vad-mode continue`; use `auto` to end sessions once speech stops.
    - Per-session overrides: `--vad-silence` (seconds) and `--vad-threshold` (VAD probability) mirror the server flags.
    - Same `--language`, `--task`, `--decode-profile`, `--require-token`, and attributes semantics apply.
    - Optional flags: `--device` (CoreAudio name/index), `--sample-rate`, `--chunk-ms`.
+
 5. For batch-style processing (single large chunk, ideal for accuracy-oriented profiles):
+
    ```bash
    python -m stt_client.batch.file -c stt_client/config/file.yaml --decode-profile accurate
    ```
+
    - Defaults to the `accurate` profile; override with `--decode-profile realtime`.
    - Accepts the same `--language`, `--task`, attributes, token, and `--vad-*` flags as the realtime clients.
    - Batch ignores `chunk_ms`/`realtime` fields in the config; it always sends a single chunk.

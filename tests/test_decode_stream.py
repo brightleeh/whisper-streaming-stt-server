@@ -9,6 +9,7 @@ from stt_server.backend.component.decode_scheduler import (
     DecodeSchedulerHooks,
     DecodeStream,
 )
+from stt_server.errors import ErrorCode, STTError
 
 
 def test_decode_stream_logic_err2001_timeout():
@@ -27,10 +28,10 @@ def test_decode_stream_logic_err2001_timeout():
     ) as mock_wait:
         mock_wait.return_value = (set(), {mock_future})
 
-        with pytest.raises(TimeoutError) as exc:
+        with pytest.raises(STTError) as exc:
             list(stream.emit_ready(block=True))
 
-    assert "ERR2001" in str(exc.value)
+    assert exc.value.code == ErrorCode.DECODE_TIMEOUT
     hooks.on_error.assert_called_once_with(grpc.StatusCode.INTERNAL)
     assert scheduler.pending_decodes() == 0
     assert stream.pending_partials == 0
@@ -49,10 +50,10 @@ def test_decode_stream_logic_err2002_task_failed():
     stream.pending_partials = 1
     stream.pending_results.append((mock_future, False, 0.0, False, 0.0))
 
-    with pytest.raises(RuntimeError) as exc:
+    with pytest.raises(STTError) as exc:
         list(stream.emit_ready(block=False))
 
-    assert "ERR2002" in str(exc.value)
+    assert exc.value.code == ErrorCode.DECODE_TASK_FAILED
     assert "Model crash" in str(exc.value)
     hooks.on_error.assert_called_once_with(grpc.StatusCode.INTERNAL)
     assert scheduler.pending_decodes() == 0

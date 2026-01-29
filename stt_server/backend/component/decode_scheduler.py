@@ -13,6 +13,7 @@ import grpc
 from gen.stt.python.v1 import stt_pb2
 from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
+from stt_server.errors import ErrorCode, STTError
 from stt_server.utils.logger import LOGGER
 
 if TYPE_CHECKING:
@@ -289,7 +290,12 @@ class DecodeStream:
             if not done:
                 self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
                 self._drop_pending_results()
-                raise TimeoutError(f"ERR2001 Decode timeout after {wait_timeout}s")
+                detail = (
+                    f"decode timeout after {wait_timeout}s"
+                    if wait_timeout is not None
+                    else None
+                )
+                raise STTError(ErrorCode.DECODE_TIMEOUT, detail)
             else:
                 with self._lock:
                     remaining: List[Tuple[futures.Future, bool, float, bool, float]] = (
@@ -330,7 +336,9 @@ class DecodeStream:
             except Exception as e:
                 self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
                 self._finalize_pending(is_final)
-                raise RuntimeError(f"ERR2002 Decode task failed: {e}") from e
+                raise STTError(
+                    ErrorCode.DECODE_TASK_FAILED, f"decode task failed: {e}"
+                ) from e
 
             language_name = self.scheduler.language_lookup.get_name(
                 result.language_code
