@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections import deque
 from concurrent import futures
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, List, Optional, Tuple
@@ -53,6 +54,10 @@ class DecodeScheduler:
         stream_orchestrator: StreamOrchestrator,
         decode_timeout_sec: float,
         language_lookup: SupportedLanguages,
+        health_window_sec: float = 60.0,
+        health_min_events: int = 5,
+        health_max_timeout_ratio: float = 0.5,
+        health_min_success_ratio: float = 0.5,
         hooks: DecodeSchedulerHooks | None = None,
     ) -> None:
         self._hooks = hooks or DecodeSchedulerHooks()
@@ -62,11 +67,37 @@ class DecodeScheduler:
         self._pending_lock = threading.Lock()
         self._pending_tasks = 0
         self._next_worker = 0
+        self._health_lock = threading.Lock()
+        self._health_events: "deque[tuple[float, str, int]]" = deque()
+        self._health_window_sec = max(1.0, float(health_window_sec))
+        self._health_min_events = max(1, int(health_min_events))
+        self._health_max_timeout_ratio = max(0.0, min(1.0, health_max_timeout_ratio))
+        self._health_min_success_ratio = max(0.0, min(1.0, health_min_success_ratio))
 
     def new_stream(self) -> "DecodeStream":
         return DecodeStream(self)
 
     def workers_healthy(self) -> bool:
+        registry_summary = self.stream_orchestrator.model_registry.health_summary()
+        if not registry_summary["models_loaded"]:
+            return False
+        if registry_summary["total_workers"] <= 0:
+            return False
+        if registry_summary["empty_pools"] > 0:
+            return False
+        if registry_summary["shutdown_workers"] > 0:
+            return False
+
+        counts = self._health_counts()
+        total = counts["success"] + counts["timeout"] + counts["error"]
+        if total < self._health_min_events:
+            return True
+        timeout_ratio = counts["timeout"] / total if total else 0.0
+        success_ratio = counts["success"] / total if total else 0.0
+        if timeout_ratio >= self._health_max_timeout_ratio:
+            return False
+        if success_ratio < self._health_min_success_ratio:
+            return False
         return True
 
     def pending_decodes(self) -> int:
@@ -100,6 +131,30 @@ class DecodeScheduler:
             buffer_wait_sec,
             response_emit_sec,
         )
+
+    def _record_health_event(self, outcome: str, count: int = 1) -> None:
+        if count <= 0:
+            return
+        now = time.monotonic()
+        with self._health_lock:
+            self._health_events.append((now, outcome, count))
+            self._trim_health_events(now)
+
+    def _trim_health_events(self, now: Optional[float] = None) -> None:
+        if now is None:
+            now = time.monotonic()
+        cutoff = now - self._health_window_sec
+        while self._health_events and self._health_events[0][0] < cutoff:
+            self._health_events.popleft()
+
+    def _health_counts(self) -> Dict[str, int]:
+        with self._health_lock:
+            self._trim_health_events()
+            counts = {"success": 0, "timeout": 0, "error": 0}
+            for _, outcome, count in self._health_events:
+                if outcome in counts:
+                    counts[outcome] += count
+            return counts
 
     def _on_vad_utterance_end(self) -> None:
         self._hooks.on_vad_utterance_end()
@@ -289,6 +344,7 @@ class DecodeStream:
             )
             if not done:
                 self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
+                self.scheduler._record_health_event("timeout", len(pending_snapshot))
                 self._drop_pending_results()
                 detail = (
                     f"decode timeout after {wait_timeout}s"
@@ -335,6 +391,7 @@ class DecodeStream:
                 result = future.result()
             except Exception as e:
                 self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
+                self.scheduler._record_health_event("error")
                 self._finalize_pending(is_final)
                 raise STTError(
                     ErrorCode.DECODE_TASK_FAILED, f"decode task failed: {e}"
@@ -383,6 +440,7 @@ class DecodeStream:
                     buffer_wait_sec,
                     response_emit_sec,
                 )
+                self.scheduler._record_health_event("success")
                 self._record_timing(
                     buffer_wait_sec,
                     result.queue_wait_sec,

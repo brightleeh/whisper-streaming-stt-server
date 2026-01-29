@@ -10,6 +10,10 @@ from stt_server.config.default import (
     DEFAULT_DECODE_PROFILE,
     DEFAULT_DECODE_TIMEOUT,
     DEFAULT_DEVICE,
+    DEFAULT_HEALTH_MAX_TIMEOUT_RATIO,
+    DEFAULT_HEALTH_MIN_EVENTS,
+    DEFAULT_HEALTH_MIN_SUCCESS_RATIO,
+    DEFAULT_HEALTH_WINDOW_SEC,
     DEFAULT_LANGUAGE,
     DEFAULT_LANGUAGE_FIX,
     DEFAULT_LOG_FILE,
@@ -61,6 +65,10 @@ class ServerConfig:
     session_timeout_sec: float = 60.0
     max_buffer_sec: Optional[float] = DEFAULT_MAX_BUFFER_SEC
     max_buffer_bytes: Optional[int] = None
+    health_window_sec: float = DEFAULT_HEALTH_WINDOW_SEC
+    health_min_events: int = DEFAULT_HEALTH_MIN_EVENTS
+    health_max_timeout_ratio: float = DEFAULT_HEALTH_MAX_TIMEOUT_RATIO
+    health_min_success_ratio: float = DEFAULT_HEALTH_MIN_SUCCESS_RATIO
     persist_audio: bool = DEFAULT_PERSIST_AUDIO
     audio_storage_dir: str = DEFAULT_AUDIO_STORAGE_DIR
     audio_storage_max_bytes: Optional[int] = None

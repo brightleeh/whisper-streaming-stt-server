@@ -12,6 +12,10 @@ DEFAULT_VAD_THRESHOLD = 0.5
 DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_MAX_BUFFER_SEC = 60.0
+DEFAULT_HEALTH_WINDOW_SEC = 60.0
+DEFAULT_HEALTH_MIN_EVENTS = 5
+DEFAULT_HEALTH_MAX_TIMEOUT_RATIO = 0.5
+DEFAULT_HEALTH_MIN_SUCCESS_RATIO = 0.5
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FILE = None
 DEFAULT_PERSIST_AUDIO = False
@@ -47,6 +51,12 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_files": "audio_storage_max_files",
         "max_age_days": "audio_storage_max_age_days",
     },
+    "health": {
+        "window_sec": "health_window_sec",
+        "min_events": "health_min_events",
+        "max_timeout_ratio": "health_max_timeout_ratio",
+        "min_success_ratio": "health_min_success_ratio",
+    },
 }
 
 __all__ = [
@@ -60,6 +70,10 @@ __all__ = [
     "DEFAULT_SPEECH_RMS_THRESHOLD",
     "DEFAULT_SAMPLE_RATE",
     "DEFAULT_MAX_BUFFER_SEC",
+    "DEFAULT_HEALTH_WINDOW_SEC",
+    "DEFAULT_HEALTH_MIN_EVENTS",
+    "DEFAULT_HEALTH_MAX_TIMEOUT_RATIO",
+    "DEFAULT_HEALTH_MIN_SUCCESS_RATIO",
     "DEFAULT_LOG_LEVEL",
     "DEFAULT_LOG_FILE",
     "DEFAULT_PERSIST_AUDIO",

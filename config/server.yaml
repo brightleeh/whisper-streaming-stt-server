@@ -27,3 +27,9 @@ storage:
   max_bytes: null # Optional cap on total bytes in directory
   max_files: null # Optional maximum number of stored files
   max_age_days: null # Optional retention window in days
+
+health:
+  window_sec: 60 # Rolling window for decode health aggregation
+  min_events: 5 # Minimum events before evaluating health ratios
+  max_timeout_ratio: 0.5 # Degraded when decode timeouts exceed this ratio
+  min_success_ratio: 0.5 # Degraded when successful decodes fall below this ratio

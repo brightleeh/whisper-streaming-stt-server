@@ -53,6 +53,12 @@ class StreamOrchestratorConfig:
     max_buffer_sec: Optional[float] = 60.0
     max_buffer_bytes: Optional[int] = None
 
+    # Health check thresholds
+    health_window_sec: float = 60.0
+    health_min_events: int = 5
+    health_max_timeout_ratio: float = 0.5
+    health_min_success_ratio: float = 0.5
+
 
 def _noop() -> None:
     return None
@@ -117,6 +123,10 @@ class StreamOrchestrator:
             raise RuntimeError(f"No worker available for model_id='{model_id}'")
         return worker
 
+    @property
+    def model_registry(self) -> ModelRegistry:
+        return self._model_registry
+
     def _create_decode_scheduler(
         self, config: StreamOrchestratorConfig
     ) -> DecodeScheduler:
@@ -124,6 +134,10 @@ class StreamOrchestrator:
             self,
             decode_timeout_sec=config.decode_timeout_sec,
             language_lookup=config.language_lookup,
+            health_window_sec=config.health_window_sec,
+            health_min_events=config.health_min_events,
+            health_max_timeout_ratio=config.health_max_timeout_ratio,
+            health_min_success_ratio=config.health_min_success_ratio,
             hooks=self._hooks.decode_hooks,
         )
 

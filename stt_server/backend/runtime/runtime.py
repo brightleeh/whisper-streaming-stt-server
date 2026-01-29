@@ -85,6 +85,10 @@ class ApplicationRuntime:
             language_lookup=self.supported_languages,
             max_buffer_sec=streaming_config.max_buffer_sec,
             max_buffer_bytes=streaming_config.max_buffer_bytes,
+            health_window_sec=streaming_config.health_window_sec,
+            health_min_events=streaming_config.health_min_events,
+            health_max_timeout_ratio=streaming_config.health_max_timeout_ratio,
+            health_min_success_ratio=streaming_config.health_min_success_ratio,
             storage_enabled=storage_config.enabled,
             storage_directory=storage_config.directory,
             storage_max_bytes=storage_config.max_bytes,
@@ -139,9 +143,13 @@ class ApplicationRuntime:
 
     def health_snapshot(self) -> Dict[str, Any]:
         metrics_snapshot = self.metrics.snapshot()
+        registry_summary = self.model_registry.health_summary()
         return {
             "model_pool_healthy": self.decode_scheduler.workers_healthy(),
-            "models_loaded": True,
+            "models_loaded": registry_summary["models_loaded"],
+            "model_count": registry_summary["model_count"],
+            "model_worker_total": registry_summary["total_workers"],
+            "model_worker_shutdown": registry_summary["shutdown_workers"],
             "active_sessions": self.session_registry.active_count(),
             "decode_queue_depth": self.decode_scheduler.pending_decodes(),
             "decode_latency_avg": metrics_snapshot.get("decode_latency_avg"),

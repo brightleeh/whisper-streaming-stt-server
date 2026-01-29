@@ -39,6 +39,31 @@ class ModelRegistry:
         with self._lock:
             return list(self._pools.keys())
 
+    def health_summary(self) -> Dict[str, Any]:
+        """Return a lightweight health summary of loaded pools and workers."""
+        with self._lock:
+            pools = {model_id: list(pool) for model_id, pool in self._pools.items()}
+
+        total_workers = 0
+        empty_pools = 0
+        shutdown_workers = 0
+        for pool in pools.values():
+            if not pool:
+                empty_pools += 1
+                continue
+            total_workers += len(pool)
+            for worker in pool:
+                if getattr(worker.executor, "_shutdown", False):
+                    shutdown_workers += 1
+
+        return {
+            "models_loaded": bool(pools),
+            "model_count": len(pools),
+            "total_workers": total_workers,
+            "empty_pools": empty_pools,
+            "shutdown_workers": shutdown_workers,
+        }
+
     def get_next_model_id(self) -> Optional[str]:
         """Get the next model_id in round-robin fashion."""
         with self._lock:

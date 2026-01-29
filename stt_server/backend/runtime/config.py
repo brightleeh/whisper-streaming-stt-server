@@ -28,6 +28,10 @@ class StreamingRuntimeConfig:
     decode_timeout_sec: float = 30.0
     max_buffer_sec: Optional[float] = 60.0
     max_buffer_bytes: Optional[int] = None
+    health_window_sec: float = 60.0
+    health_min_events: int = 5
+    health_max_timeout_ratio: float = 0.5
+    health_min_success_ratio: float = 0.5
 
 
 @dataclass
