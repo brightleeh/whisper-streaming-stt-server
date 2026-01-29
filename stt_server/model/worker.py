@@ -2,6 +2,7 @@ import logging
 import threading
 import time
 from concurrent import futures
+from contextvars import copy_context
 from typing import Any, Dict, List, NamedTuple, Optional
 
 from faster_whisper import WhisperModel
@@ -61,8 +62,9 @@ class ModelWorker:
         """Submit PCM bytes for asynchronous decode."""
         opts = decode_options.copy() if decode_options else None
         submitted_at = time.perf_counter()
+        ctx = copy_context()
         future = self.executor.submit(
-            self._decode, pcm_bytes, src_rate, opts, submitted_at
+            ctx.run, self._decode, pcm_bytes, src_rate, opts, submitted_at
         )
         with self._active_cond:
             self._active_tasks += 1

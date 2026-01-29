@@ -1,6 +1,7 @@
 import logging
 import logging.handlers
 import queue
+from contextvars import ContextVar
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,6 +20,19 @@ logging.Logger.trace = trace  # type: ignore
 
 LOG_QUEUE: "queue.Queue[logging.LogRecord]" = queue.Queue()
 QUEUE_LISTENER: Optional[logging.handlers.QueueListener] = None
+_SESSION_ID: ContextVar[str] = ContextVar("session_id", default="-")
+
+
+def set_session_id(session_id: Optional[str]) -> None:
+    _SESSION_ID.set(session_id or "-")
+
+
+def clear_session_id() -> None:
+    _SESSION_ID.set("-")
+
+
+def _get_session_id() -> str:
+    return _SESSION_ID.get()
 
 
 def _resolve_level(value: Optional[str], fallback: int) -> int:
@@ -38,8 +52,14 @@ def configure_logging(
     numeric_level = _resolve_level(level, logging.INFO)
 
     formatter = logging.Formatter(
-        "%(asctime)s [%(levelname)s] %(name)s [%(filename)s:%(lineno)d]: %(message)s"
+        "%(asctime)s [%(levelname)s] %(name)s [%(filename)s:%(lineno)d] "
+        "[session_id=%(session_id)s]: %(message)s"
     )
+
+    class _SessionIdFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            record.session_id = _get_session_id()
+            return True
 
     if QUEUE_LISTENER:
         QUEUE_LISTENER.stop()
@@ -60,6 +80,7 @@ def configure_logging(
         handlers.append(file_handler)
 
     queue_handler = logging.handlers.QueueHandler(LOG_QUEUE)
+    queue_handler.addFilter(_SessionIdFilter())
     root_logger = logging.getLogger()
     for handler in root_logger.handlers:
         handler.close()
@@ -81,4 +102,10 @@ def configure_logging(
 
 LOGGER = logging.getLogger("stt_server")
 
-__all__ = ["configure_logging", "LOGGER", "TRACE_LEVEL_NUM"]
+__all__ = [
+    "clear_session_id",
+    "configure_logging",
+    "LOGGER",
+    "set_session_id",
+    "TRACE_LEVEL_NUM",
+]

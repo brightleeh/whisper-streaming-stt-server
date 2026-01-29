@@ -22,7 +22,7 @@ from stt_server.backend.utils.profile_resolver import (
 from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
 from stt_server.errors import ErrorCode, abort_with_error, format_error
-from stt_server.utils.logger import LOGGER
+from stt_server.utils.logger import LOGGER, clear_session_id, set_session_id
 
 
 @dataclass
@@ -212,6 +212,7 @@ class CreateSessionHandler:
             abort_with_error(context, ErrorCode.SESSION_ID_REQUIRED)
 
         session_id = request.session_id
+        set_session_id(session_id)
         vad_mode = (
             request.vad_mode
             if request.vad_mode in (stt_pb2.VAD_CONTINUE, stt_pb2.VAD_AUTO_END)
@@ -271,41 +272,44 @@ class CreateSessionHandler:
             model_id=model_id,
         )
         try:
-            self._session_registry.create_session(session_id, session_info)
-        except ValueError:
-            LOGGER.error(format_error(ErrorCode.SESSION_ID_ALREADY_ACTIVE))
-            abort_with_error(context, ErrorCode.SESSION_ID_ALREADY_ACTIVE)
+            try:
+                self._session_registry.create_session(session_id, session_info)
+            except ValueError:
+                LOGGER.error(format_error(ErrorCode.SESSION_ID_ALREADY_ACTIVE))
+                abort_with_error(context, ErrorCode.SESSION_ID_ALREADY_ACTIVE)
 
-        response_attributes = dict(request.attributes)
-        response_attributes["decode_profile"] = profile_name
-        if language_code:
-            response_attributes["language_code"] = language_code
+            response_attributes = dict(request.attributes)
+            response_attributes["decode_profile"] = profile_name
+            if language_code:
+                response_attributes["language_code"] = language_code
 
-        LOGGER.info(
-            "Created session_id=%s vad_mode=%s token_required=%s decode_profile=%s language=%s task=%s vad_silence=%.3f vad_threshold=%.4f attributes=%s model_id=%s",
-            session_id,
-            "AUTO_END" if vad_mode == stt_pb2.VAD_AUTO_END else "CONTINUE",
-            token_required,
-            profile_name,
-            language_code or "auto",
-            session_task,
-            vad_silence,
-            vad_threshold,
-            dict(request.attributes),
-            model_id,
-        )
+            LOGGER.info(
+                "Created session_id=%s vad_mode=%s token_required=%s decode_profile=%s language=%s task=%s vad_silence=%.3f vad_threshold=%.4f attributes=%s model_id=%s",
+                session_id,
+                "AUTO_END" if vad_mode == stt_pb2.VAD_AUTO_END else "CONTINUE",
+                token_required,
+                profile_name,
+                language_code or "auto",
+                session_task,
+                vad_silence,
+                vad_threshold,
+                dict(request.attributes),
+                model_id,
+            )
 
-        return stt_pb2.SessionResponse(
-            attributes=response_attributes,
-            vad_mode=vad_mode,
-            vad_silence=vad_silence,
-            vad_threshold=vad_threshold,
-            token=token,
-            token_required=token_required,
-            language_code=language_code,
-            task=task_enum_from_name(session_task),
-            decode_profile=profile_enum_from_name(profile_name),
-        )
+            return stt_pb2.SessionResponse(
+                attributes=response_attributes,
+                vad_mode=vad_mode,
+                vad_silence=vad_silence,
+                vad_threshold=vad_threshold,
+                token=token,
+                token_required=token_required,
+                language_code=language_code,
+                task=task_enum_from_name(session_task),
+                decode_profile=profile_enum_from_name(profile_name),
+            )
+        finally:
+            clear_session_id()
 
     def _resolve_vad_silence(
         self, value: float, context: grpc.ServicerContext

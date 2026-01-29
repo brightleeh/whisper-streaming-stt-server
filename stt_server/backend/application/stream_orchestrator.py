@@ -29,7 +29,7 @@ from stt_server.backend.component.vad_gate import (
 from stt_server.config.languages import SupportedLanguages
 from stt_server.errors import ErrorCode, abort_with_error
 from stt_server.utils import audio
-from stt_server.utils.logger import LOGGER
+from stt_server.utils.logger import LOGGER, clear_session_id, set_session_id
 
 if TYPE_CHECKING:
     from stt_server.model.worker import ModelWorker
@@ -208,6 +208,17 @@ class StreamOrchestrator:
         vad_state: Optional[VADGate] = None
         decode_stream = None
         metadata = {k.lower(): v for (k, v) in context.invocation_metadata()}
+        metadata_session_id = metadata.get("session-id") or metadata.get("session_id")
+        if metadata_session_id:
+            if isinstance(metadata_session_id, bytes):
+                try:
+                    metadata_session_id = metadata_session_id.decode(
+                        "utf-8", errors="ignore"
+                    )
+                except Exception:
+                    metadata_session_id = None
+            if metadata_session_id:
+                set_session_id(str(metadata_session_id).strip())
         session_logged = False
         final_reason = "stream_end"
         session_start = time.monotonic()
@@ -290,6 +301,7 @@ class StreamOrchestrator:
                 metadata, context
             )
             if session_state:
+                set_session_id(session_state.session_id)
                 session_logged = self._log_session_start(session_state)
                 vad_state = self._create_vad_state(session_state)
             decode_stream = self._decode_scheduler.new_stream()
@@ -318,6 +330,8 @@ class StreamOrchestrator:
                 _mark_activity()
 
                 current_session_id = session_state.session_id if session_state else None
+                if current_session_id:
+                    set_session_id(current_session_id)
                 if not context.is_active():
                     LOGGER.info(
                         "Client disconnected; stopping session %s", current_session_id
@@ -360,6 +374,7 @@ class StreamOrchestrator:
 
                 if session_state and decode_stream:
                     decode_stream.set_session_id(session_state.session_id)
+                    set_session_id(session_state.session_id)
                 if session_state and not session_logged:
                     session_logged = self._log_session_start(session_state)
                 if vad_state is None:
@@ -624,6 +639,7 @@ class StreamOrchestrator:
                     duration,
                 )
             self._session_facade.remove_session(session_state, reason=final_reason)
+            clear_session_id()
 
     def _create_vad_state(self, state: SessionState) -> VADGate:
         info = state.session_info
