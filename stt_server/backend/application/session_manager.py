@@ -11,6 +11,7 @@ import grpc
 
 from gen.stt.python.v1 import stt_pb2
 from stt_server.backend.application.model_registry import ModelRegistry
+from stt_server.backend.component.vad_gate import release_vad_slot, reserve_vad_slot
 from stt_server.backend.utils.profile_resolver import (
     profile_enum_from_name,
     profile_name_from_enum,
@@ -39,6 +40,7 @@ class SessionInfo:
     language_code: str
     task: str
     model_id: str = DEFAULT_MODEL_ID
+    vad_reserved: bool = False
 
 
 def _noop_session_hook(_: "SessionInfo") -> None:
@@ -262,6 +264,12 @@ class CreateSessionHandler:
             )
         else:
             vad_threshold = self._resolve_vad_threshold(request.vad_threshold, context)
+        vad_reserved = False
+        if vad_threshold > 0:
+            if not reserve_vad_slot():
+                LOGGER.error("VAD pool exhausted; rejecting session_id=%s", session_id)
+                abort_with_error(context, ErrorCode.VAD_POOL_EXHAUSTED)
+            vad_reserved = True
         session_info = SessionInfo(
             attributes=dict(request.attributes),
             vad_mode=vad_mode,
@@ -275,11 +283,14 @@ class CreateSessionHandler:
             language_code=language_code,
             task=session_task,
             model_id=model_id,
+            vad_reserved=vad_reserved,
         )
         try:
             try:
                 self._session_registry.create_session(session_id, session_info)
             except ValueError:
+                if vad_reserved:
+                    release_vad_slot()
                 LOGGER.error(format_error(ErrorCode.SESSION_ID_ALREADY_ACTIVE))
                 abort_with_error(context, ErrorCode.SESSION_ID_ALREADY_ACTIVE)
 

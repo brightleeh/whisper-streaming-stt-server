@@ -69,6 +69,8 @@ def serve(config: ServerConfig) -> None:
         vad_threshold=config.vad_threshold,
         vad_model_pool_size=vad_pool_size,
         vad_model_prewarm=vad_prewarm,
+        vad_model_pool_max_size=config.max_sessions,
+        vad_model_pool_growth_factor=config.vad_model_pool_growth_factor,
         speech_rms_threshold=config.speech_rms_threshold,
         session_timeout_sec=config.session_timeout_sec,
         sample_rate=config.sample_rate,

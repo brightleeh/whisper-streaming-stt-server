@@ -18,6 +18,7 @@ class ErrorCode(str, Enum):
     SESSION_TOKEN_INVALID = "ERR1005"
     SESSION_TIMEOUT = "ERR1006"
     AUDIO_CHUNK_TOO_LARGE = "ERR1007"
+    VAD_POOL_EXHAUSTED = "ERR1008"
 
     # decode (ERR200x)
     DECODE_TIMEOUT = "ERR2001"
@@ -85,6 +86,12 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.INVALID_ARGUMENT,
         400,
         "audio chunk exceeds maximum size",
+    ),
+    ErrorCode.VAD_POOL_EXHAUSTED: ErrorSpec(
+        ErrorCode.VAD_POOL_EXHAUSTED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        503,
+        "VAD capacity exhausted",
     ),
     ErrorCode.DECODE_TIMEOUT: ErrorSpec(
         ErrorCode.DECODE_TIMEOUT,

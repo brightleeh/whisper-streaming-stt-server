@@ -11,6 +11,7 @@ DEFAULT_VAD_SILENCE = 0.8
 DEFAULT_VAD_THRESHOLD = 0.5
 DEFAULT_VAD_MODEL_POOL_SIZE = DEFAULT_MAX_SESSIONS
 DEFAULT_VAD_MODEL_PREWARM = 1
+DEFAULT_VAD_MODEL_POOL_GROWTH_FACTOR = 1.5
 DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_MAX_BUFFER_SEC = 60.0
@@ -56,6 +57,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "threshold": "vad_threshold",
         "model_pool_size": "vad_model_pool_size",
         "model_prewarm": "vad_model_prewarm",
+        "model_pool_growth_factor": "vad_model_pool_growth_factor",
     },
     "safety": {
         "speech_rms_threshold": "speech_rms_threshold",
@@ -91,6 +93,7 @@ __all__ = [
     "DEFAULT_VAD_THRESHOLD",
     "DEFAULT_VAD_MODEL_POOL_SIZE",
     "DEFAULT_VAD_MODEL_PREWARM",
+    "DEFAULT_VAD_MODEL_POOL_GROWTH_FACTOR",
     "DEFAULT_SPEECH_RMS_THRESHOLD",
     "DEFAULT_SAMPLE_RATE",
     "DEFAULT_MAX_BUFFER_SEC",

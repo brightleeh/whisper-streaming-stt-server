@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import threading
 from collections import deque
 from dataclasses import dataclass
@@ -43,8 +44,11 @@ _SILERO_SAMPLE_RATE = 16000
 _SILERO_BASE_MODEL: Optional[VADModel] = None
 _VAD_POOL_LOCK = threading.Lock()
 _VAD_POOL: "deque[VADModel]" = deque()
-_VAD_POOL_MAX_SIZE = 0
+_VAD_POOL_CAPACITY = 0
+_VAD_POOL_MAX_CAPACITY = 0
+_VAD_POOL_GROWTH_FACTOR = 1.5
 _VAD_POOL_TOTAL_CREATED = 0
+_VAD_POOL_RESERVED = 0
 
 
 def _load_silero_base_model():
@@ -73,32 +77,56 @@ def _new_silero_model():
 
 
 def configure_vad_model_pool(
-    max_size: Optional[int] = None, prewarm: Optional[int] = None
+    max_size: Optional[int] = None,
+    prewarm: Optional[int] = None,
+    max_capacity: Optional[int] = None,
+    growth_factor: Optional[float] = None,
 ) -> None:
-    global _VAD_POOL_MAX_SIZE, _VAD_POOL_TOTAL_CREATED
+    global _VAD_POOL_CAPACITY, _VAD_POOL_MAX_CAPACITY, _VAD_POOL_GROWTH_FACTOR, _VAD_POOL_TOTAL_CREATED, _VAD_POOL_RESERVED
     max_size_value = int(max_size) if max_size is not None else 0
     prewarm_value = int(prewarm) if prewarm is not None else 0
+    max_capacity_value = int(max_capacity) if max_capacity is not None else 0
     max_size_value = max(0, max_size_value)
     prewarm_value = max(0, prewarm_value)
-    if max_size_value == 0:
+    max_capacity_value = max(0, max_capacity_value)
+    if growth_factor is None:
+        growth_value = 1.5
+    else:
+        try:
+            growth_value = float(growth_factor)
+        except (TypeError, ValueError):
+            growth_value = 1.5
+    if growth_value < 1.0:
+        growth_value = 1.0
+    if max_capacity_value == 0:
+        max_capacity_value = max_size_value
+    if max_size_value == 0 and max_capacity_value == 0:
         with _VAD_POOL_LOCK:
             _VAD_POOL.clear()
-            _VAD_POOL_MAX_SIZE = 0
+            _VAD_POOL_CAPACITY = 0
+            _VAD_POOL_MAX_CAPACITY = 0
             _VAD_POOL_TOTAL_CREATED = 0
+            _VAD_POOL_RESERVED = 0
         return
 
     with _VAD_POOL_LOCK:
-        _VAD_POOL_MAX_SIZE = max_size_value
-        while len(_VAD_POOL) > _VAD_POOL_MAX_SIZE:
+        _VAD_POOL_CAPACITY = max_size_value or max_capacity_value
+        _VAD_POOL_MAX_CAPACITY = max_capacity_value
+        _VAD_POOL_GROWTH_FACTOR = growth_value
+        if _VAD_POOL_CAPACITY > _VAD_POOL_MAX_CAPACITY:
+            _VAD_POOL_CAPACITY = _VAD_POOL_MAX_CAPACITY
+        if _VAD_POOL_RESERVED > _VAD_POOL_CAPACITY:
+            _VAD_POOL_RESERVED = _VAD_POOL_CAPACITY
+        while len(_VAD_POOL) > _VAD_POOL_CAPACITY:
             _VAD_POOL.pop()
             _VAD_POOL_TOTAL_CREATED = max(0, _VAD_POOL_TOTAL_CREATED - 1)
 
-    target_pool = min(prewarm_value, max_size_value)
+    target_pool = min(prewarm_value, _VAD_POOL_CAPACITY)
     while True:
         with _VAD_POOL_LOCK:
             if len(_VAD_POOL) >= target_pool:
                 break
-            if _VAD_POOL_TOTAL_CREATED >= _VAD_POOL_MAX_SIZE:
+            if _VAD_POOL_TOTAL_CREATED >= _VAD_POOL_CAPACITY:
                 break
         try:
             model = _new_silero_model()
@@ -106,7 +134,7 @@ def configure_vad_model_pool(
             LOGGER.exception("Failed to prewarm VAD model pool")
             break
         with _VAD_POOL_LOCK:
-            if len(_VAD_POOL) >= _VAD_POOL_MAX_SIZE:
+            if len(_VAD_POOL) >= _VAD_POOL_CAPACITY:
                 break
             _VAD_POOL.append(model)
             _VAD_POOL_TOTAL_CREATED += 1
@@ -115,32 +143,66 @@ def configure_vad_model_pool(
 def _acquire_vad_model() -> VADModel:
     global _VAD_POOL_TOTAL_CREATED
     with _VAD_POOL_LOCK:
-        if _VAD_POOL_MAX_SIZE > 0 and _VAD_POOL:
+        if _VAD_POOL_CAPACITY > 0 and _VAD_POOL:
             model = _VAD_POOL.popleft()
             if hasattr(model, "reset_states"):
                 model.reset_states()
             return model
-        if _VAD_POOL_MAX_SIZE > 0:
-            overflow = _VAD_POOL_TOTAL_CREATED >= _VAD_POOL_MAX_SIZE
+        if _VAD_POOL_CAPACITY > 0:
+            overflow = _VAD_POOL_TOTAL_CREATED >= _VAD_POOL_CAPACITY
             _VAD_POOL_TOTAL_CREATED += 1
         else:
             overflow = False
     if overflow:
-        LOGGER.warning("VAD pool exhausted; creating overflow model instance.")
+        LOGGER.warning("VAD pool capacity exceeded; creating overflow model instance.")
     return _new_silero_model()
 
 
 def _release_vad_model(model: VADModel) -> None:
     global _VAD_POOL_TOTAL_CREATED
     with _VAD_POOL_LOCK:
-        if _VAD_POOL_MAX_SIZE <= 0:
+        if _VAD_POOL_CAPACITY <= 0:
             return
-        if len(_VAD_POOL) >= _VAD_POOL_MAX_SIZE:
+        if len(_VAD_POOL) >= _VAD_POOL_CAPACITY:
             _VAD_POOL_TOTAL_CREATED = max(0, _VAD_POOL_TOTAL_CREATED - 1)
             return
         if hasattr(model, "reset_states"):
             model.reset_states()
         _VAD_POOL.append(model)
+
+
+def reserve_vad_slot() -> bool:
+    """Reserve a VAD slot without instantiating a model."""
+    global _VAD_POOL_CAPACITY, _VAD_POOL_MAX_CAPACITY, _VAD_POOL_GROWTH_FACTOR, _VAD_POOL_RESERVED
+    with _VAD_POOL_LOCK:
+        if _VAD_POOL_CAPACITY <= 0:
+            return True
+        if _VAD_POOL_RESERVED < _VAD_POOL_CAPACITY:
+            _VAD_POOL_RESERVED += 1
+            return True
+        if _VAD_POOL_CAPACITY < _VAD_POOL_MAX_CAPACITY:
+            new_capacity = max(
+                1,
+                int(math.ceil(_VAD_POOL_CAPACITY * _VAD_POOL_GROWTH_FACTOR)),
+            )
+            if new_capacity > _VAD_POOL_MAX_CAPACITY:
+                new_capacity = _VAD_POOL_MAX_CAPACITY
+            if new_capacity > _VAD_POOL_CAPACITY:
+                _VAD_POOL_CAPACITY = new_capacity
+                LOGGER.info("Expanded VAD pool capacity to %d", _VAD_POOL_CAPACITY)
+            if _VAD_POOL_RESERVED < _VAD_POOL_CAPACITY:
+                _VAD_POOL_RESERVED += 1
+                return True
+        return False
+
+
+def release_vad_slot() -> None:
+    global _VAD_POOL_RESERVED
+    with _VAD_POOL_LOCK:
+        if _VAD_POOL_CAPACITY <= 0:
+            return
+        if _VAD_POOL_RESERVED > 0:
+            _VAD_POOL_RESERVED -= 1
 
 
 def _silero_frame_probability(model: VADModel, frame: np.ndarray) -> float:

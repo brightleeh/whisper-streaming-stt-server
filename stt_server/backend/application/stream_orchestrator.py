@@ -57,6 +57,8 @@ class StreamOrchestratorConfig:
     # VAD model pool settings
     vad_model_pool_size: Optional[int] = None
     vad_model_prewarm: Optional[int] = None
+    vad_model_pool_max_size: Optional[int] = None
+    vad_model_pool_growth_factor: float = 1.5
 
     # Buffer control settings
     max_buffer_sec: Optional[float] = 60.0
@@ -133,7 +135,12 @@ class StreamOrchestrator:
         self._audio_storage: Optional[AudioStorageManager] = None
         self._buffer_bytes_lock = threading.Lock()
         self._buffer_bytes_total = 0
-        configure_vad_model_pool(config.vad_model_pool_size, config.vad_model_prewarm)
+        configure_vad_model_pool(
+            config.vad_model_pool_size,
+            config.vad_model_prewarm,
+            config.vad_model_pool_max_size,
+            config.vad_model_pool_growth_factor,
+        )
         if config.storage_enabled:
             storage_directory = Path(config.storage_directory).expanduser()
             storage_policy = AudioStorageConfig(

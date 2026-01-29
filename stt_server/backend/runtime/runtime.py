@@ -18,6 +18,7 @@ from stt_server.backend.application.stream_orchestrator import (
     StreamOrchestratorHooks,
 )
 from stt_server.backend.component.decode_scheduler import DecodeSchedulerHooks
+from stt_server.backend.component.vad_gate import release_vad_slot
 from stt_server.backend.runtime.config import ServicerConfig
 from stt_server.backend.runtime.metrics import Metrics
 from stt_server.backend.utils.profile_resolver import normalize_decode_profiles
@@ -85,6 +86,8 @@ class ApplicationRuntime:
             language_lookup=self.supported_languages,
             vad_model_pool_size=streaming_config.vad_model_pool_size,
             vad_model_prewarm=streaming_config.vad_model_prewarm,
+            vad_model_pool_max_size=streaming_config.vad_model_pool_max_size,
+            vad_model_pool_growth_factor=streaming_config.vad_model_pool_growth_factor,
             max_buffer_sec=streaming_config.max_buffer_sec,
             max_buffer_bytes=streaming_config.max_buffer_bytes,
             max_chunk_ms=streaming_config.max_chunk_ms,
@@ -147,6 +150,9 @@ class ApplicationRuntime:
             self.metrics.increase_active_sessions(info.api_key)
 
     def _on_session_removed(self, info: SessionInfo) -> None:
+        if info.vad_reserved:
+            release_vad_slot()
+            info.vad_reserved = False
         if info.api_key:
             self.metrics.decrease_active_sessions(info.api_key)
 

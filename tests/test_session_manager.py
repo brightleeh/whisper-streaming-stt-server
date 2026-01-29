@@ -9,6 +9,7 @@ from stt_server.backend.application.session_manager import (
     SessionFacade,
     SessionRegistry,
 )
+from stt_server.backend.component import vad_gate
 
 
 @pytest.fixture
@@ -99,6 +100,40 @@ def test_create_session_falls_back_to_default_when_override_unset(
     args, _kwargs = mock_session_registry.create_session.call_args
     session_info = args[1]
     assert session_info.vad_threshold == 0.5
+
+
+def test_vad_pool_expands_when_capacity_exceeded(
+    create_session_handler, mock_session_registry, mock_servicer_context
+):
+    vad_gate.configure_vad_model_pool(
+        max_size=2, prewarm=0, max_capacity=4, growth_factor=1.5
+    )
+    try:
+        for idx in range(3):
+            request = stt_pb2.SessionRequest(
+                session_id=f"sess-{idx}", vad_threshold=0.5
+            )
+            create_session_handler.handle(request, mock_servicer_context)
+    finally:
+        vad_gate.configure_vad_model_pool(max_size=0, prewarm=0, max_capacity=0)
+
+
+def test_vad_pool_exhausted_rejects_session(
+    create_session_handler, mock_session_registry, mock_servicer_context
+):
+    vad_gate.configure_vad_model_pool(
+        max_size=2, prewarm=0, max_capacity=3, growth_factor=1.5
+    )
+    with pytest.raises(grpc.RpcError):
+        for idx in range(4):
+            request = stt_pb2.SessionRequest(
+                session_id=f"sess-x-{idx}", vad_threshold=0.5
+            )
+            create_session_handler.handle(request, mock_servicer_context)
+    mock_servicer_context.abort.assert_called_with(
+        grpc.StatusCode.RESOURCE_EXHAUSTED, "ERR1008 VAD capacity exhausted"
+    )
+    vad_gate.configure_vad_model_pool(max_size=0, prewarm=0, max_capacity=0)
 
 
 def test_err1004_unknown_session_id(

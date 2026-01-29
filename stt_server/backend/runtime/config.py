@@ -24,6 +24,8 @@ class StreamingRuntimeConfig:
     vad_threshold: float = 0.5
     vad_model_pool_size: int = 4
     vad_model_prewarm: int = 1
+    vad_model_pool_max_size: Optional[int] = None
+    vad_model_pool_growth_factor: float = 1.5
     speech_rms_threshold: float = 0.02
     session_timeout_sec: float = 60.0
     sample_rate: int = 16000
