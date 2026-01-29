@@ -100,7 +100,7 @@ class ModelRegistry:
                 config.get("language", DEFAULT_LANGUAGE) if language_fix else None
             )
             log_metrics = config.get("log_metrics", False)
-            base_options = config.get("base_options", {})
+            base_options = dict(config.get("base_options") or {})
 
             # Merge task into base_options if provided
             if "task" in config:
