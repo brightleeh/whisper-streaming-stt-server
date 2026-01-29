@@ -54,6 +54,7 @@ message SessionRequest {
   VADMode vad_mode = 3;              // Desired VAD behavior
   double vad_silence = 4;            // Desired trailing silence window (seconds)
   double vad_threshold = 5;          // Desired VAD probability threshold (0-1)
+  optional double vad_threshold_override = 10; // Optional override; allows explicit 0.0
 
   bool require_token = 6;            // Whether the server should issue a session token
 

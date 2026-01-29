@@ -81,6 +81,26 @@ def test_err1003_negative_vad_threshold(create_session_handler, mock_servicer_co
     )
 
 
+def test_create_session_uses_override_threshold_even_when_zero(
+    create_session_handler, mock_session_registry, mock_servicer_context
+):
+    request = stt_pb2.SessionRequest(session_id="ok", vad_threshold_override=0.0)
+    create_session_handler.handle(request, mock_servicer_context)
+    args, _kwargs = mock_session_registry.create_session.call_args
+    session_info = args[1]
+    assert session_info.vad_threshold == 0.0
+
+
+def test_create_session_falls_back_to_default_when_override_unset(
+    create_session_handler, mock_session_registry, mock_servicer_context
+):
+    request = stt_pb2.SessionRequest(session_id="ok", vad_threshold=0.0)
+    create_session_handler.handle(request, mock_servicer_context)
+    args, _kwargs = mock_session_registry.create_session.call_args
+    session_info = args[1]
+    assert session_info.vad_threshold == 0.5
+
+
 def test_err1004_unknown_session_id(
     session_facade, mock_session_registry, mock_servicer_context
 ):

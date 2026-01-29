@@ -256,7 +256,12 @@ class CreateSessionHandler:
             options["language"] = language_code
 
         vad_silence = self._resolve_vad_silence(request.vad_silence, context)
-        vad_threshold = self._resolve_vad_threshold(request.vad_threshold, context)
+        if request.HasField("vad_threshold_override"):
+            vad_threshold = self._resolve_vad_threshold(
+                request.vad_threshold_override, context, allow_default=False
+            )
+        else:
+            vad_threshold = self._resolve_vad_threshold(request.vad_threshold, context)
         session_info = SessionInfo(
             attributes=dict(request.attributes),
             vad_mode=vad_mode,
@@ -319,12 +324,15 @@ class CreateSessionHandler:
         return value
 
     def _resolve_vad_threshold(
-        self, value: float, context: grpc.ServicerContext
+        self,
+        value: float,
+        context: grpc.ServicerContext,
+        allow_default: bool = True,
     ) -> float:
         if value < 0:
             LOGGER.error(format_error(ErrorCode.VAD_THRESHOLD_NEGATIVE))
             abort_with_error(context, ErrorCode.VAD_THRESHOLD_NEGATIVE)
-        if value == 0:
+        if allow_default and value == 0:
             return self._default_vad_threshold
         return value
 

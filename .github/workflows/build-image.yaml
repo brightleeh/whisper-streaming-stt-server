@@ -7,6 +7,7 @@ on:
     paths:
       - "requirements.txt"
       - "docker/Dockerfile.ubuntu"
+      - "proto/stt.proto"
 
 env:
   REGISTRY: ghcr.io

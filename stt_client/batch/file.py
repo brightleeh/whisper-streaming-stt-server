@@ -195,6 +195,8 @@ def run(
         task=task_to_enum(task),
         decode_profile=profile_to_enum(decode_profile),
     )
+    if vad_threshold is not None:
+        request.vad_threshold_override = vad_threshold
     session_resp = stub.CreateSession(request)
     session_token = session_resp.token if session_resp.token_required else ""
     print(

@@ -211,23 +211,22 @@ def run(
     if vad_threshold is not None:
         attributes["vad_threshold"] = str(vad_threshold)
 
-    session_resp = stub.CreateSession(
-        stt_pb2.SessionRequest(
-            session_id=session_id,
-            attributes=attributes,
-            vad_mode=(
-                stt_pb2.VAD_AUTO_END
-                if vad_mode.lower() == "auto"
-                else stt_pb2.VAD_CONTINUE
-            ),
-            vad_silence=vad_silence or 0.0,
-            vad_threshold=vad_threshold or 0.0,
-            require_token=require_token,
-            language_code=language,
-            task=task_to_enum(task),
-            decode_profile=profile_to_enum(decode_profile),
-        )
+    request = stt_pb2.SessionRequest(
+        session_id=session_id,
+        attributes=attributes,
+        vad_mode=(
+            stt_pb2.VAD_AUTO_END if vad_mode.lower() == "auto" else stt_pb2.VAD_CONTINUE
+        ),
+        vad_silence=vad_silence or 0.0,
+        vad_threshold=vad_threshold or 0.0,
+        require_token=require_token,
+        language_code=language,
+        task=task_to_enum(task),
+        decode_profile=profile_to_enum(decode_profile),
     )
+    if vad_threshold is not None:
+        request.vad_threshold_override = vad_threshold
+    session_resp = stub.CreateSession(request)
     session_token = session_resp.token if session_resp.token_required else ""
     print(
         f"[SESSION] session_id={session_id} created "
