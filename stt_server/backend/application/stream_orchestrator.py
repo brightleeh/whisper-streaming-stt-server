@@ -23,7 +23,7 @@ from stt_server.backend.component.decode_scheduler import (
 )
 from stt_server.backend.component.vad_gate import VADGate, buffer_is_speech
 from stt_server.config.languages import SupportedLanguages
-from stt_server.errors import ErrorCode, abort_with_error, format_error
+from stt_server.errors import ErrorCode, abort_with_error
 from stt_server.utils import audio
 from stt_server.utils.logger import LOGGER
 
@@ -155,7 +155,6 @@ class StreamOrchestrator:
         last_activity = time.monotonic()
         stop_watchdog = threading.Event()
         timeout_event = threading.Event()
-        stream_finished = threading.Event()
         disconnect_event = threading.Event()
 
         def watchdog_loop():
@@ -165,19 +164,9 @@ class StreamOrchestrator:
                 remaining = self._config.session_timeout_sec - elapsed
 
                 if remaining <= 0:
-                    # 1. Request graceful shutdown
                     LOGGER.warning("Session timeout detected.")
                     timeout_event.set()
-
-                    # 2. Give the main thread time to clean up (0.5s)
-                    if stream_finished.wait(timeout=0.5):
-                        LOGGER.warning(" Requesting graceful shutdown...")
-                        return  # Main thread terminates itself
-
-                    # 3. Force abort as main thread might be blocked (I/O wait)
-                    LOGGER.error(format_error(ErrorCode.SESSION_TIMEOUT))
-                    abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
-                    break
+                    return
 
                 # Wait for remaining time (wake up immediately if stop signal received)
                 if stop_watchdog.wait(remaining):
@@ -239,7 +228,7 @@ class StreamOrchestrator:
                 if timeout_event.is_set():
                     LOGGER.info("Stopping stream due to timeout signal.")
                     final_reason = "timeout"
-                    break
+                    abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
 
                 # Update activity timestamp
                 last_activity = time.monotonic()
@@ -393,6 +382,10 @@ class StreamOrchestrator:
                     break
 
             # Process remaining buffer after loop ends
+            if timeout_event.is_set():
+                LOGGER.info("Stopping stream due to timeout signal.")
+                final_reason = "timeout"
+                abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
             if decode_stream:
                 if (
                     not client_disconnected
@@ -411,6 +404,10 @@ class StreamOrchestrator:
                 buffer_start_time = None
 
                 while True:
+                    if timeout_event.is_set():
+                        LOGGER.info("Stopping stream due to timeout signal.")
+                        final_reason = "timeout"
+                        abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
                     emitted = list(
                         self._emit_results_with_session(
                             decode_stream,
@@ -424,15 +421,14 @@ class StreamOrchestrator:
                         yield result
 
         except Exception as e:
-            # Handle errors occurring during force abort due to timeout
+            # Handle errors occurring during timeout abort
             if timeout_event.is_set():
                 final_reason = "timeout"
             else:
                 raise e
 
         finally:
-            # Send termination signal (to prevent watchdog from unnecessary abort)
-            stream_finished.set()
+            # Send termination signal to stop watchdog cleanly
             stop_watchdog.set()
 
             if timeout_event.is_set():

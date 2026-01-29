@@ -1,3 +1,4 @@
+import threading
 from unittest.mock import MagicMock
 
 from stt_server.backend.application.session_manager import (
@@ -9,12 +10,14 @@ from stt_server.backend.application.stream_orchestrator import (
     StreamOrchestratorConfig,
 )
 from stt_server.config.languages import SupportedLanguages
+from stt_server.errors import ErrorCode, status_for
 
 
 class FakeContext:
     def __init__(self) -> None:
         self.trailing_metadata = None
         self.callbacks = []
+        self.abort_calls = []
 
     def invocation_metadata(self):
         return []
@@ -29,6 +32,7 @@ class FakeContext:
         self.trailing_metadata = metadata
 
     def abort(self, code, details):
+        self.abort_calls.append((code, details, threading.current_thread()))
         raise RuntimeError(f"abort called: {code} {details}")
 
 
@@ -92,3 +96,52 @@ def test_stream_orchestrator_sets_decode_trailing_metadata(monkeypatch):
     assert metadata["stt-decode-response-emit-sec"] == "0.400000"
     assert metadata["stt-decode-total-sec"] == "1.000000"
     assert metadata["stt-decode-count"] == "5"
+
+
+def test_stream_orchestrator_timeout_aborts_in_main_loop(monkeypatch):
+    session_facade = SessionFacade(SessionRegistry())
+    model_registry = MagicMock()
+    config = StreamOrchestratorConfig(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=0.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        storage_enabled=False,
+        storage_directory=".",
+        storage_max_bytes=None,
+        storage_max_files=None,
+        storage_max_age_days=None,
+    )
+
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream((0.0, 0.0, 0.0, 0.0, 0))
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+
+    class InlineThread:
+        def __init__(self, target=None, daemon=None):
+            self._target = target
+            self.daemon = daemon
+
+        def start(self):
+            if self._target:
+                self._target()
+
+    import stt_server.backend.application.stream_orchestrator as stream_orchestrator
+
+    monkeypatch.setattr(stream_orchestrator.threading, "Thread", InlineThread)
+
+    context = FakeContext()
+    main_thread = threading.current_thread()
+    results = list(orchestrator.run(iter([]), context))  # type: ignore[arg-type]
+
+    assert results == []
+    assert len(context.abort_calls) == 1
+    code, details, abort_thread = context.abort_calls[0]
+    assert code == status_for(ErrorCode.SESSION_TIMEOUT)
+    assert "ERR1006" in details
+    assert abort_thread is main_thread
