@@ -244,8 +244,18 @@ class DecodeStream:
             )
             if partials_to_drop:
                 self.pending_partials = max(0, self.pending_partials - partials_to_drop)
-        for _ in dropped:
+        cancelled = 0
+        orphaned = 0
+        for future, _, _, _, _ in dropped:
+            if future.cancel():
+                cancelled += 1
+            else:
+                orphaned += 1
             self.scheduler._decrement_pending()
+        if cancelled:
+            self.scheduler._on_decode_cancelled(cancelled)
+        if orphaned:
+            self.scheduler._on_decode_orphaned(orphaned)
 
     def pending_partial_decodes(self) -> int:
         with self._lock:

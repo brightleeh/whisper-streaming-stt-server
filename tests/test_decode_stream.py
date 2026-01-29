@@ -19,6 +19,7 @@ def test_decode_stream_logic_err2001_timeout():
 
     mock_future = MagicMock(spec=futures.Future)
     mock_future.done.return_value = False
+    mock_future.cancel.return_value = True
     scheduler._increment_pending()
     stream.pending_partials = 1
     stream.pending_results.append((mock_future, False, 0.0, False, 0.0))
