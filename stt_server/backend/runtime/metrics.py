@@ -10,6 +10,7 @@ class Metrics:
         self._lock = threading.Lock()
         self._active_sessions = 0
         self._api_key_sessions: Dict[str, int] = defaultdict(int)
+        self._expose_api_key_metrics = False
         self._decode_count = 0
         self._decode_total = 0.0
         self._decode_max = 0.0
@@ -110,9 +111,13 @@ class Metrics:
         with self._lock:
             self._error_counts[status_code.name] += 1
 
+    def set_expose_api_key_metrics(self, enabled: bool) -> None:
+        with self._lock:
+            self._expose_api_key_metrics = bool(enabled)
+
     def render(self) -> Dict[str, Any]:
         with self._lock:
-            return {
+            payload = {
                 "active_sessions": self._active_sessions,
                 "decode_latency_total": self._decode_total,
                 "decode_latency_count": self._decode_count,
@@ -133,9 +138,11 @@ class Metrics:
                 "rtf_max": self._rtf_max,
                 "vad_triggers_total": self._vad_triggers,
                 "active_vad_utterances": self._active_vad_utterances,
-                "active_sessions_by_api": dict(self._api_key_sessions),
                 "error_counts": dict(self._error_counts),
             }
+            if self._expose_api_key_metrics:
+                payload["active_sessions_by_api"] = dict(self._api_key_sessions)
+            return payload
 
     def snapshot(self) -> Dict[str, float]:
         with self._lock:

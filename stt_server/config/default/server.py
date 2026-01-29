@@ -12,6 +12,7 @@ DEFAULT_VAD_THRESHOLD = 0.5
 DEFAULT_VAD_MODEL_POOL_SIZE = DEFAULT_MAX_SESSIONS
 DEFAULT_VAD_MODEL_PREWARM = 1
 DEFAULT_VAD_MODEL_POOL_GROWTH_FACTOR = 1.5
+DEFAULT_EXPOSE_API_KEY_METRICS = False
 DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
 DEFAULT_MAX_BUFFER_SEC = 60.0
@@ -62,6 +63,9 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
     "safety": {
         "speech_rms_threshold": "speech_rms_threshold",
     },
+    "metrics": {
+        "expose_api_key_sessions": "expose_api_key_metrics",
+    },
     "logging": {
         "level": "log_level",
         "file": "log_file",
@@ -94,6 +98,7 @@ __all__ = [
     "DEFAULT_VAD_MODEL_POOL_SIZE",
     "DEFAULT_VAD_MODEL_PREWARM",
     "DEFAULT_VAD_MODEL_POOL_GROWTH_FACTOR",
+    "DEFAULT_EXPOSE_API_KEY_METRICS",
     "DEFAULT_SPEECH_RMS_THRESHOLD",
     "DEFAULT_SAMPLE_RATE",
     "DEFAULT_MAX_BUFFER_SEC",

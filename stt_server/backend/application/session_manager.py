@@ -224,7 +224,21 @@ class CreateSessionHandler:
         token = secrets.token_hex(16) if token_required else ""
         api_key = (
             request.attributes.get("api_key") or request.attributes.get("api-key") or ""
+        ).strip()
+        api_key_required = (
+            request.attributes.get("api_key_required")
+            or request.attributes.get("api-key-required")
+            or ""
         )
+        api_key_required = str(api_key_required).lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
+        if api_key_required and not api_key:
+            LOGGER.error(format_error(ErrorCode.API_KEY_MISSING))
+            abort_with_error(context, ErrorCode.API_KEY_MISSING)
 
         requested_profile = profile_name_from_enum(request.decode_profile)
         if not requested_profile:

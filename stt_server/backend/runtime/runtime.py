@@ -38,6 +38,7 @@ class ApplicationRuntime:
         self.config = config
         model_config = self.config.model
         streaming_config = self.config.streaming
+        self.metrics.set_expose_api_key_metrics(streaming_config.expose_api_key_metrics)
         self.default_language = (
             model_config.language.strip().lower() if model_config.language else ""
         )

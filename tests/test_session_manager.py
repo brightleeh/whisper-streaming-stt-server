@@ -10,6 +10,7 @@ from stt_server.backend.application.session_manager import (
     SessionRegistry,
 )
 from stt_server.backend.component import vad_gate
+from stt_server.backend.runtime.metrics import Metrics
 
 
 @pytest.fixture
@@ -82,6 +83,19 @@ def test_err1003_negative_vad_threshold(create_session_handler, mock_servicer_co
     )
 
 
+def test_err1009_missing_api_key_when_required(
+    create_session_handler, mock_servicer_context
+):
+    request = stt_pb2.SessionRequest(
+        session_id="ok", attributes={"api_key_required": "true"}
+    )
+    with pytest.raises(grpc.RpcError):
+        create_session_handler.handle(request, mock_servicer_context)
+    mock_servicer_context.abort.assert_called_with(
+        grpc.StatusCode.UNAUTHENTICATED, "ERR1009 API key is required"
+    )
+
+
 def test_create_session_uses_override_threshold_even_when_zero(
     create_session_handler, mock_session_registry, mock_servicer_context
 ):
@@ -134,6 +148,21 @@ def test_vad_pool_exhausted_rejects_session(
         grpc.StatusCode.RESOURCE_EXHAUSTED, "ERR1008 VAD capacity exhausted"
     )
     vad_gate.configure_vad_model_pool(max_size=0, prewarm=0, max_capacity=0)
+
+
+def test_metrics_api_key_sessions_hidden_by_default():
+    metrics = Metrics()
+    metrics.increase_active_sessions("key-1")
+    payload = metrics.render()
+    assert "active_sessions_by_api" not in payload
+
+
+def test_metrics_api_key_sessions_exposed_when_enabled():
+    metrics = Metrics()
+    metrics.set_expose_api_key_metrics(True)
+    metrics.increase_active_sessions("key-1")
+    payload = metrics.render()
+    assert payload.get("active_sessions_by_api") == {"key-1": 1}
 
 
 def test_err1004_unknown_session_id(

@@ -13,6 +13,7 @@ from stt_server.config.default import (
     DEFAULT_DECODE_QUEUE_TIMEOUT_SEC,
     DEFAULT_DECODE_TIMEOUT,
     DEFAULT_DEVICE,
+    DEFAULT_EXPOSE_API_KEY_METRICS,
     DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES,
     DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES,
     DEFAULT_HEALTH_MAX_TIMEOUT_RATIO,
@@ -72,6 +73,7 @@ class ServerConfig:
     vad_model_pool_size: int = DEFAULT_VAD_MODEL_POOL_SIZE
     vad_model_prewarm: int = DEFAULT_VAD_MODEL_PREWARM
     vad_model_pool_growth_factor: float = DEFAULT_VAD_MODEL_POOL_GROWTH_FACTOR
+    expose_api_key_metrics: bool = DEFAULT_EXPOSE_API_KEY_METRICS
     speech_rms_threshold: float = DEFAULT_SPEECH_RMS_THRESHOLD
     log_level: str = DEFAULT_LOG_LEVEL
     log_file: Optional[str] = DEFAULT_LOG_FILE

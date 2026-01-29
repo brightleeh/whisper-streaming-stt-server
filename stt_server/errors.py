@@ -19,6 +19,7 @@ class ErrorCode(str, Enum):
     SESSION_TIMEOUT = "ERR1006"
     AUDIO_CHUNK_TOO_LARGE = "ERR1007"
     VAD_POOL_EXHAUSTED = "ERR1008"
+    API_KEY_MISSING = "ERR1009"
 
     # decode (ERR200x)
     DECODE_TIMEOUT = "ERR2001"
@@ -92,6 +93,12 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.RESOURCE_EXHAUSTED,
         503,
         "VAD capacity exhausted",
+    ),
+    ErrorCode.API_KEY_MISSING: ErrorSpec(
+        ErrorCode.API_KEY_MISSING,
+        grpc.StatusCode.UNAUTHENTICATED,
+        401,
+        "API key is required",
     ),
     ErrorCode.DECODE_TIMEOUT: ErrorSpec(
         ErrorCode.DECODE_TIMEOUT,

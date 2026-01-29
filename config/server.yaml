@@ -32,6 +32,9 @@ logging:
   file: null # Optional log file path
   faster_whisper_level: null # Optional: override faster_whisper logger level
 
+metrics:
+  expose_api_key_sessions: false # Include active_sessions_by_api in /metrics payload
+
 storage:
   persist_audio: false # Enable server-side audio capture
   directory: "data/audio" # Directory to store captured audio
