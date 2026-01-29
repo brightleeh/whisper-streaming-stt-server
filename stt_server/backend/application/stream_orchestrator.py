@@ -224,8 +224,25 @@ class StreamOrchestrator:
         timeout_event = threading.Event()
         disconnect_event = threading.Event()
 
+        def _mark_activity() -> None:
+            nonlocal last_activity
+            last_activity = time.monotonic()
+
+        def _emit_with_activity(
+            stream: DecodeStream,
+            block: bool,
+            state: Optional[SessionState],
+        ) -> Iterator[stt_pb2.STTResult]:
+            _mark_activity()
+            for result in self._emit_results_with_session(stream, block, state):
+                _mark_activity()
+                yield result
+
         def watchdog_loop():
+            nonlocal last_activity
             while not stop_watchdog.is_set():
+                if decode_stream and decode_stream.has_pending_results():
+                    _mark_activity()
                 # Calculate time elapsed since last activity
                 elapsed = time.monotonic() - last_activity
                 remaining = self._config.session_timeout_sec - elapsed
@@ -298,7 +315,7 @@ class StreamOrchestrator:
                     abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
 
                 # Update activity timestamp
-                last_activity = time.monotonic()
+                _mark_activity()
 
                 current_session_id = session_state.session_id if session_state else None
                 if not context.is_active():
@@ -420,6 +437,7 @@ class StreamOrchestrator:
                         count_vad=True,
                         buffer_started_at=buffer_start_time,
                     )
+                    _mark_activity()
                     buffer = bytearray()
                     buffer_start_time = None
                     LOGGER.info(
@@ -434,7 +452,7 @@ class StreamOrchestrator:
                         self._active_vad_utterances(),
                     )
                     if is_final:
-                        yield from self._emit_results_with_session(
+                        yield from _emit_with_activity(
                             decode_stream, False, session_state
                         )
                         final_reason = "auto_vad_finalized"
@@ -462,12 +480,11 @@ class StreamOrchestrator:
                             sample_rate,
                             session_state,
                             decode_stream,
+                            activity_callback=_mark_activity,
                         )
                     )
 
-                yield from self._emit_results_with_session(
-                    decode_stream, False, session_state
-                )
+                yield from _emit_with_activity(decode_stream, False, session_state)
 
                 if chunk.is_final:
                     if buffer:
@@ -490,11 +507,10 @@ class StreamOrchestrator:
                             count_vad=False,
                             buffer_started_at=buffer_start_time,
                         )
+                        _mark_activity()
                         buffer = bytearray()
                         buffer_start_time = None
-                    yield from self._emit_results_with_session(
-                        decode_stream, False, session_state
-                    )
+                    yield from _emit_with_activity(decode_stream, False, session_state)
                     final_reason = "client_sent_final_chunk"
                     break
 
@@ -519,6 +535,7 @@ class StreamOrchestrator:
                         count_vad=False,
                         buffer_started_at=buffer_start_time,
                     )
+                    _mark_activity()
                 buffer_start_time = None
 
                 while True:
@@ -527,10 +544,10 @@ class StreamOrchestrator:
                         final_reason = "timeout"
                         abort_with_error(context, ErrorCode.SESSION_TIMEOUT)
                     emitted = list(
-                        self._emit_results_with_session(
+                        _emit_with_activity(
                             decode_stream,
                             block=decode_stream.has_pending_results(),
-                            session_state=session_state,
+                            state=session_state,
                         )
                     )
                     if not emitted:
@@ -664,6 +681,7 @@ class StreamOrchestrator:
         sample_rate: Optional[int],
         session_state: Optional[SessionState],
         decode_stream: Optional[DecodeStream],
+        activity_callback: Optional[Callable[[], None]] = None,
     ) -> tuple[bytearray, float, Optional[float]]:
         limit_bytes = self._buffer_limit_bytes(sample_rate)
         if limit_bytes is None or len(buffer) <= limit_bytes:
@@ -693,6 +711,8 @@ class StreamOrchestrator:
                     count_vad=False,
                     buffer_started_at=buffer_start_time,
                 )
+                if activity_callback:
+                    activity_callback()
             return bytearray(), audio_received_sec, None
 
         overflow = len(buffer) - limit_bytes

@@ -1,4 +1,5 @@
 import threading
+import time
 from unittest.mock import MagicMock
 
 from gen.stt.python.v1 import stt_pb2
@@ -16,13 +17,14 @@ from stt_server.errors import ErrorCode, status_for
 
 
 class FakeContext:
-    def __init__(self) -> None:
+    def __init__(self, metadata=None) -> None:
+        self._metadata = metadata or []
         self.trailing_metadata = None
         self.callbacks = []
         self.abort_calls = []
 
     def invocation_metadata(self):
-        return []
+        return list(self._metadata)
 
     def add_callback(self, callback):
         self.callbacks.append(callback)
@@ -39,8 +41,10 @@ class FakeContext:
 
 
 class FakeDecodeStream:
-    def __init__(self, summary):
+    def __init__(self, summary, pending=False, emit_delay=0.0):
         self._summary = summary
+        self._pending = pending
+        self._emit_delay = emit_delay
         self.session_id = None
         self.scheduled = []
 
@@ -60,9 +64,12 @@ class FakeDecodeStream:
         return 0, 0
 
     def has_pending_results(self):
-        return False
+        return self._pending
 
     def emit_ready(self, block):
+        if block and self._emit_delay > 0:
+            time.sleep(self._emit_delay)
+        self._pending = False
         return []
 
     def schedule_decode(self, *args, **kwargs):
@@ -222,3 +229,62 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
     args, kwargs = fake_stream.scheduled[0]
     assert args[3] is False  # is_final
     assert kwargs.get("count_vad") is False
+
+
+def test_stream_orchestrator_timeout_ignored_while_pending_decode(monkeypatch):
+    session_registry = SessionRegistry()
+    session_id = "session-timeout-pending"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=0.0,
+            token="",
+            token_required=False,
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    config = StreamOrchestratorConfig(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=0.02,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        storage_enabled=False,
+        storage_directory=".",
+        storage_max_bytes=None,
+        storage_max_files=None,
+        storage_max_age_days=None,
+    )
+
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream(
+        (0.0, 0.0, 0.0, 0.0, 0), pending=True, emit_delay=0.05
+    )
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+
+    reasons = []
+
+    def record_remove(state, reason=""):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_facade, "remove_session", record_remove)
+
+    context = FakeContext(metadata=[("session-id", session_id)])
+    results = list(orchestrator.run(iter([]), context))  # type: ignore[arg-type]
+
+    assert results == []
+    assert reasons and reasons[0] != "timeout"
