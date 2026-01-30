@@ -233,6 +233,73 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
     assert kwargs.get("count_vad") is False
 
 
+def test_stream_orchestrator_buffer_limit_uses_window_bytes(monkeypatch):
+    session_registry = SessionRegistry()
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    config = StreamOrchestratorConfig(
+        vad_threshold=1.0,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        max_buffer_sec=1.0,
+        buffer_overlap_sec=0.5,
+        storage_enabled=False,
+        storage_directory=".",
+        storage_max_bytes=None,
+        storage_max_files=None,
+        storage_max_age_days=None,
+    )
+
+    session_id = "session-buffer-window"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=1.0,
+            token="",
+            token_required=False,
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream((0.0, 0.0, 0.0, 0.0, 0))
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+
+    sample_rate = 16000
+    one_sec_pcm16 = b"\x00\x00" * sample_rate
+    chunks = [
+        stt_pb2.AudioChunk(
+            pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id
+        ),
+        stt_pb2.AudioChunk(
+            pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id
+        ),
+    ]
+
+    context = FakeContext()
+    results = list(orchestrator.run(iter(chunks), context))  # type: ignore[arg-type]
+
+    assert results == []
+    assert len(fake_stream.scheduled) == 1
+    args, kwargs = fake_stream.scheduled[0]
+    assert len(args[0]) == sample_rate * 2  # 1 second PCM16 window
+    assert args[3] is False  # is_final
+    assert kwargs.get("count_vad") is False
+
+
 def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
     session_registry = SessionRegistry()
     session_facade = SessionFacade(session_registry)
@@ -293,6 +360,81 @@ def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
     code, details, _abort_thread = context.abort_calls[0]
     assert code == status_for(ErrorCode.AUDIO_CHUNK_TOO_LARGE)
     assert "ERR1007" in details
+
+
+def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
+    session_registry = SessionRegistry()
+    session_id = "session-decode-inflight"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=1.0,
+            token="",
+            token_required=False,
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    config = StreamOrchestratorConfig(
+        vad_threshold=1.0,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=0.02,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        storage_enabled=False,
+        storage_directory=".",
+        storage_max_bytes=None,
+        storage_max_files=None,
+        storage_max_age_days=None,
+    )
+
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+
+    class PendingDecodeStream(FakeDecodeStream):
+        def schedule_decode(self, *args, **kwargs):
+            self._pending = True
+            return super().schedule_decode(*args, **kwargs)
+
+    fake_stream = PendingDecodeStream((0.0, 0.0, 0.0, 0.0, 0), emit_delay=0.05)
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+
+    reasons = []
+
+    def record_remove(state, reason=""):
+        reasons.append(reason)
+
+    monkeypatch.setattr(session_facade, "remove_session", record_remove)
+
+    sample_rate = 16000
+    one_sec_pcm16 = b"\x00\x00" * sample_rate
+    chunks = [
+        stt_pb2.AudioChunk(
+            pcm16=one_sec_pcm16,
+            sample_rate=sample_rate,
+            session_id=session_id,
+            is_final=True,
+        )
+    ]
+
+    context = FakeContext()
+    results = list(orchestrator.run(iter(chunks), context))  # type: ignore[arg-type]
+
+    assert results == []
+    assert not context.abort_calls
+    assert reasons and reasons[0] != "timeout"
 
 
 def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
@@ -439,6 +581,7 @@ def test_stream_orchestrator_aborts_when_global_pending_limit_reached(
         assert "ERR2001" in details
     finally:
         orchestrator.decode_scheduler.release_pending_slot()
+
 
 def test_stream_orchestrator_timeout_ignored_while_pending_decode(monkeypatch):
     session_registry = SessionRegistry()
