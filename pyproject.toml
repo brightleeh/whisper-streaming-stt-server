@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "whisper-streaming-stt-server"
+version = "0.1.0"
+description = "Streaming speech-to-text server and clients"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+dependencies = [
+  "faster-whisper",
+  "grpcio",
+  "numpy",
+  "soundfile",
+  "torchaudio",
+  "pyyaml",
+  "sounddevice",
+  "fastapi",
+  "uvicorn",
+  "torch",
+  "silero-vad",
+  "requests",
+  "psutil",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "grpcio-tools", "mypy-protobuf"]
+
+[project.scripts]
+stt-server = "stt_server.main:main"
+stt-client-file = "stt_client.realtime.file:main"
+stt-client-mic = "stt_client.realtime.mic:main"
+stt-client-batch = "stt_client.batch.file:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["stt_server*", "stt_client*", "gen*"]
+namespaces = true
