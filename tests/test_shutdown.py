@@ -1,6 +1,8 @@
 import threading
 from unittest.mock import MagicMock
 
+import pytest
+
 from stt_server.config import ServerConfig
 
 
@@ -147,3 +149,69 @@ def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
     assert not thread.is_alive()
     assert "exc" in error_holder
     assert signal_calls == []
+
+
+def test_serve_passes_grpc_message_limits(monkeypatch):
+    captured = {}
+
+    def fake_signal(*_args, **_kwargs):
+        return None
+
+    from stt_server import main as main_module
+
+    monkeypatch.setattr(main_module.signal, "signal", fake_signal)
+
+    fake_executor = MagicMock()
+    monkeypatch.setattr(
+        main_module.futures, "ThreadPoolExecutor", lambda max_workers: fake_executor
+    )
+
+    class FakeFuture:
+        def wait(self):
+            return None
+
+    class FakeServer:
+        def add_insecure_port(self, *args, **kwargs):
+            return 0
+
+        def start(self):
+            return None
+
+        def wait_for_termination(self, timeout=None):
+            raise RuntimeError("stop")
+
+        def stop(self, grace):
+            return FakeFuture()
+
+    def fake_server(executor, options=None):
+        captured["options"] = options
+        return FakeServer()
+
+    monkeypatch.setattr(main_module.grpc, "server", fake_server)
+
+    fake_http_handle = MagicMock()
+    monkeypatch.setattr(
+        main_module, "start_http_server", lambda **kwargs: fake_http_handle
+    )
+
+    fake_runtime = MagicMock()
+    fake_servicer = MagicMock()
+    fake_servicer.runtime = fake_runtime
+    monkeypatch.setattr(main_module, "STTGrpcServicer", lambda config: fake_servicer)
+    monkeypatch.setattr(
+        main_module.stt_pb2_grpc,
+        "add_STTBackendServicer_to_server",
+        lambda servicer, server: None,
+    )
+
+    config = ServerConfig()
+    config.grpc_max_receive_message_bytes = 123
+    config.grpc_max_send_message_bytes = 456
+
+    with pytest.raises(RuntimeError, match="stop"):
+        main_module.serve(config)
+
+    assert captured["options"] == [
+        ("grpc.max_receive_message_length", 123),
+        ("grpc.max_send_message_length", 456),
+    ]
