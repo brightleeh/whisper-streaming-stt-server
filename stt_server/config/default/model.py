@@ -10,6 +10,7 @@ DEFAULT_TASK = "transcribe"
 DEFAULT_LANGUAGE = "ko"
 DEFAULT_LANGUAGE_FIX = False
 DEFAULT_MODEL_POOL_SIZE = 1
+DEFAULT_DECODE_PROFILE_NAME = "realtime"
 
 DEFAULT_DECODE_PROFILE: Dict[str, Any] = {
     "beam_size": 1,
@@ -26,7 +27,40 @@ DEFAULT_DECODE_PROFILE: Dict[str, Any] = {
 
 def default_decode_profiles() -> Dict[str, Dict[str, Any]]:
     """Return the default decode profile map."""
-    return {"realtime": DEFAULT_DECODE_PROFILE.copy()}
+    return {DEFAULT_DECODE_PROFILE_NAME: DEFAULT_DECODE_PROFILE.copy()}
+
+
+ALLOWED_DECODE_OPTION_KEYS = {
+    "append_punctuations",
+    "beam_size",
+    "best_of",
+    "chunk_length",
+    "clip_timestamps",
+    "compression_ratio_threshold",
+    "condition_on_previous_text",
+    "hotwords",
+    "initial_prompt",
+    "language",
+    "length_penalty",
+    "log_prob_threshold",
+    "max_initial_timestamp",
+    "no_repeat_ngram_size",
+    "no_speech_threshold",
+    "patience",
+    "prefix",
+    "prepend_punctuations",
+    "prompt_reset_on_temperature",
+    "repetition_penalty",
+    "suppress_blank",
+    "suppress_tokens",
+    "task",
+    "temperature",
+    "temperature_increment_on_fallback",
+    "vad_filter",
+    "vad_parameters",
+    "without_timestamps",
+    "word_timestamps",
+}
 
 
 MODEL_SECTION_MAP = {
@@ -50,7 +84,9 @@ __all__ = [
     "DEFAULT_LANGUAGE",
     "DEFAULT_LANGUAGE_FIX",
     "DEFAULT_MODEL_POOL_SIZE",
+    "DEFAULT_DECODE_PROFILE_NAME",
     "DEFAULT_DECODE_PROFILE",
+    "ALLOWED_DECODE_OPTION_KEYS",
     "default_decode_profiles",
     "MODEL_SECTION_MAP",
 ]

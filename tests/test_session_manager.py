@@ -96,6 +96,35 @@ def test_err1009_missing_api_key_when_required(
     )
 
 
+def test_err1010_invalid_decode_options(mock_session_registry, mock_servicer_context):
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+
+    supported_languages = MagicMock()
+    supported_languages.get_codes.return_value = None
+
+    handler = CreateSessionHandler(
+        session_registry=mock_session_registry,
+        model_registry=mock_model_registry,
+        decode_profiles={"default": {"bogus": True}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+    )
+
+    request = stt_pb2.SessionRequest(session_id="ok", vad_threshold_override=0.0)
+    with pytest.raises(grpc.RpcError):
+        handler.handle(request, mock_servicer_context)
+    mock_servicer_context.abort.assert_called_with(
+        grpc.StatusCode.INVALID_ARGUMENT,
+        "ERR1010 invalid decode option(s): bogus",
+    )
+
+
 def test_create_session_uses_override_threshold_even_when_zero(
     create_session_handler, mock_session_registry, mock_servicer_context
 ):

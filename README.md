@@ -355,6 +355,7 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 - `ERR1007` (INVALID_ARGUMENT): audio chunk exceeds maximum size
 - `ERR1008` (RESOURCE_EXHAUSTED): VAD capacity exhausted
 - `ERR1009` (UNAUTHENTICATED): API key required but missing
+- `ERR1010` (INVALID_ARGUMENT): invalid decode option(s)
 - `ERR2001` (INTERNAL): decode timeout waiting for pending tasks
 - `ERR2002` (INTERNAL): decode task failed
 - `ERR3001` (UNKNOWN): unexpected `CreateSession` error

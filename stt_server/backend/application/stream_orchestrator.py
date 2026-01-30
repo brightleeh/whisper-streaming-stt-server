@@ -831,12 +831,12 @@ class StreamOrchestrator:
             for result in self._drain_pending_results(state, context):
                 yield result
 
-        except Exception as e:
+        except Exception:
             # Handle errors occurring during timeout abort
             if state.timeout_event.is_set():
                 state.final_reason = "timeout"
             else:
-                raise e
+                raise
 
         finally:
             self._finalize_stream(state, context)

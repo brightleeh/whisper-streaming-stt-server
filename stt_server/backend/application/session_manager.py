@@ -13,6 +13,7 @@ from gen.stt.python.v1 import stt_pb2
 from stt_server.backend.application.model_registry import ModelRegistry
 from stt_server.backend.component.vad_gate import release_vad_slot, reserve_vad_slot
 from stt_server.backend.utils.profile_resolver import (
+    invalid_decode_options,
     profile_enum_from_name,
     profile_name_from_enum,
     resolve_decode_profile,
@@ -270,6 +271,11 @@ class CreateSessionHandler:
             options["task"] = session_task
         if language_code:
             options["language"] = language_code
+        invalid_options = invalid_decode_options(options)
+        if invalid_options:
+            detail = f"invalid decode option(s): {', '.join(sorted(invalid_options))}"
+            LOGGER.error(format_error(ErrorCode.DECODE_OPTION_INVALID, detail))
+            abort_with_error(context, ErrorCode.DECODE_OPTION_INVALID, detail)
 
         vad_silence = self._resolve_vad_silence(request.vad_silence, context)
         if request.HasField("vad_threshold_override"):

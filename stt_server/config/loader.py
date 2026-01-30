@@ -10,6 +10,7 @@ from stt_server.config.default import (
     DEFAULT_BUFFER_OVERLAP_SEC,
     DEFAULT_COMPUTE_TYPE,
     DEFAULT_DECODE_PROFILE,
+    DEFAULT_DECODE_PROFILE_NAME,
     DEFAULT_DECODE_QUEUE_TIMEOUT_SEC,
     DEFAULT_DECODE_TIMEOUT,
     DEFAULT_DEVICE,
@@ -63,7 +64,7 @@ class ServerConfig:
     decode_profiles: Dict[str, Dict[str, Any]] = field(
         default_factory=default_decode_profiles
     )
-    default_decode_profile: str = "realtime"
+    default_decode_profile: str = DEFAULT_DECODE_PROFILE_NAME
     model_pool_size: int = DEFAULT_MODEL_POOL_SIZE
     port: int = DEFAULT_PORT
     max_sessions: int = DEFAULT_MAX_SESSIONS

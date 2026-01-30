@@ -5,7 +5,10 @@ from __future__ import annotations
 from typing import Any, Dict, Final, Optional, Tuple
 
 from gen.stt.python.v1 import stt_pb2
-from stt_server.config.default.model import default_decode_profiles
+from stt_server.config.default.model import (
+    ALLOWED_DECODE_OPTION_KEYS,
+    default_decode_profiles,
+)
 from stt_server.config.languages import SupportedLanguages
 
 PROFILE_ENUM_TO_NAME: Final[dict[stt_pb2.DecodeProfile.ValueType, str]] = {
@@ -43,6 +46,10 @@ def resolve_decode_profile(
     if requested and requested not in profiles:
         return default_profile, profiles[default_profile].copy()
     return default_profile, profiles[default_profile].copy()
+
+
+def invalid_decode_options(options: Dict[str, Any]) -> list[str]:
+    return [key for key in options.keys() if key not in ALLOWED_DECODE_OPTION_KEYS]
 
 
 def resolve_language_code(
