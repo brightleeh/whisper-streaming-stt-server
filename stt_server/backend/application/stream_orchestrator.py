@@ -648,6 +648,49 @@ class StreamOrchestrator:
                 for result in emitted:
                     yield result
 
+    def _step_streaming_vad(
+        self,
+        state: _StreamState,
+        vad_update: Any,
+        context: grpc.ServicerContext,
+    ) -> Iterator[stt_pb2.STTResult]:
+        if vad_update.triggered:
+            for result in self._handle_vad_trigger(state, vad_update, context):
+                yield result
+            return
+        self._maybe_schedule_periodic_partial(state, vad_update, context)
+
+    def _step_streaming_buffer(
+        self,
+        state: _StreamState,
+        chunk: stt_pb2.AudioChunk,
+        context: grpc.ServicerContext,
+    ) -> bool:
+        if chunk.is_final:
+            return True
+        if state.disconnect_event.is_set() or state.timeout_event.is_set():
+            LOGGER.info("Skipping buffer management due to shutdown signal.")
+            state.final_reason = (
+                "client_disconnect" if state.disconnect_event.is_set() else "timeout"
+            )
+            state.client_disconnected = state.disconnect_event.is_set()
+            state.stop_stream = True
+            return False
+        self._enforce_buffer_limit(state, context)
+        return not state.stop_stream
+
+    def _step_streaming_emit(
+        self,
+        state: _StreamState,
+        chunk: stt_pb2.AudioChunk,
+        context: grpc.ServicerContext,
+    ) -> Iterator[stt_pb2.STTResult]:
+        for result in self._emit_with_activity(state, False):
+            yield result
+        if chunk.is_final:
+            for result in self._handle_final_chunk(state, context):
+                yield result
+
     def _step_streaming(
         self,
         state: _StreamState,
@@ -757,33 +800,16 @@ class StreamOrchestrator:
         )
         vad_update = state.vad_state.update(chunk.pcm16, state.sample_rate)
 
-        if vad_update.triggered:
-            for result in self._handle_vad_trigger(state, vad_update, context):
-                yield result
-            if state.stop_stream:
-                return
-        else:
-            self._maybe_schedule_periodic_partial(state, vad_update, context)
-
-        if not chunk.is_final:
-            if state.disconnect_event.is_set() or state.timeout_event.is_set():
-                LOGGER.info("Skipping buffer management due to shutdown signal.")
-                state.final_reason = (
-                    "client_disconnect"
-                    if state.disconnect_event.is_set()
-                    else "timeout"
-                )
-                state.client_disconnected = state.disconnect_event.is_set()
-                state.stop_stream = True
-                return
-            self._enforce_buffer_limit(state, context)
-
-        for result in self._emit_with_activity(state, False):
+        for result in self._step_streaming_vad(state, vad_update, context):
             yield result
+        if state.stop_stream:
+            return
 
-        if chunk.is_final:
-            for result in self._handle_final_chunk(state, context):
-                yield result
+        if not self._step_streaming_buffer(state, chunk, context):
+            return
+
+        for result in self._step_streaming_emit(state, chunk, context):
+            yield result
 
     def _handle_chunk(
         self,
