@@ -34,6 +34,8 @@ from stt_server.config.default import (
     DEFAULT_METRICS_PORT,
     DEFAULT_MODEL_NAME,
     DEFAULT_MODEL_POOL_SIZE,
+    DEFAULT_PARTIAL_DECODE_INTERVAL_SEC,
+    DEFAULT_PARTIAL_DECODE_WINDOW_SEC,
     DEFAULT_PERSIST_AUDIO,
     DEFAULT_PORT,
     DEFAULT_SAMPLE_RATE,
@@ -83,6 +85,8 @@ class ServerConfig:
     max_buffer_sec: Optional[float] = DEFAULT_MAX_BUFFER_SEC
     max_buffer_bytes: Optional[int] = None
     max_chunk_ms: Optional[int] = DEFAULT_MAX_CHUNK_MS
+    partial_decode_interval_sec: Optional[float] = DEFAULT_PARTIAL_DECODE_INTERVAL_SEC
+    partial_decode_window_sec: Optional[float] = DEFAULT_PARTIAL_DECODE_WINDOW_SEC
     max_pending_decodes_per_stream: int = DEFAULT_MAX_PENDING_DECODES_PER_STREAM
     max_pending_decodes_global: int = DEFAULT_MAX_PENDING_DECODES_GLOBAL
     max_total_buffer_bytes: Optional[int] = DEFAULT_MAX_TOTAL_BUFFER_BYTES

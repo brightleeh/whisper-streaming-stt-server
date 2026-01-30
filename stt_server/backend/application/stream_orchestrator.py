@@ -61,9 +61,11 @@ class StreamOrchestratorConfig:
     vad_model_pool_growth_factor: float = 1.5
 
     # Buffer control settings
-    max_buffer_sec: Optional[float] = 60.0
+    max_buffer_sec: Optional[float] = 20.0
     max_buffer_bytes: Optional[int] = None
     max_chunk_ms: Optional[int] = 2000
+    partial_decode_interval_sec: Optional[float] = 1.5
+    partial_decode_window_sec: Optional[float] = 10.0
     max_pending_decodes_per_stream: int = 8
     max_pending_decodes_global: int = 64
     max_total_buffer_bytes: Optional[int] = 64 * 1024 * 1024
@@ -108,6 +110,7 @@ class _StreamState:
     buffer_start_time: Optional[float] = None
     client_disconnected: bool = False
     buffer_has_new_audio: bool = False
+    last_partial_decode_sec: Optional[float] = None
     buffer: bytearray = field(default_factory=bytearray)
     sample_rate: Optional[int] = None
     last_activity: float = field(default_factory=time.monotonic)
@@ -301,11 +304,12 @@ class StreamOrchestrator:
             return incoming_keep
 
     def _clear_buffer(self, state: _StreamState) -> None:
-        if state.buffer and state.buffer_has_new_audio:
+        if state.buffer:
             self._update_buffer_total(-len(state.buffer))
             state.buffer = bytearray()
         state.buffer_start_time = None
         state.buffer_has_new_audio = False
+        state.last_partial_decode_sec = None
 
     def _acquire_decode_slot(
         self,
@@ -708,6 +712,8 @@ class StreamOrchestrator:
                 yield result
             if state.stop_stream:
                 return
+        else:
+            self._maybe_schedule_periodic_partial(state, vad_update, context)
 
         if not chunk.is_final:
             if state.disconnect_event.is_set() or state.timeout_event.is_set():
@@ -882,6 +888,68 @@ class StreamOrchestrator:
                 )
         return limit_bytes
 
+    def _partial_decode_window_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
+        window_sec = self._config.partial_decode_window_sec
+        if window_sec is None or window_sec <= 0:
+            return None
+        rate = sample_rate or self._config.default_sample_rate
+        if rate <= 0:
+            return None
+        return max(1, int(window_sec * rate * 2))
+
+    def _maybe_schedule_periodic_partial(
+        self,
+        state: _StreamState,
+        vad_update: Any,
+        context: grpc.ServicerContext,
+    ) -> None:
+        interval = self._config.partial_decode_interval_sec
+        if interval is None or interval <= 0:
+            return
+        if not state.session_state or not state.decode_stream:
+            return
+        if state.session_state.session_info.vad_mode != stt_pb2.VAD_CONTINUE:
+            return
+        if not vad_update.speech_active or not state.buffer:
+            return
+        limit_bytes = self._buffer_limit_bytes(state.sample_rate)
+        if limit_bytes is not None and len(state.buffer) > limit_bytes:
+            return
+        if state.disconnect_event.is_set() or state.timeout_event.is_set():
+            return
+        if not buffer_is_speech(state.buffer, self._config.speech_rms_threshold):
+            return
+        current_sec = state.audio_received_sec
+        if state.last_partial_decode_sec is None:
+            if current_sec - state.buffer_start_sec < interval:
+                return
+        elif current_sec - state.last_partial_decode_sec < interval:
+            return
+        if not self._ensure_decode_capacity(
+            state.decode_stream, False, state.session_state
+        ):
+            return
+        rate = state.sample_rate or self._config.default_sample_rate
+        window_bytes = self._partial_decode_window_bytes(state.sample_rate)
+        buffer_bytes = state.buffer
+        offset_sec = state.buffer_start_sec
+        if window_bytes is not None and len(buffer_bytes) > window_bytes:
+            drop = len(buffer_bytes) - window_bytes
+            offset_sec += audio.chunk_duration_seconds(drop, rate)
+            pcm = bytes(buffer_bytes[-window_bytes:])
+        else:
+            pcm = bytes(buffer_bytes)
+        if self._schedule_decode(
+            state,
+            pcm,
+            is_final=False,
+            offset_sec=offset_sec,
+            count_vad=False,
+            buffer_started_at=state.buffer_start_time,
+            context=context,
+        ):
+            state.last_partial_decode_sec = current_sec
+
     def _max_chunk_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
         max_ms = self._config.max_chunk_ms
         if max_ms is None or max_ms <= 0:
@@ -938,6 +1006,7 @@ class StreamOrchestrator:
             ):
                 self._clear_buffer(state)
                 return
+            state.last_partial_decode_sec = state.audio_received_sec
             overlap_sec = max(0.0, self._config.buffer_overlap_sec)
             overlap_bytes = int(overlap_sec * rate * 2)
             retain = min(overlap_bytes, len(buffer))

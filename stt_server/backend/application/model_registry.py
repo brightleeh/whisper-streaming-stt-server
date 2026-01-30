@@ -168,9 +168,19 @@ class ModelRegistry:
                     return self.get_worker(fallback_id)
                 return None
 
-            idx = self._rr_counters[model_id]
-            worker = pool[idx]
-            self._rr_counters[model_id] = (idx + 1) % len(pool)
+            start_idx = self._rr_counters[model_id]
+            best_idx = start_idx
+            best_pending = None
+            for offset in range(len(pool)):
+                idx = (start_idx + offset) % len(pool)
+                pending = pool[idx].pending_tasks()
+                if best_pending is None or pending < best_pending:
+                    best_pending = pending
+                    best_idx = idx
+                    if pending == 0:
+                        break
+            worker = pool[best_idx]
+            self._rr_counters[model_id] = (best_idx + 1) % len(pool)
             return worker
 
     def unload_model(

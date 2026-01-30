@@ -1,7 +1,11 @@
+from typing import List, cast
+
 import pytest
 
 from stt_server.backend.application import model_registry
 from stt_server.backend.application.model_registry import ModelRegistry
+from stt_server.config.default.model import DEFAULT_MODEL_ID
+from stt_server.model.worker import ModelWorker
 
 
 def test_unload_model_closes_workers(monkeypatch):
@@ -52,3 +56,22 @@ def test_load_model_rejects_non_positive_pool_size():
     registry = ModelRegistry()
     with pytest.raises(ValueError):
         registry.load_model("model-a", {"pool_size": 0})
+
+
+def test_get_worker_prefers_lowest_pending():
+    class FakeWorker:
+        def __init__(self, pending: int):
+            self._pending = pending
+
+        def pending_tasks(self) -> int:
+            return self._pending
+
+    registry = ModelRegistry()
+    workers = [FakeWorker(2), FakeWorker(0), FakeWorker(1)]
+    registry._pools[DEFAULT_MODEL_ID] = cast(List[ModelWorker], workers)
+    registry._rr_counters[DEFAULT_MODEL_ID] = 0
+
+    worker = registry.get_worker(DEFAULT_MODEL_ID)
+
+    assert worker is workers[1]
+    assert registry._rr_counters[DEFAULT_MODEL_ID] == 2

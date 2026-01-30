@@ -132,6 +132,10 @@ class ModelWorker:
                 lambda: self._active_tasks == 0, timeout=timeout_sec
             )
 
+    def pending_tasks(self) -> int:
+        with self._active_cond:
+            return self._active_tasks
+
     def close(self, timeout_sec: Optional[float] = None) -> None:
         if timeout_sec is None:
             self.executor.shutdown(wait=True)

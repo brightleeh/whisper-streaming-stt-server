@@ -5,9 +5,11 @@ server:
   decode_timeout_sec: 30 # Seconds to wait for decode tasks when draining
   log_metrics: false # Emit decode metrics logs
   session_timeout_sec: 60 # Seconds of inactivity before aborting a session
-  max_buffer_sec: 60 # Max buffered audio seconds before partial decode/trim (null disables)
+  max_buffer_sec: 20 # Max buffered audio seconds before partial decode/trim (null disables)
   max_buffer_bytes: null # Max buffered audio bytes before partial decode/trim (null disables)
   max_chunk_ms: 2000 # Max single chunk duration in milliseconds (null disables)
+  partial_decode_interval_sec: 1.5 # Partial decode interval during speech (null disables)
+  partial_decode_window_sec: 10.0 # Window size for partial decode audio (seconds)
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
   max_pending_decodes_global: 64 # Global max queued decodes before backpressure/drop
   max_total_buffer_bytes: 67108864 # Global buffered audio cap (bytes)

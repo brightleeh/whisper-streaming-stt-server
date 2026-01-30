@@ -15,8 +15,10 @@ DEFAULT_VAD_MODEL_POOL_GROWTH_FACTOR = 1.5
 DEFAULT_EXPOSE_API_KEY_METRICS = False
 DEFAULT_SPEECH_RMS_THRESHOLD = 0.02
 DEFAULT_SAMPLE_RATE = 16000
-DEFAULT_MAX_BUFFER_SEC = 60.0
+DEFAULT_MAX_BUFFER_SEC = 20.0
 DEFAULT_MAX_CHUNK_MS = 2000
+DEFAULT_PARTIAL_DECODE_INTERVAL_SEC = 1.5
+DEFAULT_PARTIAL_DECODE_WINDOW_SEC = 10.0
 DEFAULT_MAX_PENDING_DECODES_PER_STREAM = 8
 DEFAULT_MAX_PENDING_DECODES_GLOBAL = 64
 DEFAULT_MAX_TOTAL_BUFFER_BYTES = 64 * 1024 * 1024
@@ -48,6 +50,8 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_total_buffer_bytes": "max_total_buffer_bytes",
         "decode_queue_timeout_sec": "decode_queue_timeout_sec",
         "buffer_overlap_sec": "buffer_overlap_sec",
+        "partial_decode_interval_sec": "partial_decode_interval_sec",
+        "partial_decode_window_sec": "partial_decode_window_sec",
         "grpc_max_receive_message_bytes": "grpc_max_receive_message_bytes",
         "grpc_max_send_message_bytes": "grpc_max_send_message_bytes",
         "log_metrics": "log_metrics",
@@ -103,6 +107,8 @@ __all__ = [
     "DEFAULT_SAMPLE_RATE",
     "DEFAULT_MAX_BUFFER_SEC",
     "DEFAULT_MAX_CHUNK_MS",
+    "DEFAULT_PARTIAL_DECODE_INTERVAL_SEC",
+    "DEFAULT_PARTIAL_DECODE_WINDOW_SEC",
     "DEFAULT_MAX_PENDING_DECODES_GLOBAL",
     "DEFAULT_MAX_TOTAL_BUFFER_BYTES",
     "DEFAULT_DECODE_QUEUE_TIMEOUT_SEC",
