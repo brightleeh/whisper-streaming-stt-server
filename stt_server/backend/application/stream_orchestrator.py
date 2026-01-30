@@ -120,6 +120,86 @@ class _StreamState:
     stop_stream: bool = False
 
 
+class _AudioBufferManager:
+    def __init__(self, config: StreamOrchestratorConfig) -> None:
+        self._config = config
+        self._lock = threading.Lock()
+        self._total_bytes = 0
+
+    def update_total(self, delta: int) -> None:
+        if delta == 0:
+            return
+        with self._lock:
+            self._total_bytes = max(0, self._total_bytes + delta)
+
+    def apply_global_limit(self, state: _StreamState, incoming_len: int) -> int:
+        if incoming_len <= 0:
+            return 0
+        limit = self._config.max_total_buffer_bytes
+        if not limit or limit <= 0:
+            self.update_total(incoming_len)
+            return incoming_len
+
+        with self._lock:
+            total = self._total_bytes
+            overflow = total + incoming_len - limit
+            if overflow <= 0:
+                self._total_bytes = total + incoming_len
+                return incoming_len
+
+            drop_from_buffer = min(overflow, len(state.buffer))
+            if drop_from_buffer > 0:
+                del state.buffer[:drop_from_buffer]
+                self._total_bytes = max(0, self._total_bytes - drop_from_buffer)
+                rate = state.sample_rate or self._config.default_sample_rate
+                dropped_sec = audio.chunk_duration_seconds(drop_from_buffer, rate)
+                state.buffer_start_sec += dropped_sec
+                if state.buffer_start_time is not None:
+                    state.buffer_start_time += dropped_sec
+                overflow -= drop_from_buffer
+
+            if overflow > 0:
+                LOGGER.warning(
+                    "Global buffer limit reached; dropping %d bytes of incoming audio",
+                    overflow,
+                )
+            incoming_keep = max(0, incoming_len - overflow)
+            self._total_bytes = max(0, self._total_bytes + incoming_keep)
+            return incoming_keep
+
+    def clear(self, state: _StreamState) -> None:
+        if state.buffer:
+            self.update_total(-len(state.buffer))
+            state.buffer = bytearray()
+        state.buffer_start_time = None
+        state.buffer_has_new_audio = False
+        state.last_partial_decode_sec = None
+
+    def buffer_limit_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
+        limit_bytes: Optional[int] = None
+        max_bytes = self._config.max_buffer_bytes
+        if max_bytes is not None and max_bytes > 0:
+            limit_bytes = int(max_bytes)
+        max_sec = self._config.max_buffer_sec
+        if max_sec is not None and max_sec > 0:
+            rate = sample_rate or self._config.default_sample_rate
+            sec_limit = int(max_sec * rate * 2)
+            if sec_limit > 0:
+                limit_bytes = (
+                    sec_limit if limit_bytes is None else min(limit_bytes, sec_limit)
+                )
+        return limit_bytes
+
+    def partial_decode_window_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
+        window_sec = self._config.partial_decode_window_sec
+        if window_sec is None or window_sec <= 0:
+            return None
+        rate = sample_rate or self._config.default_sample_rate
+        if rate <= 0:
+            return None
+        return max(1, int(window_sec * rate * 2))
+
+
 class StreamOrchestrator:
     """Executes the streaming recognition loop for the gRPC servicer."""
 
@@ -136,8 +216,7 @@ class StreamOrchestrator:
         self._hooks = hooks or StreamOrchestratorHooks()
         self._decode_scheduler = self._create_decode_scheduler(config)
         self._audio_storage: Optional[AudioStorageManager] = None
-        self._buffer_bytes_lock = threading.Lock()
-        self._buffer_bytes_total = 0
+        self._buffer_manager = _AudioBufferManager(config)
         configure_vad_model_pool(
             config.vad_model_pool_size,
             config.vad_model_prewarm,
@@ -261,55 +340,13 @@ class StreamOrchestrator:
         state.last_activity = time.monotonic()
 
     def _update_buffer_total(self, delta: int) -> None:
-        if delta == 0:
-            return
-        with self._buffer_bytes_lock:
-            self._buffer_bytes_total = max(0, self._buffer_bytes_total + delta)
+        self._buffer_manager.update_total(delta)
 
     def _apply_global_buffer_limit(self, state: _StreamState, incoming_len: int) -> int:
-        if incoming_len <= 0:
-            return 0
-        limit = self._config.max_total_buffer_bytes
-        if not limit or limit <= 0:
-            self._update_buffer_total(incoming_len)
-            return incoming_len
-
-        with self._buffer_bytes_lock:
-            total = self._buffer_bytes_total
-            overflow = total + incoming_len - limit
-            if overflow <= 0:
-                self._buffer_bytes_total = total + incoming_len
-                return incoming_len
-
-            drop_from_buffer = min(overflow, len(state.buffer))
-            if drop_from_buffer > 0:
-                del state.buffer[:drop_from_buffer]
-                self._buffer_bytes_total = max(
-                    0, self._buffer_bytes_total - drop_from_buffer
-                )
-                rate = state.sample_rate or self._config.default_sample_rate
-                dropped_sec = audio.chunk_duration_seconds(drop_from_buffer, rate)
-                state.buffer_start_sec += dropped_sec
-                if state.buffer_start_time is not None:
-                    state.buffer_start_time += dropped_sec
-                overflow -= drop_from_buffer
-
-            if overflow > 0:
-                LOGGER.warning(
-                    "Global buffer limit reached; dropping %d bytes of incoming audio",
-                    overflow,
-                )
-            incoming_keep = max(0, incoming_len - overflow)
-            self._buffer_bytes_total = max(0, self._buffer_bytes_total + incoming_keep)
-            return incoming_keep
+        return self._buffer_manager.apply_global_limit(state, incoming_len)
 
     def _clear_buffer(self, state: _StreamState) -> None:
-        if state.buffer:
-            self._update_buffer_total(-len(state.buffer))
-            state.buffer = bytearray()
-        state.buffer_start_time = None
-        state.buffer_has_new_audio = False
-        state.last_partial_decode_sec = None
+        self._buffer_manager.clear(state)
 
     def _acquire_decode_slot(
         self,
@@ -874,28 +911,10 @@ class StreamOrchestrator:
         return recorder
 
     def _buffer_limit_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
-        limit_bytes: Optional[int] = None
-        max_bytes = self._config.max_buffer_bytes
-        if max_bytes is not None and max_bytes > 0:
-            limit_bytes = int(max_bytes)
-        max_sec = self._config.max_buffer_sec
-        if max_sec is not None and max_sec > 0:
-            rate = sample_rate or self._config.default_sample_rate
-            sec_limit = int(max_sec * rate * 2)
-            if sec_limit > 0:
-                limit_bytes = (
-                    sec_limit if limit_bytes is None else min(limit_bytes, sec_limit)
-                )
-        return limit_bytes
+        return self._buffer_manager.buffer_limit_bytes(sample_rate)
 
     def _partial_decode_window_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
-        window_sec = self._config.partial_decode_window_sec
-        if window_sec is None or window_sec <= 0:
-            return None
-        rate = sample_rate or self._config.default_sample_rate
-        if rate <= 0:
-            return None
-        return max(1, int(window_sec * rate * 2))
+        return self._buffer_manager.partial_decode_window_bytes(sample_rate)
 
     def _maybe_schedule_periodic_partial(
         self,
