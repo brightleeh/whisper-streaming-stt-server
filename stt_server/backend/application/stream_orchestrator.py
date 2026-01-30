@@ -498,6 +498,10 @@ class StreamOrchestrator:
             state.decode_stream.set_session_id(state.session_state.session_id)
             state.decode_stream.set_model_id(state.session_state.session_info.model_id)
 
+    def _step_init(self, state: _StreamState) -> None:
+        if state.phase == StreamPhase.INIT:
+            state.phase = StreamPhase.STREAMING
+
     def _handle_vad_trigger(
         self,
         state: _StreamState,
@@ -789,7 +793,7 @@ class StreamOrchestrator:
     ) -> Iterator[stt_pb2.STTResult]:
         match state.phase:
             case StreamPhase.INIT:
-                state.phase = StreamPhase.STREAMING
+                self._step_init(state)
             case StreamPhase.STREAMING:
                 pass
             case StreamPhase.DRAINING | StreamPhase.DONE:
@@ -798,6 +802,19 @@ class StreamOrchestrator:
             yield result
         if state.stop_stream and state.phase == StreamPhase.STREAMING:
             state.phase = StreamPhase.DRAINING
+
+    def _step_drain(
+        self,
+        state: _StreamState,
+        context: grpc.ServicerContext,
+    ) -> Iterator[stt_pb2.STTResult]:
+        if state.phase == StreamPhase.DONE:
+            return
+        if state.phase != StreamPhase.DRAINING:
+            state.phase = StreamPhase.DRAINING
+        for result in self._drain_pending_results(state, context):
+            yield result
+        state.phase = StreamPhase.DONE
 
     def _finalize_stream(
         self, state: _StreamState, context: grpc.ServicerContext
@@ -886,19 +903,15 @@ class StreamOrchestrator:
 
         try:
             self._bootstrap_stream(state, metadata, context)
-            state.phase = StreamPhase.STREAMING
+            self._step_init(state)
             for chunk in request_iterator:
                 for result in self._handle_chunk(state, chunk, context):
                     yield result
                 if state.stop_stream:
-                    state.phase = StreamPhase.DRAINING
                     break
 
-            if state.phase == StreamPhase.STREAMING:
-                state.phase = StreamPhase.DRAINING
-            for result in self._drain_pending_results(state, context):
+            for result in self._step_drain(state, context):
                 yield result
-            state.phase = StreamPhase.DONE
 
         except Exception:
             # Handle errors occurring during timeout abort
