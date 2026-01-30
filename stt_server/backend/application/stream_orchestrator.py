@@ -3,6 +3,7 @@ from __future__ import annotations
 import threading
 import time
 from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Iterator, Optional
 
@@ -95,11 +96,19 @@ class StreamOrchestratorHooks:
     decode_hooks: DecodeSchedulerHooks = field(default_factory=DecodeSchedulerHooks)
 
 
+class StreamPhase(Enum):
+    INIT = "init"
+    STREAMING = "streaming"
+    DRAINING = "draining"
+    DONE = "done"
+
+
 @dataclass
 class _StreamState:
     session_state: Optional[SessionState] = None
     vad_state: Optional[VADGate] = None
     decode_stream: Optional[DecodeStream] = None
+    phase: StreamPhase = StreamPhase.INIT
     session_logged: bool = False
     final_reason: str = "stream_end"
     session_start: float = field(default_factory=time.monotonic)
@@ -635,7 +644,7 @@ class StreamOrchestrator:
                 for result in emitted:
                     yield result
 
-    def _handle_chunk(
+    def _step_streaming(
         self,
         state: _StreamState,
         chunk: stt_pb2.AudioChunk,
@@ -772,6 +781,24 @@ class StreamOrchestrator:
             for result in self._handle_final_chunk(state, context):
                 yield result
 
+    def _handle_chunk(
+        self,
+        state: _StreamState,
+        chunk: stt_pb2.AudioChunk,
+        context: grpc.ServicerContext,
+    ) -> Iterator[stt_pb2.STTResult]:
+        match state.phase:
+            case StreamPhase.INIT:
+                state.phase = StreamPhase.STREAMING
+            case StreamPhase.STREAMING:
+                pass
+            case StreamPhase.DRAINING | StreamPhase.DONE:
+                return
+        for result in self._step_streaming(state, chunk, context):
+            yield result
+        if state.stop_stream and state.phase == StreamPhase.STREAMING:
+            state.phase = StreamPhase.DRAINING
+
     def _finalize_stream(
         self, state: _StreamState, context: grpc.ServicerContext
     ) -> None:
@@ -859,14 +886,19 @@ class StreamOrchestrator:
 
         try:
             self._bootstrap_stream(state, metadata, context)
+            state.phase = StreamPhase.STREAMING
             for chunk in request_iterator:
                 for result in self._handle_chunk(state, chunk, context):
                     yield result
                 if state.stop_stream:
+                    state.phase = StreamPhase.DRAINING
                     break
 
+            if state.phase == StreamPhase.STREAMING:
+                state.phase = StreamPhase.DRAINING
             for result in self._drain_pending_results(state, context):
                 yield result
+            state.phase = StreamPhase.DONE
 
         except Exception:
             # Handle errors occurring during timeout abort
@@ -876,6 +908,7 @@ class StreamOrchestrator:
                 raise
 
         finally:
+            state.phase = StreamPhase.DONE
             self._finalize_stream(state, context)
 
     def _create_vad_state(self, state: SessionState) -> VADGate:
