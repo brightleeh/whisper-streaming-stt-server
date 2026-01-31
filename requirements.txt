@@ -2,6 +2,7 @@ faster-whisper
 grpcio
 grpcio-tools
 numpy
+onnxruntime
 soundfile
 torchaudio
 pyyaml
