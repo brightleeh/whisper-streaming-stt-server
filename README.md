@@ -52,6 +52,7 @@ python -m stt_server.main --log-metrics
 - `--model-config <path>` points to the model/decode YAML (default: `config/model.yaml`).
 - `--log-level` / `--log-file` override the logging section (console/file).
 - `--faster-whisper-log-level` overrides the `faster_whisper` logger level (default WARNING).
+- `--tls-cert-file` / `--tls-key-file` enable gRPC TLS with a server cert + key.
 - `--vad-silence` / `--vad-threshold` configure the VAD gate (silence duration +
   Silero VAD probability threshold, 0-1) that triggers final decoding.
 - `--speech-threshold` sets the minimum RMS required before buffering is treated
@@ -60,6 +61,14 @@ python -m stt_server.main --log-metrics
   during draining (<=0 waits indefinitely).
 - `--metrics-port` sets the FastAPI metrics/health server port (default 8000).
 - Sessions auto-disconnect after 60 seconds of silence; adjust `server.session_timeout_sec` in `config/server.yaml` (or set your own config file).
+
+If you want TLS on the server, pass cert/key paths:
+
+```bash
+python -m stt_server.main \
+  --tls-cert-file /path/to/cert.pem \
+  --tls-key-file /path/to/key.pem
+```
 
 3. In another terminal, run the sample **realtime file** client:
 
@@ -76,6 +85,7 @@ python -m stt_server.main --log-metrics
      override the server defaults per session.
    - `--attr key=value` (repeatable) attaches arbitrary attributes, and
      `--require-token` asks the server to issue/validate per-session tokens.
+   - Use `--tls` for system-trusted certs, or `--tls-ca-file /path/to/cert.pem` for self-signed.
 
 4. To stream live audio from a macOS microphone (requires microphone permission):
 
@@ -87,6 +97,7 @@ python -m stt_server.main --log-metrics
    - Per-session overrides: `--vad-silence` (seconds) and `--vad-threshold` (VAD probability) mirror the server flags.
    - Same `--language`, `--task`, `--decode-profile`, `--require-token`, and attributes semantics apply.
    - Optional flags: `--device` (CoreAudio name/index), `--sample-rate`, `--chunk-ms`.
+   - TLS: add `--tls` or `--tls-ca-file /path/to/cert.pem`.
 
 5. For batch-style processing (single large chunk, ideal for accuracy-oriented profiles):
 
@@ -97,6 +108,7 @@ python -m stt_server.main --log-metrics
    - Defaults to the `accurate` profile; override with `--decode-profile realtime`.
    - Accepts the same `--language`, `--task`, attributes, token, and `--vad-*` flags as the realtime clients.
    - Batch ignores `chunk_ms`/`realtime` fields in the config; it always sends a single chunk.
+   - TLS: add `--tls` or `--tls-ca-file /path/to/cert.pem`.
 
 ## Configuration
 
@@ -148,6 +160,11 @@ logging:
   level: "INFO"
   file: null
   faster_whisper_level: null # Optional override (default WARNING when unset)
+  log_transcripts: false # Log transcript text in decode logs (PII risk)
+
+tls:
+  cert_file: null # Path to TLS cert chain (enables gRPC TLS)
+  key_file: null # Path to TLS private key (enables gRPC TLS)
 
 metrics:
   expose_api_key_sessions: false # Include active_sessions_by_api in /metrics payload

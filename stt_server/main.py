@@ -73,7 +73,6 @@ def serve(config: ServerConfig) -> None:
         vad_model_prewarm=vad_prewarm,
         vad_model_pool_max_size=config.max_sessions,
         vad_model_pool_growth_factor=config.vad_model_pool_growth_factor,
-        speech_rms_threshold=config.speech_rms_threshold,
         session_timeout_sec=config.session_timeout_sec,
         sample_rate=config.sample_rate,
         decode_timeout_sec=config.decode_timeout_sec,
@@ -94,6 +93,7 @@ def serve(config: ServerConfig) -> None:
         health_min_success_ratio=config.health_min_success_ratio,
         log_transcripts=config.log_transcripts,
     )
+    streaming_cfg.speech_rms_threshold = config.speech_rms_threshold
     storage_cfg = StorageRuntimeConfig(
         enabled=config.persist_audio,
         directory=config.audio_storage_dir,
@@ -107,7 +107,28 @@ def serve(config: ServerConfig) -> None:
     )
     servicer = STTGrpcServicer(servicer_config)
     stt_pb2_grpc.add_STTBackendServicer_to_server(servicer, server)  # type: ignore[name-defined]
-    server.add_insecure_port(f"[::]:{config.port}")
+    if config.tls_cert_file or config.tls_key_file:
+        if not config.tls_cert_file or not config.tls_key_file:
+            raise ValueError(
+                "Both tls_cert_file and tls_key_file must be set to enable TLS."
+            )
+        cert_path = Path(config.tls_cert_file).expanduser()
+        key_path = Path(config.tls_key_file).expanduser()
+        if not cert_path.exists():
+            raise FileNotFoundError(f"TLS cert file not found: {cert_path}")
+        if not key_path.exists():
+            raise FileNotFoundError(f"TLS key file not found: {key_path}")
+        cert_chain = cert_path.read_bytes()
+        private_key = key_path.read_bytes()
+        credentials = grpc.ssl_server_credentials([(private_key, cert_chain)])
+        server.add_secure_port(f"[::]:{config.port}", credentials)
+        LOGGER.info("gRPC TLS enabled cert=%s key=%s", cert_path, key_path)
+    else:
+        LOGGER.warning(
+            "gRPC is running without TLS. Set tls.cert_file/tls.key_file or "
+            "--tls-cert-file/--tls-key-file to enable TLS."
+        )
+        server.add_insecure_port(f"[::]:{config.port}")
     http_handle = start_http_server(
         runtime=servicer.runtime,
         server_state=server_state,
@@ -282,6 +303,16 @@ def parse_args() -> argparse.Namespace:
         help="Override faster_whisper logger level (e.g. DEBUG, INFO, WARNING)",
     )
     parser.add_argument(
+        "--tls-cert-file",
+        default=None,
+        help="Path to TLS certificate chain for gRPC server",
+    )
+    parser.add_argument(
+        "--tls-key-file",
+        default=None,
+        help="Path to TLS private key for gRPC server",
+    )
+    parser.add_argument(
         "--vad-silence",
         type=float,
         default=None,
@@ -352,6 +383,10 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.log_file = args.log_file
     if args.faster_whisper_log_level is not None:
         config.faster_whisper_log_level = args.faster_whisper_log_level
+    if args.tls_cert_file is not None:
+        config.tls_cert_file = args.tls_cert_file
+    if args.tls_key_file is not None:
+        config.tls_key_file = args.tls_key_file
     if args.vad_silence is not None:
         config.vad_silence = args.vad_silence
     if args.vad_threshold is not None:

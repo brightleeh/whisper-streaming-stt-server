@@ -35,6 +35,10 @@ logging:
   faster_whisper_level: null # Optional: override faster_whisper logger level
   log_transcripts: false # Log transcript text in decode logs (PII risk)
 
+tls:
+  cert_file: null # Path to TLS cert chain (enables gRPC TLS)
+  key_file: null # Path to TLS private key (enables gRPC TLS)
+
 metrics:
   expose_api_key_sessions: false # Include active_sessions_by_api in /metrics payload
 

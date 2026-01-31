@@ -25,6 +25,8 @@ CONFIG_KEYS = {
     "metrics",
     "grpc_max_receive_message_bytes",
     "grpc_max_send_message_bytes",
+    "tls",
+    "tls_ca_file",
     "vad_mode",
     "require_token",
     "language",
@@ -66,6 +68,8 @@ def _create_channel(
     target: str,
     grpc_max_receive_message_bytes: Optional[int],
     grpc_max_send_message_bytes: Optional[int],
+    tls_enabled: bool,
+    tls_ca_file: Optional[str],
 ) -> grpc.Channel:
     """Create a gRPC channel with optional message size limits."""
     options = []
@@ -75,6 +79,17 @@ def _create_channel(
         )
     if grpc_max_send_message_bytes and grpc_max_send_message_bytes > 0:
         options.append(("grpc.max_send_message_length", grpc_max_send_message_bytes))
+    if tls_ca_file:
+        tls_enabled = True
+        cert_path = Path(tls_ca_file).expanduser()
+        if not cert_path.exists():
+            raise FileNotFoundError(f"TLS CA file not found: {cert_path}")
+        root_certificates = cert_path.read_bytes()
+    else:
+        root_certificates = None
+    if tls_enabled:
+        credentials = grpc.ssl_channel_credentials(root_certificates=root_certificates)
+        return grpc.secure_channel(target, credentials, options=options)
     if options:
         return grpc.insecure_channel(target, options=options)
     return grpc.insecure_channel(target)
@@ -173,6 +188,8 @@ def run(
     report_metrics: bool,
     grpc_max_receive_message_bytes: Optional[int],
     grpc_max_send_message_bytes: Optional[int],
+    tls_enabled: bool,
+    tls_ca_file: Optional[str],
     vad_mode: str,
     require_token: bool,
     language: str,
@@ -216,7 +233,11 @@ def run(
         sample_rate=sample_rate, chunk_ms=chunk_ms, device=input_device
     ).start()
     channel = _create_channel(
-        target, grpc_max_receive_message_bytes, grpc_max_send_message_bytes
+        target,
+        grpc_max_receive_message_bytes,
+        grpc_max_send_message_bytes,
+        tls_enabled,
+        tls_ca_file,
     )
     stub = stt_pb2_grpc.STTBackendStub(channel)
     session_id = str(int(time.time() * 1000))
@@ -411,6 +432,16 @@ def main() -> None:
         help="Max gRPC send message size in bytes (default: unset)",
     )
     parser.add_argument(
+        "--tls",
+        action="store_true",
+        help="Enable TLS for the gRPC channel (uses system trust store)",
+    )
+    parser.add_argument(
+        "--tls-ca-file",
+        default=None,
+        help="Path to CA certificate for TLS (self-signed certs)",
+    )
+    parser.add_argument(
         "--vad-mode",
         choices=("continue", "auto"),
         default="continue",
@@ -462,6 +493,8 @@ def main() -> None:
         report_metrics=args.metrics,
         grpc_max_receive_message_bytes=args.grpc_max_receive_message_bytes,
         grpc_max_send_message_bytes=args.grpc_max_send_message_bytes,
+        tls_enabled=args.tls,
+        tls_ca_file=args.tls_ca_file,
         vad_mode=args.vad_mode,
         require_token=args.require_token,
         language=args.language,

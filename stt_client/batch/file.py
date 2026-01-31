@@ -26,6 +26,8 @@ CONFIG_KEYS = {
     "metrics",
     "grpc_max_receive_message_bytes",
     "grpc_max_send_message_bytes",
+    "tls",
+    "tls_ca_file",
     "vad_silence",
     "vad_threshold",
     "require_token",
@@ -56,6 +58,8 @@ class ConnectionConfig:
     target: str
     grpc_max_receive_message_bytes: Optional[int]
     grpc_max_send_message_bytes: Optional[int]
+    tls_enabled: bool
+    tls_ca_file: Optional[str]
 
 
 @dataclass(frozen=True)
@@ -142,6 +146,8 @@ def _create_channel(
     target: str,
     grpc_max_receive_message_bytes: Optional[int],
     grpc_max_send_message_bytes: Optional[int],
+    tls_enabled: bool,
+    tls_ca_file: Optional[str],
 ) -> grpc.Channel:
     """Create a gRPC channel with optional message size limits."""
     options = []
@@ -151,6 +157,17 @@ def _create_channel(
         )
     if grpc_max_send_message_bytes and grpc_max_send_message_bytes > 0:
         options.append(("grpc.max_send_message_length", grpc_max_send_message_bytes))
+    if tls_ca_file:
+        tls_enabled = True
+        cert_path = Path(tls_ca_file).expanduser()
+        if not cert_path.exists():
+            raise FileNotFoundError(f"TLS CA file not found: {cert_path}")
+        root_certificates = cert_path.read_bytes()
+    else:
+        root_certificates = None
+    if tls_enabled:
+        credentials = grpc.ssl_channel_credentials(root_certificates=root_certificates)
+        return grpc.secure_channel(target, credentials, options=options)
     if options:
         return grpc.insecure_channel(target, options=options)
     return grpc.insecure_channel(target)
@@ -286,6 +303,8 @@ def run(config: RunConfig) -> None:
         config.connection.target,
         config.connection.grpc_max_receive_message_bytes,
         config.connection.grpc_max_send_message_bytes,
+        config.connection.tls_enabled,
+        config.connection.tls_ca_file,
     )
     metrics_ready = False
     audio_len = 0
@@ -461,6 +480,16 @@ def _build_arg_parser(config_values: Dict[str, Any]) -> argparse.ArgumentParser:
         help="Max gRPC send message size in bytes (default: unset)",
     )
     parser.add_argument(
+        "--tls",
+        action="store_true",
+        help="Enable TLS for the gRPC channel (uses system trust store)",
+    )
+    parser.add_argument(
+        "--tls-ca-file",
+        default=None,
+        help="Path to CA certificate for TLS (self-signed certs)",
+    )
+    parser.add_argument(
         "--attr",
         "--meta",
         dest="attributes",
@@ -524,6 +553,8 @@ def main() -> None:
                 target=args.server,
                 grpc_max_receive_message_bytes=args.grpc_max_receive_message_bytes,
                 grpc_max_send_message_bytes=args.grpc_max_send_message_bytes,
+                tls_enabled=args.tls,
+                tls_ca_file=args.tls_ca_file,
             ),
             session=SessionConfig(
                 attributes=attr_dict,

@@ -27,6 +27,8 @@ DEFAULT_DECODE_QUEUE_TIMEOUT_SEC = 1.0
 DEFAULT_BUFFER_OVERLAP_SEC = 0.5
 DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES = 8 * 1024 * 1024
 DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES = 4 * 1024 * 1024
+DEFAULT_TLS_CERT_FILE = None
+DEFAULT_TLS_KEY_FILE = None
 DEFAULT_HEALTH_WINDOW_SEC = 60.0
 DEFAULT_HEALTH_MIN_EVENTS = 5
 DEFAULT_HEALTH_MAX_TIMEOUT_RATIO = 0.5
@@ -77,6 +79,10 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "faster_whisper_level": "faster_whisper_log_level",
         "log_transcripts": "log_transcripts",
     },
+    "tls": {
+        "cert_file": "tls_cert_file",
+        "key_file": "tls_key_file",
+    },
     "storage": {
         "persist_audio": "persist_audio",
         "directory": "audio_storage_dir",
@@ -118,6 +124,8 @@ __all__ = [
     "DEFAULT_BUFFER_OVERLAP_SEC",
     "DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES",
     "DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES",
+    "DEFAULT_TLS_CERT_FILE",
+    "DEFAULT_TLS_KEY_FILE",
     "DEFAULT_MAX_PENDING_DECODES_PER_STREAM",
     "DEFAULT_HEALTH_WINDOW_SEC",
     "DEFAULT_HEALTH_MIN_EVENTS",
