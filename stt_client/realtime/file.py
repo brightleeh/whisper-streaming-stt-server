@@ -399,7 +399,7 @@ def main() -> None:
             config_parser.error(f"Config file not found: {config_path}")
         try:
             raw_config = load_yaml_config(config_path)
-        except Exception as exc:
+        except (OSError, ValueError, yaml.YAMLError) as exc:
             config_parser.error(f"Failed to load config file: {exc}")
         if "realtime" in raw_config and "no_realtime" not in raw_config:
             raw_config["no_realtime"] = not bool(raw_config["realtime"])

@@ -117,7 +117,7 @@ class MicrophoneStream:
                             file=sys.stderr,
                         )
                     self.queue.put(bytes(data))
-        except Exception as exc:  # PortAudio errors, etc.
+        except (sd.PortAudioError, OSError, RuntimeError) as exc:
             self.queue.put(exc)
         finally:
             self.queue.put(None)
@@ -356,7 +356,7 @@ def main() -> None:
             config_parser.error(f"Config file not found: {config_path}")
         try:
             raw_config = load_yaml_config(config_path)
-        except Exception as exc:
+        except (OSError, ValueError, yaml.YAMLError) as exc:
             config_parser.error(f"Failed to load config file: {exc}")
         config_values = {k: v for k, v in raw_config.items() if k in CONFIG_KEYS}
 
