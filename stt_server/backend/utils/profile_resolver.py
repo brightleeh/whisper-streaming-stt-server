@@ -26,6 +26,7 @@ TASK_NAME_TO_ENUM = {v: k for k, v in TASK_ENUM_TO_NAME.items()}
 def normalize_decode_profiles(
     raw_profiles: Optional[Dict[str, Dict[str, Any]]],
 ) -> Dict[str, Dict[str, Any]]:
+    """Normalize decode profiles and apply defaults when missing."""
     profiles: Dict[str, Dict[str, Any]] = {}
     if raw_profiles:
         for name, options in raw_profiles.items():
@@ -41,6 +42,7 @@ def resolve_decode_profile(
     profiles: Dict[str, Dict[str, Any]],
     default_profile: str,
 ) -> Tuple[str, Dict[str, Any]]:
+    """Resolve the requested profile name and options with fallback."""
     if requested and requested in profiles:
         return requested, profiles[requested].copy()
     if requested and requested not in profiles:
@@ -49,6 +51,7 @@ def resolve_decode_profile(
 
 
 def invalid_decode_options(options: Dict[str, Any]) -> list[str]:
+    """Return unsupported decode option keys."""
     return [key for key in options.keys() if key not in ALLOWED_DECODE_OPTION_KEYS]
 
 
@@ -58,6 +61,7 @@ def resolve_language_code(
     language_fix: bool,
     supported: SupportedLanguages,
 ) -> str:
+    """Resolve a language code based on request and configuration."""
     trimmed = requested.strip().lower() if requested else ""
     codes = supported.get_codes()
     if trimmed:
@@ -72,18 +76,22 @@ def resolve_language_code(
 
 
 def resolve_task(requested: stt_pb2.Task.ValueType, default_task: str) -> str:
+    """Resolve the task name from enum with default fallback."""
     return TASK_ENUM_TO_NAME.get(requested, default_task)
 
 
 def task_enum_from_name(name: str) -> stt_pb2.Task.ValueType:
+    """Resolve a task enum from a task name."""
     return TASK_NAME_TO_ENUM.get(name or "", stt_pb2.TASK_TRANSCRIBE)
 
 
 def profile_name_from_enum(
     profile_enum: stt_pb2.DecodeProfile.ValueType,
 ) -> Optional[str]:
+    """Resolve a profile name from the enum value."""
     return PROFILE_ENUM_TO_NAME.get(profile_enum)
 
 
 def profile_enum_from_name(name: str) -> stt_pb2.DecodeProfile.ValueType:
+    """Resolve a profile enum from a profile name."""
     return PROFILE_NAME_TO_ENUM.get(name or "", stt_pb2.DECODE_PROFILE_UNSPECIFIED)

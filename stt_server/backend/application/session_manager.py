@@ -29,6 +29,8 @@ from stt_server.utils.logger import LOGGER, clear_session_id, set_session_id
 
 @dataclass
 class SessionInfo:
+    """Session attributes and resolved settings for a client session."""
+
     attributes: Dict[str, str]
     vad_mode: int
     vad_silence: float
@@ -50,6 +52,8 @@ def _noop_session_hook(_: "SessionInfo") -> None:
 
 @dataclass(frozen=True)
 class SessionRegistryHooks:
+    """Callbacks invoked on session create/remove."""
+
     on_create: Callable[["SessionInfo"], None] = _noop_session_hook
     on_remove: Callable[["SessionInfo"], None] = _noop_session_hook
 
@@ -71,10 +75,12 @@ class SessionRegistry:
         self._hooks.on_create(info)
 
     def get_session(self, session_id: str) -> Optional[SessionInfo]:
+        """Return session info if the session is active."""
         with self._lock:
             return self._sessions.get(session_id)
 
     def remove_session(self, session_id: str) -> Optional[SessionInfo]:
+        """Remove a session and return its info if it existed."""
         with self._lock:
             info = self._sessions.pop(session_id, None)
         if info:
@@ -82,6 +88,7 @@ class SessionRegistry:
         return info
 
     def active_count(self) -> int:
+        """Return the current number of active sessions."""
         with self._lock:
             return len(self._sessions)
 
@@ -106,6 +113,7 @@ class SessionFacade:
         metadata: Dict[str, str | bytes],
         context: grpc.ServicerContext,
     ) -> Optional[SessionState]:
+        """Resolve session state from request metadata."""
         session_id = self._normalize_session_id(
             metadata.get("session-id") or metadata.get("session_id")
         )
@@ -119,6 +127,7 @@ class SessionFacade:
         chunk: stt_pb2.AudioChunk,
         context: grpc.ServicerContext,
     ) -> SessionState:
+        """Resolve or validate session state from an audio chunk."""
         session_id = self._normalize_session_id(chunk.session_id) or (
             current_state.session_id if current_state else None
         )
@@ -135,6 +144,7 @@ class SessionFacade:
         chunk: stt_pb2.AudioChunk,
         context: grpc.ServicerContext,
     ) -> None:
+        """Validate the session token in the incoming chunk."""
         if not state:
             return
         session_info = state.session_info
@@ -144,6 +154,7 @@ class SessionFacade:
             abort_with_error(context, ErrorCode.SESSION_TOKEN_INVALID)
 
     def remove_session(self, state: Optional[SessionState], reason: str = "") -> None:
+        """Remove a session and log the reason when provided."""
         if not state:
             return
         self._session_registry.remove_session(state.session_id)
@@ -151,6 +162,7 @@ class SessionFacade:
             LOGGER.info("Removed session %s (%s)", state.session_id, reason)
 
     def remove_session_by_id(self, session_id: str | bytes | None) -> None:
+        """Remove a session by raw identifier if it can be normalized."""
         normalized = self._normalize_session_id(session_id)
         if normalized:
             self._session_registry.remove_session(normalized)
@@ -180,6 +192,28 @@ class SessionFacade:
         return normalized or None
 
 
+@dataclass(frozen=True)
+class CreateSessionConfig:
+    """Configuration for CreateSessionHandler defaults."""
+
+    decode_profiles: Dict[str, Dict[str, Any]]
+    default_decode_profile: str
+    default_language: str
+    language_fix: bool
+    default_task: str
+    supported_languages: SupportedLanguages
+    default_vad_silence: float
+    default_vad_threshold: float
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "default_vad_silence", max(0.0, self.default_vad_silence)
+        )
+        object.__setattr__(
+            self, "default_vad_threshold", max(0.0, self.default_vad_threshold)
+        )
+
+
 class CreateSessionHandler:
     """Handles CreateSession requests for the STT backend servicer."""
 
@@ -187,29 +221,16 @@ class CreateSessionHandler:
         self,
         session_registry: SessionRegistry,
         model_registry: ModelRegistry,
-        decode_profiles: Dict[str, Dict[str, Any]],
-        default_decode_profile: str,
-        default_language: str,
-        language_fix: bool,
-        default_task: str,
-        supported_languages: SupportedLanguages,
-        default_vad_silence: float,
-        default_vad_threshold: float,
+        config: CreateSessionConfig,
     ) -> None:
         self._session_registry = session_registry
         self._model_registry = model_registry
-        self._decode_profiles = decode_profiles
-        self._default_decode_profile = default_decode_profile
-        self._default_language = default_language
-        self._language_fix = language_fix
-        self._default_task = default_task
-        self._supported_languages = supported_languages
-        self._default_vad_silence = max(0.0, default_vad_silence)
-        self._default_vad_threshold = max(0.0, default_vad_threshold)
+        self._config = config
 
     def handle(
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
     ) -> stt_pb2.SessionResponse:
+        """Validate a CreateSession request and return a session response."""
         if not request.session_id:
             LOGGER.error(format_error(ErrorCode.SESSION_ID_REQUIRED))
             abort_with_error(context, ErrorCode.SESSION_ID_REQUIRED)
@@ -248,16 +269,16 @@ class CreateSessionHandler:
             ) or request.attributes.get("decode_profile")
         profile_name, profile_options = resolve_decode_profile(
             requested_profile,
-            self._decode_profiles,
-            self._default_decode_profile,
+            self._config.decode_profiles,
+            self._config.default_decode_profile,
         )
         language_code = resolve_language_code(
             request.language_code,
-            self._default_language,
-            self._language_fix,
-            self._supported_languages,
+            self._config.default_language,
+            self._config.language_fix,
+            self._config.supported_languages,
         )
-        session_task = resolve_task(request.task, self._default_task)
+        session_task = resolve_task(request.task, self._config.default_task)
 
         model_id = (
             request.attributes.get("model_id")
@@ -277,7 +298,7 @@ class CreateSessionHandler:
             LOGGER.error(format_error(ErrorCode.DECODE_OPTION_INVALID, detail))
             abort_with_error(context, ErrorCode.DECODE_OPTION_INVALID, detail)
 
-        vad_silence = self._resolve_vad_silence(request.vad_silence, context)
+        vad_silence = self._resolve_vad_silence(request.vad_silence)
         if request.HasField("vad_threshold_override"):
             vad_threshold = self._resolve_vad_threshold(
                 request.vad_threshold_override, context, allow_default=False
@@ -320,7 +341,9 @@ class CreateSessionHandler:
                 response_attributes["language_code"] = language_code
 
             LOGGER.info(
-                "Created session_id=%s vad_mode=%s token_required=%s decode_profile=%s language=%s task=%s vad_silence=%.3f vad_threshold=%.4f attributes=%s model_id=%s",
+                "Created session_id=%s vad_mode=%s token_required=%s "
+                "decode_profile=%s language=%s task=%s vad_silence=%.3f "
+                "vad_threshold=%.4f attributes=%s model_id=%s",
                 session_id,
                 "AUTO_END" if vad_mode == stt_pb2.VAD_AUTO_END else "CONTINUE",
                 token_required,
@@ -347,11 +370,9 @@ class CreateSessionHandler:
         finally:
             clear_session_id()
 
-    def _resolve_vad_silence(
-        self, value: float, context: grpc.ServicerContext
-    ) -> float:
+    def _resolve_vad_silence(self, value: float) -> float:
         if value <= 0:
-            return self._default_vad_silence
+            return self._config.default_vad_silence
         return value
 
     def _resolve_vad_threshold(
@@ -364,7 +385,7 @@ class CreateSessionHandler:
             LOGGER.error(format_error(ErrorCode.VAD_THRESHOLD_NEGATIVE))
             abort_with_error(context, ErrorCode.VAD_THRESHOLD_NEGATIVE)
         if allow_default and value == 0:
-            return self._default_vad_threshold
+            return self._config.default_vad_threshold
         return value
 
 
@@ -373,5 +394,6 @@ __all__ = [
     "SessionRegistry",
     "SessionState",
     "SessionFacade",
+    "CreateSessionConfig",
     "CreateSessionHandler",
 ]

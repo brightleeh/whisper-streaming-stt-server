@@ -7,9 +7,11 @@ from stt_server.config import ServerConfig
 
 
 def test_graceful_shutdown_on_signal(monkeypatch):
+    """Test graceful shutdown on signal."""
     handlers = {}
 
     def fake_signal(sig, handler):
+        """Helper for fake signal."""
         handlers[sig] = handler
         return None
 
@@ -23,21 +25,30 @@ def test_graceful_shutdown_on_signal(monkeypatch):
     )
 
     class FakeFuture:
+        """Test helper FakeFuture."""
+
         def wait(self):
+            """Helper for wait."""
             return None
 
     class FakeServer:
+        """Test helper FakeServer."""
+
         def __init__(self):
+            """Helper for   init  ."""
             self.stop_calls = []
             self.wait_calls = 0
 
         def add_insecure_port(self, *args, **kwargs):
+            """Helper for add insecure port."""
             return 0
 
         def start(self):
+            """Helper for start."""
             return None
 
         def wait_for_termination(self, timeout=None):
+            """Helper for wait for termination."""
             self.wait_calls += 1
             if self.wait_calls == 1:
                 handler = handlers.get(main_module.signal.SIGTERM)
@@ -46,6 +57,7 @@ def test_graceful_shutdown_on_signal(monkeypatch):
             return None
 
         def stop(self, grace):
+            """Helper for stop."""
             self.stop_calls.append(grace)
             return FakeFuture()
 
@@ -81,9 +93,11 @@ def test_graceful_shutdown_on_signal(monkeypatch):
 
 
 def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
+    """Test serve skips signal handlers outside main thread."""
     signal_calls = []
 
     def fake_signal(sig, handler):
+        """Helper for fake signal."""
         signal_calls.append(sig)
         return None
 
@@ -97,20 +111,29 @@ def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
     )
 
     class FakeFuture:
+        """Test helper FakeFuture."""
+
         def wait(self):
+            """Helper for wait."""
             return None
 
     class FakeServer:
+        """Test helper FakeServer."""
+
         def add_insecure_port(self, *args, **kwargs):
+            """Helper for add insecure port."""
             return 0
 
         def start(self):
+            """Helper for start."""
             return None
 
         def wait_for_termination(self, timeout=None):
+            """Helper for wait for termination."""
             raise RuntimeError("stop")
 
         def stop(self, grace):
+            """Helper for stop."""
             return FakeFuture()
 
     monkeypatch.setattr(
@@ -137,6 +160,7 @@ def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
     error_holder = {}
 
     def run():
+        """Helper for run."""
         try:
             main_module.serve(config)
         except RuntimeError as exc:
@@ -152,9 +176,11 @@ def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
 
 
 def test_serve_passes_grpc_message_limits(monkeypatch):
+    """Test serve passes grpc message limits."""
     captured = {}
 
     def fake_signal(*_args, **_kwargs):
+        """Helper for fake signal."""
         return None
 
     from stt_server import main as main_module
@@ -167,23 +193,33 @@ def test_serve_passes_grpc_message_limits(monkeypatch):
     )
 
     class FakeFuture:
+        """Test helper FakeFuture."""
+
         def wait(self):
+            """Helper for wait."""
             return None
 
     class FakeServer:
+        """Test helper FakeServer."""
+
         def add_insecure_port(self, *args, **kwargs):
+            """Helper for add insecure port."""
             return 0
 
         def start(self):
+            """Helper for start."""
             return None
 
         def wait_for_termination(self, timeout=None):
+            """Helper for wait for termination."""
             raise RuntimeError("stop")
 
         def stop(self, grace):
+            """Helper for stop."""
             return FakeFuture()
 
     def fake_server(executor, options=None):
+        """Helper for fake server."""
         captured["options"] = options
         return FakeServer()
 

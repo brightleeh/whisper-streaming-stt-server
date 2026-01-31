@@ -1,3 +1,5 @@
+"""Audio storage helpers for session recordings."""
+
 from __future__ import annotations
 
 import queue
@@ -26,6 +28,8 @@ def _sanitize_session_id(value: str) -> str:
 
 @dataclass
 class AudioStorageConfig:
+    """Configuration for audio capture and retention."""
+
     enabled: bool = False
     directory: Path = Path("data/audio")
     max_bytes: Optional[int] = None
@@ -78,6 +82,7 @@ class SessionAudioRecorder:
             )
 
     def append(self, pcm16: bytes) -> None:
+        """Queue PCM16 audio for asynchronous WAV writing."""
         if not pcm16:
             return
         with self._lock:
@@ -109,6 +114,7 @@ class SessionAudioRecorder:
             )
 
     def finalize(self) -> Optional[Path]:
+        """Flush queued audio and return the saved path if non-empty."""
         with self._lock:
             already_closed = self._closed
             if not self._closed:
@@ -129,6 +135,7 @@ class SessionAudioRecorder:
 
     @property
     def bytes_written(self) -> int:
+        """Return the total number of audio bytes written."""
         with self._lock:
             return self._bytes_written
 
@@ -161,6 +168,7 @@ class AudioStorageManager:
     def start_recording(
         self, session_id: str, sample_rate: int
     ) -> SessionAudioRecorder:
+        """Start recording audio for a session and return its recorder."""
         timestamp = time.strftime("%Y%m%dT%H%M%S")
         safe_session = _sanitize_session_id(session_id)
         filename = f"{timestamp}_{safe_session}.wav"
@@ -179,6 +187,7 @@ class AudioStorageManager:
         )
 
     def finalize_recording(self, recorder: SessionAudioRecorder, reason: str) -> None:
+        """Finalize a recording and apply retention cleanup."""
         path = recorder.finalize()
         if not path:
             LOGGER.info(

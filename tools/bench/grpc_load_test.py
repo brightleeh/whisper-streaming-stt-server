@@ -30,6 +30,7 @@ BYTES_PER_SAMPLE = 2
 
 
 def load_wav(path: str) -> Tuple[bytes, int]:
+    """Load a mono 16-bit PCM WAV file."""
     with wave.open(path, "rb") as wf:
         if wf.getnchannels() != 1:
             raise ValueError("Only mono WAV files are supported")
@@ -49,6 +50,7 @@ def audio_chunks(
     session_token: str,
     timing: "StreamTiming | None" = None,
 ):
+    """Yield gRPC audio chunks from PCM16 data."""
     chunk_samples = max(int(sample_rate * (chunk_ms / 1000.0)), 1)
     chunk_bytes = chunk_samples * BYTES_PER_SAMPLE
     sleep_time = chunk_ms / 1000.0
@@ -85,18 +87,21 @@ def audio_chunks(
 
 
 def parse_task(value: str) -> stt_pb2.Task.ValueType:
+    """Map a task string to the Task enum."""
     if value == "translate":
         return stt_pb2.TASK_TRANSLATE
     return stt_pb2.TASK_TRANSCRIBE
 
 
 def parse_profile(value: str) -> stt_pb2.DecodeProfile.ValueType:
+    """Map a profile string to the DecodeProfile enum."""
     if value == "accurate":
         return stt_pb2.DECODE_PROFILE_ACCURATE
     return stt_pb2.DECODE_PROFILE_REALTIME
 
 
 def parse_vad_mode(value: str) -> stt_pb2.VADMode.ValueType:
+    """Map a VAD mode string to the VADMode enum."""
     if value == "auto":
         return stt_pb2.VAD_AUTO_END
     return stt_pb2.VAD_CONTINUE
@@ -105,6 +110,7 @@ def parse_vad_mode(value: str) -> stt_pb2.VADMode.ValueType:
 def _extract_decode_metrics(
     metadata: Optional[Iterable[Tuple[str, str]]],
 ) -> Dict[str, float]:
+    """Extract decode timing metrics from trailing metadata."""
     if not metadata:
         return {}
     mapping: Dict[str, float] = {}
@@ -132,6 +138,8 @@ def _extract_decode_metrics(
 
 @dataclass
 class BenchStats:
+    """Aggregates benchmark metrics across sessions."""
+
     sessions: int = 0
     failures: int = 0
     responses: int = 0
@@ -144,6 +152,7 @@ class BenchStats:
     warmup_failures: int = 0
 
     def record(self, responses: int, elapsed: float) -> None:
+        """Record a successful session result."""
         self.sessions += 1
         self.responses += responses
         self.total_time_sec += elapsed
@@ -151,6 +160,7 @@ class BenchStats:
         self.response_counts.append(responses)
 
     def record_failure(self, exc: grpc.RpcError) -> None:
+        """Record a failed session and error code."""
         self.failures += 1
         try:
             code = exc.code().name
@@ -159,11 +169,13 @@ class BenchStats:
         self.error_counts[code] = self.error_counts.get(code, 0) + 1
 
     def record_warmup(self, success: bool) -> None:
+        """Record warmup success/failure."""
         self.warmup_sessions += 1
         if not success:
             self.warmup_failures += 1
 
     def maybe_log(self, entry: "SessionLog", max_logs: int) -> None:
+        """Store a session log entry if under the limit."""
         if max_logs <= 0:
             return
         if len(self.session_logs) < max_logs:
@@ -172,6 +184,8 @@ class BenchStats:
 
 @dataclass(frozen=True)
 class SessionLog:
+    """Per-session log entry for benchmark reporting."""
+
     session_id: str
     responses: int
     elapsed_sec: float
@@ -237,18 +251,21 @@ SESSION_LOG_COLUMN_DESCRIPTIONS = [
 
 
 def format_seconds_value(value: Optional[float]) -> Optional[float]:
+    """Round a seconds value to 3 decimal places."""
     if value is None:
         return None
     return round(value, 3)
 
 
 def format_seconds_string(value: Optional[float]) -> str:
+    """Format a seconds value as a string for reports."""
     if value is None:
         return ""
     return f"{value:.3f}"
 
 
 def session_log_payload(entry: SessionLog) -> Dict[str, object]:
+    """Build a JSON-friendly payload for a session log entry."""
     return {
         "session_id": entry.session_id,
         "responses": entry.responses,
@@ -271,6 +288,7 @@ def session_log_payload(entry: SessionLog) -> Dict[str, object]:
 
 
 def session_log_row(entry: SessionLog) -> List[str]:
+    """Build a CSV/TSV row for a session log entry."""
     return [
         entry.session_id,
         str(entry.responses),
@@ -289,6 +307,7 @@ def session_log_row(entry: SessionLog) -> List[str]:
 
 
 def write_markdown_legend(handle: TextIO) -> None:
+    """Write the column legend for markdown session logs."""
     handle.write("Session log column definitions:\n")
     for name, description in SESSION_LOG_COLUMN_DESCRIPTIONS:
         handle.write(f"- `{name}`: {description}\n")
@@ -298,6 +317,7 @@ def write_markdown_legend(handle: TextIO) -> None:
 def write_markdown_header(
     handle: TextIO, title: str, started_at: str, finished_at: Optional[str]
 ) -> None:
+    """Write the markdown report header."""
     handle.write(f"# {title}\n\n")
     handle.write(f"- Test started at: {started_at}\n")
     if finished_at:
@@ -306,11 +326,17 @@ def write_markdown_header(
 
 
 class CsvWriter(Protocol):
-    def writerow(self, row: Iterable[Any], /) -> Any: ...
+    """Protocol for minimal CSV-like writers."""
+
+    def writerow(self, row: Iterable[Any], /) -> Any:
+        """Write a row to the CSV-like output."""
+        ...
 
 
 @dataclass
 class SessionLogWriter:
+    """Writes session logs in CSV/TSV/JSONL/Markdown formats."""
+
     handle: TextIO
     session_log_format: str
     lock: threading.Lock
@@ -319,6 +345,7 @@ class SessionLogWriter:
     writer: Optional[CsvWriter] = None
 
     def write_header(self) -> None:
+        """Write the header for the configured log format."""
         if self.session_log_format == "csv":
             writer = csv.writer(self.handle)
             self.writer = writer
@@ -336,6 +363,7 @@ class SessionLogWriter:
             )
 
     def write_entry(self, entry: SessionLog) -> None:
+        """Write a single session log entry."""
         with self.lock:
             if self.session_log_format in {"csv", "tsv"}:
                 writer = self.writer
@@ -351,11 +379,14 @@ class SessionLogWriter:
                 return
 
     def close(self) -> None:
+        """Close the underlying log handle."""
         self.handle.close()
 
 
 @dataclass
 class StreamTiming:
+    """Tracks timing for a single streaming call."""
+
     start_sec: float
     first_chunk_sec: Optional[float] = None
     last_chunk_sec: Optional[float] = None
@@ -363,6 +394,8 @@ class StreamTiming:
 
 @dataclass
 class BenchConfig:
+    """Configuration for running the gRPC benchmark."""
+
     target: str
     channels: int
     iterations: int
@@ -389,6 +422,7 @@ def run_channel(
     stats: BenchStats,
     lock: threading.Lock,
 ) -> None:
+    """Run a single channel and record results."""
     channel = grpc.insecure_channel(config.target)
     stub = stt_pb2_grpc.STTBackendStub(channel)
     task_enum = parse_task(config.task)
@@ -503,6 +537,7 @@ def run_channel(
 
 
 def main() -> None:
+    """CLI entrypoint for the gRPC streaming load test."""
     parser = argparse.ArgumentParser(description="gRPC streaming load test")
     parser.add_argument("--target", default="localhost:50051")
     parser.add_argument("--channels", type=int, default=4)

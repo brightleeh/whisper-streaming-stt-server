@@ -1,6 +1,7 @@
 """Application layer helpers for the STT server."""
 
 from .session_manager import (
+    CreateSessionConfig,
     CreateSessionHandler,
     SessionFacade,
     SessionInfo,
@@ -10,6 +11,7 @@ from .session_manager import (
 from .stream_orchestrator import StreamOrchestrator, StreamOrchestratorConfig
 
 __all__ = [
+    "CreateSessionConfig",
     "CreateSessionHandler",
     "SessionFacade",
     "SessionState",

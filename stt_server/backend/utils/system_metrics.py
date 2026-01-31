@@ -112,6 +112,7 @@ def _gpu_metrics_enabled() -> bool:
 
 
 def collect_system_metrics() -> Dict[str, Any]:
+    """Collect system, process, and optional GPU metrics."""
     metrics: Dict[str, Any] = {
         "timestamp": time.time(),
         "platform": platform.platform(),

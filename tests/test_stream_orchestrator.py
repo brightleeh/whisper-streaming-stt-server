@@ -30,24 +30,30 @@ class FakeContext:
     """Minimal gRPC context stub for stream orchestrator tests."""
 
     def __init__(self, metadata=None) -> None:
+        """Helper for   init  ."""
         self._metadata = metadata or []
         self.trailing_metadata = None
         self.callbacks = []
         self.abort_calls = []
 
     def invocation_metadata(self):
+        """Helper for invocation metadata."""
         return list(self._metadata)
 
     def add_callback(self, callback):
+        """Helper for add callback."""
         self.callbacks.append(callback)
 
     def is_active(self) -> bool:
+        """Helper for is active."""
         return True
 
     def set_trailing_metadata(self, metadata):
+        """Helper for set trailing metadata."""
         self.trailing_metadata = metadata
 
     def abort(self, code, details):
+        """Helper for abort."""
         self.abort_calls.append((code, details, threading.current_thread()))
         raise RuntimeError(f"abort called: {code} {details}")
 
@@ -56,6 +62,7 @@ class FakeDecodeStream:
     """Stub decode stream for orchestrator tests."""
 
     def __init__(self, summary, pending=False, emit_delay=0.0):
+        """Helper for   init  ."""
         self._summary = summary
         self._pending = pending
         self._emit_delay = emit_delay
@@ -63,37 +70,47 @@ class FakeDecodeStream:
         self.scheduled = []
 
     def set_session_id(self, session_id):
+        """Helper for set session id."""
         self.session_id = session_id
 
     def set_model_id(self, model_id):
+        """Helper for set model id."""
         return None
 
     def cancel_pending(self):
+        """Helper for cancel pending."""
         return 0, 0
 
     def pending_count(self):
+        """Helper for pending count."""
         return 0
 
     def drop_pending_partials(self, max_drop=None):
+        """Helper for drop pending partials."""
         return 0, 0
 
     def has_pending_results(self):
+        """Helper for has pending results."""
         return self._pending
 
     def emit_ready(self, block):
+        """Helper for emit ready."""
         if block and self._emit_delay > 0:
             time.sleep(self._emit_delay)
         self._pending = False
         return []
 
     def schedule_decode(self, *args, **kwargs):
+        """Helper for schedule decode."""
         self.scheduled.append((args, kwargs))
 
     def timing_summary(self):
+        """Helper for timing summary."""
         return self._summary
 
 
 def test_stream_orchestrator_sets_decode_trailing_metadata(monkeypatch):
+    """Test stream orchestrator sets decode trailing metadata."""
     session_facade = SessionFacade(SessionRegistry())
     model_registry = MagicMock()
     stream_settings = StreamSettings(
@@ -138,6 +155,7 @@ def test_stream_orchestrator_sets_decode_trailing_metadata(monkeypatch):
 
 
 def test_stream_orchestrator_timeout_aborts_in_main_loop(monkeypatch):
+    """Test stream orchestrator timeout aborts in main loop."""
     session_facade = SessionFacade(SessionRegistry())
     model_registry = MagicMock()
     stream_settings = StreamSettings(
@@ -168,11 +186,15 @@ def test_stream_orchestrator_timeout_aborts_in_main_loop(monkeypatch):
     )
 
     class InlineThread:
+        """Test helper InlineThread."""
+
         def __init__(self, target=None, daemon=None):
+            """Helper for   init  ."""
             self._target = target
             self.daemon = daemon
 
         def start(self):
+            """Helper for start."""
             if self._target:
                 self._target()
 
@@ -195,6 +217,7 @@ def test_stream_orchestrator_timeout_aborts_in_main_loop(monkeypatch):
 
 
 def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypatch):
+    """Test stream orchestrator enforces buffer limit with partial decode."""
     session_registry = SessionRegistry()
     session_facade = SessionFacade(session_registry)
     model_registry = MagicMock()
@@ -248,8 +271,12 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
     sample_rate = 16000
     one_sec_pcm16 = b"\x00\x00" * sample_rate
     chunks = [
-        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
-        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
+        stt_pb2.AudioChunk(
+            pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id
+        ),
+        stt_pb2.AudioChunk(
+            pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id
+        ),
     ]
 
     context = FakeContext()
@@ -263,6 +290,7 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
 
 
 def test_stream_orchestrator_buffer_limit_uses_window_bytes(monkeypatch):
+    """Test stream orchestrator buffer limit uses window bytes."""
     session_registry = SessionRegistry()
     session_facade = SessionFacade(session_registry)
     model_registry = MagicMock()
@@ -316,8 +344,12 @@ def test_stream_orchestrator_buffer_limit_uses_window_bytes(monkeypatch):
     sample_rate = 16000
     one_sec_pcm16 = b"\x00\x00" * sample_rate
     chunks = [
-        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
-        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
+        stt_pb2.AudioChunk(
+            pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id
+        ),
+        stt_pb2.AudioChunk(
+            pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id
+        ),
     ]
 
     context = FakeContext()
@@ -332,6 +364,7 @@ def test_stream_orchestrator_buffer_limit_uses_window_bytes(monkeypatch):
 
 
 def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
+    """Test stream orchestrator rejects oversized chunk."""
     session_registry = SessionRegistry()
     session_facade = SessionFacade(session_registry)
     model_registry = MagicMock()
@@ -401,6 +434,7 @@ def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
 
 
 def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
+    """Test stream orchestrator keeps activity while decode inflight."""
     session_registry = SessionRegistry()
     session_id = "session-decode-inflight"
     session_registry.create_session(
@@ -446,7 +480,10 @@ def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
     orchestrator = StreamOrchestrator(session_facade, model_registry, config)
 
     class PendingDecodeStream(FakeDecodeStream):
+        """Test helper PendingDecodeStream."""
+
         def schedule_decode(self, *args, **kwargs):
+            """Helper for schedule decode."""
             self._pending = True
             return super().schedule_decode(*args, **kwargs)
 
@@ -458,6 +495,7 @@ def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
     reasons = []
 
     def record_remove(state, reason=""):
+        """Helper for record remove."""
         reasons.append(reason)
 
     monkeypatch.setattr(session_facade, "remove_session", record_remove)
@@ -484,6 +522,7 @@ def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
 def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
     monkeypatch,
 ):
+    """Test stream orchestrator drops partial when stream pending limit reached."""
     session_registry = SessionRegistry()
     session_id = "session-pending-limit"
     session_registry.create_session(
@@ -535,6 +574,7 @@ def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
     drop_calls: list[int | None] = []
 
     def drop_partials(max_drop=None):
+        """Helper for drop partials."""
         drop_calls.append(max_drop)
         return 0, 0
 
@@ -547,7 +587,9 @@ def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
     sample_rate = 16000
     one_sec_pcm16 = b"\x00\x00" * sample_rate
     chunks = [
-        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id)
+        stt_pb2.AudioChunk(
+            pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id
+        )
     ]
 
     context = FakeContext()
@@ -561,6 +603,7 @@ def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
 def test_stream_orchestrator_aborts_when_global_pending_limit_reached(
     monkeypatch,
 ):
+    """Test stream orchestrator aborts when global pending limit reached."""
     session_registry = SessionRegistry()
     session_id = "session-global-pending-limit"
     session_registry.create_session(
@@ -643,6 +686,7 @@ def test_stream_orchestrator_aborts_when_global_pending_limit_reached(
 
 
 def test_stream_orchestrator_timeout_ignored_while_pending_decode(monkeypatch):
+    """Test stream orchestrator timeout ignored while pending decode."""
     session_registry = SessionRegistry()
     session_id = "session-timeout-pending"
     session_registry.create_session(
@@ -696,6 +740,7 @@ def test_stream_orchestrator_timeout_ignored_while_pending_decode(monkeypatch):
     reasons = []
 
     def record_remove(state, reason=""):
+        """Helper for record remove."""
         reasons.append(reason)
 
     monkeypatch.setattr(session_facade, "remove_session", record_remove)

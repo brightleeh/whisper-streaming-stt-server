@@ -27,6 +27,7 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
     def CreateSession(  # type: ignore[override]
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
     ) -> stt_pb2.SessionResponse:
+        """Handle CreateSession RPC requests."""
         try:
             return self.runtime.create_session_handler.handle(request, context)
         except grpc.RpcError as exc:
@@ -46,6 +47,7 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
         request_iterator: Iterable[stt_pb2.AudioChunk],
         context: grpc.ServicerContext,
     ) -> Iterable[stt_pb2.STTResult]:
+        """Handle bidirectional streaming recognition requests."""
         try:
             yield from self.runtime.stream_orchestrator.run(request_iterator, context)
         except grpc.RpcError as exc:

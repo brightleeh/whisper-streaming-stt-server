@@ -63,7 +63,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from stt_server.model.worker import ModelWorker
+    from stt_server.backend.application.model_registry import ModelWorkerProtocol
 
 
 VAD_CONTINUE = stt_pb2.VAD_CONTINUE
@@ -130,7 +130,7 @@ class StreamOrchestrator:
         """Load a model into the registry."""
         self._model_registry.load_model(model_id, config)
 
-    def acquire_worker(self, model_id: str) -> ModelWorker:
+    def acquire_worker(self, model_id: str) -> ModelWorkerProtocol:
         """Acquire an available worker for the given model id."""
         worker = self._model_registry.get_worker(model_id)
         if not worker:

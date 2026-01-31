@@ -2,7 +2,8 @@
 
 import logging
 import threading
-from typing import Any, Dict, List, Optional
+from concurrent import futures
+from typing import Any, Dict, List, Optional, Protocol, cast
 
 from stt_server.config.default.model import (
     DEFAULT_COMPUTE_TYPE,
@@ -14,9 +15,52 @@ from stt_server.config.default.model import (
     DEFAULT_MODEL_POOL_SIZE,
     DEFAULT_TASK,
 )
-from stt_server.model.worker import ModelWorker
+
+try:
+    from stt_server.model.worker import ModelWorker
+except ImportError:  # pragma: no cover - optional runtime dependency in some contexts
+    ModelWorker = None
 
 LOGGER = logging.getLogger("stt_server.model_registry")
+
+
+class ModelWorkerProtocol(Protocol):
+    """Minimal protocol needed by the model registry."""
+
+    executor: Any
+
+    def pending_tasks(self) -> int:
+        """Return count of pending decode tasks."""
+        raise NotImplementedError
+
+    def submit(
+        self,
+        pcm_bytes: bytes,
+        src_rate: int,
+        decode_options: Optional[Dict[str, Any]] = None,
+    ) -> futures.Future:
+        """Submit PCM bytes for asynchronous decode."""
+        raise NotImplementedError
+
+    def close(self, timeout_sec: Optional[float] = None) -> None:
+        """Close worker resources."""
+        raise NotImplementedError
+
+
+class ModelWorkerFactory(Protocol):
+    """Callable that builds a model worker."""
+
+    def __call__(
+        self,
+        model_size: str,
+        device: str,
+        compute_type: str,
+        language: Optional[str],
+        log_metrics: bool,
+        base_options: Optional[Dict[str, Any]] = None,
+    ) -> ModelWorkerProtocol:
+        """Create a model worker instance."""
+        raise NotImplementedError
 
 
 class ModelRegistry:
@@ -24,7 +68,7 @@ class ModelRegistry:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
-        self._pools: Dict[str, List[ModelWorker]] = {}
+        self._pools: Dict[str, List[ModelWorkerProtocol]] = {}
         self._configs: Dict[str, Dict[str, Any]] = {}
         self._rr_counters: Dict[str, int] = {}
         self._model_rr_index = 0
@@ -77,6 +121,7 @@ class ModelRegistry:
 
     def load_model(self, model_id: str, config: Dict[str, Any]) -> None:
         """Load a model pool into the registry."""
+        worker_cls = self._resolve_model_worker()
         with self._lock:
             if model_id in self._pools:
                 LOGGER.info("Model '%s' is already loaded", model_id)
@@ -89,7 +134,7 @@ class ModelRegistry:
                 raise ValueError("pool_size must be an integer >= 1") from exc
             if pool_size <= 0:
                 raise ValueError("pool_size must be >= 1")
-            workers: List[ModelWorker] = []
+            workers: List[ModelWorkerProtocol] = []
 
             # Extract worker-specific arguments
             model_path_or_size = (
@@ -120,7 +165,7 @@ class ModelRegistry:
                         model_id,
                     )
                     workers.append(
-                        ModelWorker(
+                        worker_cls(
                             model_size=model_path_or_size,
                             device=device,
                             compute_type=compute_type,
@@ -142,7 +187,7 @@ class ModelRegistry:
                 workers.clear()
                 raise
 
-    def get_worker(self, model_id: str) -> Optional[ModelWorker]:
+    def get_worker(self, model_id: str) -> Optional[ModelWorkerProtocol]:
         """Acquire a worker for the given model_id (Round-Robin)."""
         with self._lock:
             pool = self._pools.get(model_id)
@@ -185,7 +230,7 @@ class ModelRegistry:
         self, model_id: str, drain_timeout_sec: Optional[float] = None
     ) -> bool:
         """Unload a model to free resources (blocks until workers finish)."""
-        workers: List[ModelWorker] = []
+        workers: List[ModelWorkerProtocol] = []
         with self._lock:
             if model_id not in self._pools:
                 return False
@@ -223,3 +268,12 @@ class ModelRegistry:
                     worker.close()
                 except (RuntimeError, ValueError) as exc:
                     LOGGER.exception("Failed to close model worker: %s", exc)
+
+    @staticmethod
+    def _resolve_model_worker() -> ModelWorkerFactory:
+        """Return the ModelWorker class, loading it lazily if needed."""
+        if ModelWorker is None:
+            raise RuntimeError(
+                "ModelWorker dependency is missing; install model dependencies."
+            )
+        return cast(ModelWorkerFactory, ModelWorker)

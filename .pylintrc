@@ -1,5 +1,13 @@
 [MASTER]
 persistent=no
+init-hook=import os, sys; sys.path.append(os.path.abspath(os.getcwd()))
 
 [TYPECHECK]
 generated-members=gen.stt.python.v1.stt_pb2.*,gen.stt.python.v1.stt_pb2_grpc.*,stt_pb2.*,stt_pb2_grpc.*
+
+[DESIGN]
+max-attributes=13
+max-branches=14
+max-locals=23
+max-statements=58
+min-public-methods=1

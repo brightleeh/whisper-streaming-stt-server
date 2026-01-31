@@ -1,3 +1,5 @@
+"""Load server and model configuration from YAML files."""
+
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -55,6 +57,8 @@ from stt_server.config.default import (
 
 @dataclass
 class ServerConfig:
+    """Server + runtime configuration with defaults applied."""
+
     model: str = DEFAULT_MODEL_NAME
     device: str = DEFAULT_DEVICE
     compute_type: str = DEFAULT_COMPUTE_TYPE

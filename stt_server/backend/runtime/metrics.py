@@ -1,3 +1,5 @@
+"""Runtime metrics for streaming STT sessions."""
+
 import threading
 from collections import defaultdict
 from typing import Any, Dict
@@ -6,6 +8,8 @@ import grpc
 
 
 class Metrics:
+    """Thread-safe counters and aggregations for server metrics."""
+
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._active_sessions = 0
@@ -33,12 +37,14 @@ class Metrics:
         self._error_counts: Dict[str, int] = defaultdict(int)
 
     def increase_active_sessions(self, api_key: str) -> None:
+        """Increment the active session counters."""
         with self._lock:
             self._active_sessions += 1
             if api_key:
                 self._api_key_sessions[api_key] += 1
 
     def decrease_active_sessions(self, api_key: str) -> None:
+        """Decrement the active session counters."""
         with self._lock:
             if self._active_sessions > 0:
                 self._active_sessions -= 1
@@ -55,6 +61,7 @@ class Metrics:
         buffer_wait_sec: float | None = None,
         response_emit_sec: float | None = None,
     ) -> None:
+        """Record decode timing metrics for a single decode."""
         with self._lock:
             self._decode_count += 1
             self._decode_total += inference_sec
@@ -83,39 +90,48 @@ class Metrics:
                 self._rtf_max = max(self._rtf_max, real_time_factor)
 
     def record_decode_cancelled(self, count: int) -> None:
+        """Record cancelled decode count."""
         with self._lock:
             self._decode_cancelled += max(count, 0)
 
     def record_decode_orphaned(self, count: int) -> None:
+        """Record orphaned decode count."""
         with self._lock:
             self._decode_orphaned += max(count, 0)
 
     def record_vad_trigger(self) -> None:
+        """Record a completed VAD trigger."""
         with self._lock:
             self._vad_triggers += 1
 
     def increase_active_vad_utterances(self) -> None:
+        """Increment the number of active VAD utterances."""
         with self._lock:
             self._active_vad_utterances += 1
 
     def decrease_active_vad_utterances(self) -> None:
+        """Decrement the number of active VAD utterances."""
         with self._lock:
             if self._active_vad_utterances > 0:
                 self._active_vad_utterances -= 1
 
     def active_vad_utterances(self) -> int:
+        """Return the current active VAD utterance count."""
         with self._lock:
             return self._active_vad_utterances
 
     def record_error(self, status_code: grpc.StatusCode) -> None:
+        """Record an error code occurrence."""
         with self._lock:
             self._error_counts[status_code.name] += 1
 
     def set_expose_api_key_metrics(self, enabled: bool) -> None:
+        """Enable or disable per-api-key metrics exposure."""
         with self._lock:
             self._expose_api_key_metrics = bool(enabled)
 
     def render(self) -> Dict[str, Any]:
+        """Render metrics as a serializable payload."""
         with self._lock:
             payload = {
                 "active_sessions": self._active_sessions,
@@ -145,6 +161,7 @@ class Metrics:
             return payload
 
     def snapshot(self) -> Dict[str, float]:
+        """Return a snapshot with averages and maxima for key metrics."""
         with self._lock:
             decode_avg = (
                 (self._decode_total / self._decode_count) if self._decode_count else 0.0

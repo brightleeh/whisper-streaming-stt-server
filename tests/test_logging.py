@@ -10,6 +10,7 @@ from stt_server.utils.logger import (
 
 
 def _stop_logging_listener() -> None:
+    """Helper for  stop logging listener."""
     if logger_module.QUEUE_LISTENER:
         logger_module.QUEUE_LISTENER.stop()
         for handler in logger_module.QUEUE_LISTENER.handlers:
@@ -18,6 +19,7 @@ def _stop_logging_listener() -> None:
 
 
 def test_logging_includes_session_id(tmp_path: Path) -> None:
+    """Test logging includes session id."""
     log_path = tmp_path / "session.log"
     configure_logging("INFO", str(log_path))
     try:

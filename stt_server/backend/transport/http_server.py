@@ -1,3 +1,5 @@
+"""HTTP endpoints for metrics, health, and admin actions."""
+
 import logging
 import os
 import threading
@@ -32,6 +34,8 @@ LOGGER = logging.getLogger("stt_server.http_server")
 
 
 class _AccessLogPathFilter(logging.Filter):
+    """Filter out noisy access logs for internal endpoints."""
+
     def __init__(self, ignored_paths: Tuple[str, ...]) -> None:
         super().__init__()
         self._ignored_paths = set(ignored_paths)
@@ -91,6 +95,8 @@ def _model_path_allowed(model_path: Optional[str]) -> bool:
 
 
 class LoadModelRequest(BaseModel):
+    """Request body for admin model load endpoint."""
+
     model_id: str
     model_path: Optional[str] = None  # local path or HuggingFace ID
     model_size: Optional[str] = (
@@ -103,12 +109,15 @@ class LoadModelRequest(BaseModel):
 
 @dataclass
 class HttpServerHandle:
+    """Handle for the background HTTP server and admin load threads."""
+
     server: uvicorn.Server
     thread: threading.Thread
     load_threads: List[threading.Thread]
     load_threads_lock: threading.Lock
 
     def stop(self, timeout: Optional[float] = None) -> None:
+        """Stop the HTTP server and wait for background load threads."""
         if self.thread.is_alive():
             self.server.should_exit = True
             self.thread.join(timeout=timeout)

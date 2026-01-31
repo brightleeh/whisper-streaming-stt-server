@@ -1,3 +1,5 @@
+"""CLI entrypoint for the streaming STT server."""
+
 import argparse
 import os
 import signal
@@ -170,6 +172,7 @@ def serve(config: ServerConfig) -> None:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for the streaming STT server."""
     parser = argparse.ArgumentParser(description="Streaming STT gRPC server")
     parser.add_argument(
         "--config",
@@ -293,6 +296,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def configure_from_args(args: argparse.Namespace) -> ServerConfig:
+    """Load config files and apply CLI overrides."""
     config_arg_path = Path(args.config).expanduser() if args.config else None
     model_config_arg_path = (
         Path(args.model_config).expanduser() if args.model_config else None
@@ -361,6 +365,7 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
 
 
 def main() -> None:
+    """CLI entrypoint for launching the STT server."""
     args = parse_args()
     config = configure_from_args(args)
     serve(config)

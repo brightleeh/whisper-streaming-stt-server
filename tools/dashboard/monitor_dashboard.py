@@ -9,6 +9,7 @@ import requests
 def fetch_json(
     url: str, timeout: float
 ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Fetch JSON from a URL and return payload or error string."""
     try:
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
@@ -127,6 +128,7 @@ def _render(metrics: Optional[Dict[str, Any]], system: Optional[Dict[str, Any]])
 
 
 def main() -> None:
+    """Run the terminal metrics dashboard loop."""
     parser = argparse.ArgumentParser(description="Terminal dashboard for STT metrics.")
     parser.add_argument("--metrics-url", default="http://localhost:8000/metrics.json")
     parser.add_argument("--system-url", default="http://localhost:8000/system")

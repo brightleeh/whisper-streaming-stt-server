@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 from stt_server.backend.application.model_registry import ModelRegistry
 from stt_server.backend.application.session_manager import (
+    CreateSessionConfig,
     CreateSessionHandler,
     SessionFacade,
     SessionInfo,
@@ -73,9 +74,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
         )
         self.session_registry = SessionRegistry(session_hooks)
         self.session_facade = SessionFacade(self.session_registry)
-        self.create_session_handler = CreateSessionHandler(
-            session_registry=self.session_registry,
-            model_registry=self.model_registry,
+        session_config = CreateSessionConfig(
             decode_profiles=self.decode_profiles,
             default_decode_profile=self.default_decode_profile,
             default_language=self.default_language,
@@ -84,6 +83,11 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             supported_languages=self.supported_languages,
             default_vad_silence=streaming_config.vad_silence,
             default_vad_threshold=streaming_config.vad_threshold,
+        )
+        self.create_session_handler = CreateSessionHandler(
+            session_registry=self.session_registry,
+            model_registry=self.model_registry,
+            config=session_config,
         )
         storage_config = self.config.storage
         stream_settings = StreamSettings(

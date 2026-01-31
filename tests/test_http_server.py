@@ -8,12 +8,14 @@ from stt_server.errors import ErrorCode, http_payload_for, http_status_for
 
 
 def _enable_admin(monkeypatch, token="secret-token"):
+    """Helper for  enable admin."""
     monkeypatch.setenv("STT_ADMIN_ENABLED", "true")
     monkeypatch.setenv("STT_ADMIN_TOKEN", token)
     return {"Authorization": f"Bearer {token}"}
 
 
 def test_http_load_model_thread_daemon_and_tracked(monkeypatch):
+    """Test http load model thread daemon and tracked."""
     runtime = MagicMock()
     runtime.metrics = MagicMock()
     runtime.health_snapshot.return_value = {"model_pool_healthy": True}
@@ -23,6 +25,7 @@ def test_http_load_model_thread_daemon_and_tracked(monkeypatch):
     block_event = threading.Event()
 
     def slow_load(model_id, cfg):
+        """Helper for slow load."""
         load_started.set()
         block_event.wait(timeout=0.2)
 
@@ -60,6 +63,7 @@ def test_http_load_model_thread_daemon_and_tracked(monkeypatch):
 
 
 def _build_runtime():
+    """Helper for  build runtime."""
     runtime = MagicMock()
     runtime.metrics = MagicMock()
     runtime.health_snapshot.return_value = {"model_pool_healthy": True}
@@ -72,6 +76,7 @@ def _build_runtime():
 
 
 def test_http_admin_api_disabled_returns_error_payload(monkeypatch):
+    """Test http admin api disabled returns error payload."""
     runtime = _build_runtime()
     runtime.model_registry.load_model = None
     monkeypatch.delenv("STT_ADMIN_ENABLED", raising=False)
@@ -87,6 +92,7 @@ def test_http_admin_api_disabled_returns_error_payload(monkeypatch):
 
 
 def test_http_admin_model_already_loaded_returns_error_payload(monkeypatch):
+    """Test http admin model already loaded returns error payload."""
     runtime = _build_runtime()
     runtime.model_registry.is_loaded.return_value = True
 
@@ -105,6 +111,7 @@ def test_http_admin_model_already_loaded_returns_error_payload(monkeypatch):
 
 
 def test_http_admin_unload_model_failed_returns_error_payload(monkeypatch):
+    """Test http admin unload model failed returns error payload."""
     runtime = _build_runtime()
     runtime.model_registry.unload_model = None
 
@@ -123,6 +130,7 @@ def test_http_admin_unload_model_failed_returns_error_payload(monkeypatch):
 
 
 def test_http_admin_unload_model_passes_drain_timeout(monkeypatch):
+    """Test http admin unload model passes drain timeout."""
     runtime = _build_runtime()
     runtime.model_registry.unload_model.return_value = True
 
@@ -143,6 +151,7 @@ def test_http_admin_unload_model_passes_drain_timeout(monkeypatch):
 
 
 def test_http_admin_list_models_with_token_succeeds(monkeypatch):
+    """Test http admin list models with token succeeds."""
     runtime = _build_runtime()
     runtime.model_registry.list_models.return_value = ["model-a", "model-b"]
 
@@ -157,6 +166,7 @@ def test_http_admin_list_models_with_token_succeeds(monkeypatch):
 
 
 def test_http_admin_unauthorized_returns_error_payload(monkeypatch):
+    """Test http admin unauthorized returns error payload."""
     runtime = _build_runtime()
     runtime.model_registry.is_loaded.return_value = False
     _enable_admin(monkeypatch, token="expected")
@@ -171,6 +181,7 @@ def test_http_admin_unauthorized_returns_error_payload(monkeypatch):
 
 
 def test_http_admin_model_path_forbidden_returns_error_payload(monkeypatch):
+    """Test http admin model path forbidden returns error payload."""
     runtime = _build_runtime()
     runtime.model_registry.is_loaded.return_value = False
     headers = _enable_admin(monkeypatch)
@@ -189,6 +200,7 @@ def test_http_admin_model_path_forbidden_returns_error_payload(monkeypatch):
 
 
 def test_metrics_endpoints_format(monkeypatch):
+    """Test metrics endpoints format."""
     runtime = _build_runtime()
     app, _, _ = build_http_app(runtime, {"grpc_running": True})
     client = TestClient(app)

@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 
 @dataclass
 class ModelRuntimeConfig:
+    """Model-related runtime configuration."""
+
     model_size: str = "small"
     device: str = "cpu"
     compute_type: str = "int8"
@@ -20,6 +22,8 @@ class ModelRuntimeConfig:
 
 @dataclass
 class StreamingRuntimeConfig:
+    """Streaming/VAD runtime configuration."""
+
     vad_silence: float = 0.8
     vad_threshold: float = 0.5
     vad_model_pool_size: int = 4
@@ -49,6 +53,8 @@ class StreamingRuntimeConfig:
 
 @dataclass
 class StorageRuntimeConfig:
+    """Audio storage runtime configuration."""
+
     enabled: bool = False
     directory: str = "data/audio"
     queue_max_chunks: Optional[int] = 256
@@ -59,6 +65,8 @@ class StorageRuntimeConfig:
 
 @dataclass
 class ServicerConfig:
+    """Top-level configuration for the gRPC servicer runtime."""
+
     model: ModelRuntimeConfig = field(default_factory=ModelRuntimeConfig)
     streaming: StreamingRuntimeConfig = field(default_factory=StreamingRuntimeConfig)
     storage: StorageRuntimeConfig = field(default_factory=StorageRuntimeConfig)

@@ -15,11 +15,13 @@ class SupportedLanguages:
         self._language_map: Dict[str, str] = {}
 
     def get_codes(self) -> Optional[Set[str]]:
+        """Return the set of supported language codes."""
         if not self._language_map:
             self._load()
         return set(self._language_map.keys()) if self._language_map else None
 
     def get_name(self, code: str) -> str:
+        """Return the display name for a language code."""
         if not code:
             return ""
         if not self._language_map:
@@ -27,6 +29,7 @@ class SupportedLanguages:
         return self._language_map.get(code.lower(), "")
 
     def _load(self) -> None:
+        """Populate the language map from the CSV file."""
         csv_path = (
             Path(__file__).resolve().parents[2]
             / "config"

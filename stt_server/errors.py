@@ -10,6 +10,8 @@ import grpc
 
 
 class ErrorCode(str, Enum):
+    """Stable error identifiers surfaced to clients and logs."""
+
     # session (ERR100x)
     SESSION_ID_REQUIRED = "ERR1001"
     SESSION_ID_ALREADY_ACTIVE = "ERR1002"
@@ -40,6 +42,8 @@ class ErrorCode(str, Enum):
 
 @dataclass(frozen=True)
 class ErrorSpec:
+    """Maps an error code to gRPC/HTTP statuses and message."""
+
     code: ErrorCode
     status: grpc.StatusCode
     http_status: int
@@ -173,31 +177,39 @@ ERROR_HTTP_STATUS_MAP: Final[dict[ErrorCode, int]] = {
 
 
 def spec_for(code: ErrorCode) -> ErrorSpec:
+    """Return the ErrorSpec for a given error code."""
     return ERROR_SPECS[code]
 
 
 def status_for(code: ErrorCode) -> grpc.StatusCode:
+    """Return the gRPC status associated with an error code."""
     return ERROR_SPECS[code].status
 
 
 def http_status_for(code: ErrorCode) -> int:
+    """Return the HTTP status associated with an error code."""
     return ERROR_SPECS[code].http_status
 
 
 def format_error(code: ErrorCode, detail: Optional[str] = None) -> str:
+    """Format an error code and optional detail into a message."""
     spec = ERROR_SPECS[code]
     message = detail if detail else spec.message
     return f"{spec.code.value} {message}"
 
 
 def http_payload_for(code: ErrorCode, detail: Optional[str] = None) -> dict[str, str]:
+    """Build an HTTP error payload for a given error code."""
     spec = ERROR_SPECS[code]
     message = detail if detail else spec.message
     return {"code": spec.code.value, "message": message}
 
 
 class STTError(RuntimeError):
+    """Raised for application-defined errors with status metadata."""
+
     def __init__(self, code: ErrorCode, detail: Optional[str] = None) -> None:
+        """Create an STTError with formatted message and status metadata."""
         self.code = code
         self.status = status_for(code)
         self.http_status = http_status_for(code)
@@ -210,6 +222,7 @@ def abort_with_error(
     code: ErrorCode,
     detail: Optional[str] = None,
 ) -> NoReturn:
+    """Abort a gRPC context with an error code and optional detail."""
     context.abort(status_for(code), format_error(code, detail))
     raise RuntimeError("unreachable")
 

@@ -18,6 +18,7 @@ from stt_server.errors import ErrorCode, STTError
 from stt_server.utils.logger import LOGGER
 
 if TYPE_CHECKING:
+    from stt_server.backend.application.model_registry import ModelWorkerProtocol
     from stt_server.backend.application.stream_orchestrator import StreamOrchestrator
 
 
@@ -39,6 +40,8 @@ def _noop_count(_: int) -> None:
 
 @dataclass(frozen=True)
 class DecodeSchedulerHooks:
+    """Callback hooks invoked by the decode scheduler."""
+
     on_error: Callable[[grpc.StatusCode], None] = _noop_status
     on_decode_result: Callable[[float, float, float, float, float], None] = _noop_decode
     on_vad_utterance_end: Callable[[], None] = _noop
@@ -86,9 +89,11 @@ class DecodeScheduler:
         )
 
     def new_stream(self) -> "DecodeStream":
+        """Create a decode stream associated with this scheduler."""
         return DecodeStream(self)
 
     def acquire_pending_slot(self, block: bool, timeout: float | None) -> bool:
+        """Acquire a global pending-decode slot if configured."""
         if not self._pending_sem:
             return True
         if not block:
@@ -96,6 +101,7 @@ class DecodeScheduler:
         return self._pending_sem.acquire(timeout=timeout)
 
     def release_pending_slot(self) -> None:
+        """Release a pending-decode slot when one was acquired."""
         if not self._pending_sem:
             return
         try:
@@ -104,6 +110,7 @@ class DecodeScheduler:
             pass
 
     def workers_healthy(self) -> bool:
+        """Return True when worker pools and health ratios are acceptable."""
         registry_summary = self.stream_orchestrator.model_registry.health_summary()
         if not registry_summary["models_loaded"]:
             return False
@@ -127,6 +134,7 @@ class DecodeScheduler:
         return True
 
     def pending_decodes(self) -> int:
+        """Return the number of pending decode tasks."""
         with self._pending_lock:
             return self._pending_tasks
 
@@ -211,9 +219,11 @@ class DecodeStream:
         self._decode_count = 0
 
     def set_session_id(self, session_id: Optional[str]) -> None:
+        """Associate this decode stream with a session identifier."""
         self.session_id = session_id
 
     def set_model_id(self, model_id: str) -> None:
+        """Associate this decode stream with a model identifier."""
         self.model_id = model_id
 
     def schedule_decode(
@@ -227,13 +237,16 @@ class DecodeStream:
         buffer_started_at: Optional[float] = None,
         holds_slot: bool = False,
     ) -> None:
+        """Submit a decode request and track its pending result."""
         if not pcm:
             LOGGER.debug("Skip decode for empty buffer (final=%s)", is_final)
             if holds_slot:
                 self.scheduler.release_pending_slot()
             return
 
-        worker = self.scheduler.stream_orchestrator.acquire_worker(self.model_id)
+        worker: ModelWorkerProtocol = self.scheduler.stream_orchestrator.acquire_worker(
+            self.model_id
+        )
         future = worker.submit(pcm, sample_rate, decode_options)
         buffer_wait_sec = (
             max(0.0, time.perf_counter() - buffer_started_at)
@@ -293,14 +306,17 @@ class DecodeStream:
             self.scheduler._on_decode_orphaned(orphaned)
 
     def pending_partial_decodes(self) -> int:
+        """Return the number of pending partial decodes."""
         with self._lock:
             return self.pending_partials
 
     def pending_count(self) -> int:
+        """Return the total number of pending decode results."""
         with self._lock:
             return len(self.pending_results)
 
     def drop_pending_partials(self, max_drop: Optional[int] = None) -> Tuple[int, int]:
+        """Cancel pending partial decodes and return (cancelled, orphaned)."""
         if max_drop is not None and max_drop <= 0:
             return 0, 0
         dropped: List[Tuple[futures.Future, bool, float, bool, float, bool]] = []
@@ -336,10 +352,12 @@ class DecodeStream:
         return cancelled, orphaned
 
     def has_pending_results(self) -> bool:
+        """Return True when any pending decode results remain."""
         with self._lock:
             return bool(self.pending_results)
 
     def cancel_pending(self) -> Tuple[int, int]:
+        """Cancel all pending decodes and return (cancelled, orphaned)."""
         with self._lock:
             if not self.pending_results:
                 return 0, 0
@@ -367,6 +385,7 @@ class DecodeStream:
         return cancelled, not_cancelled
 
     def timing_summary(self) -> Tuple[float, float, float, float, int]:
+        """Return aggregate timing totals and decode count."""
         with self._lock:
             return (
                 self._buffer_wait_total,
@@ -395,6 +414,7 @@ class DecodeStream:
             self._decode_count += 1
 
     def emit_ready(self, block: bool) -> Iterable[stt_pb2.STTResult]:
+        """Yield ready decode results, optionally blocking for completion."""
         ready: List[Tuple[futures.Future, bool, float, bool, float, bool]] = []
 
         with self._lock:

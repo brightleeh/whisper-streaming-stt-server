@@ -4,6 +4,7 @@ from stt_server.backend.runtime.metrics import Metrics
 
 
 def test_record_decode_tracks_buffer_wait_and_response_emit():
+    """Test record decode tracks buffer wait and response emit."""
     metrics = Metrics()
 
     metrics.record_decode(

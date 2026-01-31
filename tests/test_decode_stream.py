@@ -13,6 +13,7 @@ from stt_server.errors import ErrorCode, STTError
 
 
 def test_decode_stream_logic_err2001_timeout():
+    """Test decode stream logic err2001 timeout."""
     hooks = DecodeSchedulerHooks(on_error=MagicMock())
     scheduler = DecodeScheduler(MagicMock(), 0.01, MagicMock(), hooks=hooks)
     stream = DecodeStream(scheduler)
@@ -40,6 +41,7 @@ def test_decode_stream_logic_err2001_timeout():
 
 
 def test_decode_stream_logic_err2002_task_failed():
+    """Test decode stream logic err2002 task failed."""
     hooks = DecodeSchedulerHooks(on_error=MagicMock())
     scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock(), hooks=hooks)
     stream = DecodeStream(scheduler)
@@ -63,6 +65,7 @@ def test_decode_stream_logic_err2002_task_failed():
 
 
 def test_decode_stream_timing_summary_after_emit_ready():
+    """Test decode stream timing summary after emit ready."""
     hooks = DecodeSchedulerHooks(on_decode_result=MagicMock())
     language_lookup = MagicMock()
     language_lookup.get_name.return_value = "English"
@@ -70,13 +73,19 @@ def test_decode_stream_timing_summary_after_emit_ready():
     stream = DecodeStream(scheduler)
 
     class FakeSegment:
+        """Test helper FakeSegment."""
+
         def __init__(self, text: str, start: float, end: float) -> None:
+            """Helper for   init  ."""
             self.text = text
             self.start = start
             self.end = end
 
     class FakeResult:
+        """Test helper FakeResult."""
+
         def __init__(self) -> None:
+            """Helper for   init  ."""
             self.segments = [FakeSegment("hello", 0.0, 0.1)]
             self.language_code = "en"
             self.language_probability = 0.9
@@ -118,6 +127,7 @@ def test_decode_stream_timing_summary_after_emit_ready():
 
 
 def test_decode_stream_drop_pending_partials_updates_counts():
+    """Test decode stream drop pending partials updates counts."""
     scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock())
     stream = DecodeStream(scheduler)
 
