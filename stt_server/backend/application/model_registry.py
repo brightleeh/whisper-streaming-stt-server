@@ -183,7 +183,11 @@ class ModelRegistry:
                 )
             except (RuntimeError, ValueError, OSError, TypeError):
                 LOGGER.exception("Failed to load model '%s'", model_id)
-                # ModelWorker doesn't expose an explicit cleanup API.
+                for worker in workers:
+                    try:
+                        worker.close()
+                    except (RuntimeError, ValueError, OSError) as exc:
+                        LOGGER.exception("Failed to close model worker: %s", exc)
                 workers.clear()
                 raise
 

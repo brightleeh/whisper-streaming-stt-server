@@ -94,3 +94,29 @@ def test_get_worker_prefers_lowest_pending():
 
     assert worker is workers[1]
     assert registry._rr_counters[DEFAULT_MODEL_ID] == 2
+
+
+def test_load_model_closes_workers_on_failure(monkeypatch):
+    """Test load model closes partial workers on failure."""
+    closed = []
+
+    class FakeWorker:
+        """Test helper FakeWorker that fails on second init."""
+
+        created = 0
+
+        def __init__(self, *args, **kwargs):
+            if FakeWorker.created == 1:
+                raise RuntimeError("boom")
+            FakeWorker.created += 1
+
+        def close(self, *args, **kwargs) -> None:
+            closed.append(self)
+
+    monkeypatch.setattr(model_registry, "ModelWorker", FakeWorker)
+
+    registry = ModelRegistry()
+    with pytest.raises(RuntimeError):
+        registry.load_model("bad-model", {"pool_size": 2})
+
+    assert len(closed) == 1
