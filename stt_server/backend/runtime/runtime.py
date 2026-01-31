@@ -98,6 +98,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             default_sample_rate=streaming_config.sample_rate,
             decode_timeout_sec=streaming_config.decode_timeout_sec,
             language_lookup=self.supported_languages,
+            log_transcripts=streaming_config.log_transcripts,
         )
         storage_settings = StorageSettings(
             enabled=storage_config.enabled,

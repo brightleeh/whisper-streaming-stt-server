@@ -154,6 +154,7 @@ class StreamOrchestrator:
             health_min_events=config.health.min_events,
             health_max_timeout_ratio=config.health.max_timeout_ratio,
             health_min_success_ratio=config.health.min_success_ratio,
+            log_transcripts=config.stream.log_transcripts,
             hooks=self._hooks.decode_hooks,
         )
 

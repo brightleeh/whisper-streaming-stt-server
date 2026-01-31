@@ -49,6 +49,7 @@ class StreamingRuntimeConfig:
     health_max_timeout_ratio: float = 0.5
     health_min_success_ratio: float = 0.5
     expose_api_key_metrics: bool = False
+    log_transcripts: bool = False
 
 
 @dataclass

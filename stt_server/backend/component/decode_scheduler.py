@@ -62,6 +62,7 @@ class DecodeScheduler:
         health_min_events: int = 5,
         health_max_timeout_ratio: float = 0.5,
         health_min_success_ratio: float = 0.5,
+        log_transcripts: bool = False,
         hooks: DecodeSchedulerHooks | None = None,
     ) -> None:
         self._hooks = hooks or DecodeSchedulerHooks()
@@ -77,6 +78,7 @@ class DecodeScheduler:
         self._health_min_events = max(1, int(health_min_events))
         self._health_max_timeout_ratio = max(0.0, min(1.0, health_max_timeout_ratio))
         self._health_min_success_ratio = max(0.0, min(1.0, health_min_success_ratio))
+        self.log_transcripts = log_transcripts
         self._pending_limit = (
             max(0, int(max_pending_decodes_global))
             if max_pending_decodes_global is not None
@@ -547,20 +549,37 @@ class DecodeStream:
             )
             emit_start = time.perf_counter()
             for seg in result.segments:
-                LOGGER.info(
-                    "session_id=%s %s result='%s' [%.2f, %.2f] lang=%s prob=%.2f",
-                    self.session_id or "unknown",
-                    "final" if is_final else "partial",
-                    seg.text,
-                    seg.start + offset_sec,
-                    seg.end + offset_sec,
-                    result.language_code or "auto",
-                    (
-                        result.language_probability
-                        if result.language_probability >= 0
-                        else -1.0
-                    ),
-                )
+                text = seg.text or ""
+                if self.scheduler.log_transcripts:
+                    LOGGER.info(
+                        "session_id=%s %s result='%s' [%.2f, %.2f] lang=%s prob=%.2f",
+                        self.session_id or "unknown",
+                        "final" if is_final else "partial",
+                        text,
+                        seg.start + offset_sec,
+                        seg.end + offset_sec,
+                        result.language_code or "auto",
+                        (
+                            result.language_probability
+                            if result.language_probability >= 0
+                            else -1.0
+                        ),
+                    )
+                else:
+                    LOGGER.debug(
+                        "session_id=%s %s result_len=%d [%.2f, %.2f] lang=%s prob=%.2f",
+                        self.session_id or "unknown",
+                        "final" if is_final else "partial",
+                        len(text),
+                        seg.start + offset_sec,
+                        seg.end + offset_sec,
+                        result.language_code or "auto",
+                        (
+                            result.language_probability
+                            if result.language_probability >= 0
+                            else -1.0
+                        ),
+                    )
                 yield stt_pb2.STTResult(
                     text=seg.text,
                     is_final=is_final,

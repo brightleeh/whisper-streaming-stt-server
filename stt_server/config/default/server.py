@@ -7,6 +7,7 @@ DEFAULT_MAX_SESSIONS = 4
 DEFAULT_METRICS_PORT = 8000
 DEFAULT_DECODE_TIMEOUT = 30.0
 DEFAULT_LOG_METRICS = False
+DEFAULT_LOG_TRANSCRIPTS = False
 DEFAULT_VAD_SILENCE = 0.8
 DEFAULT_VAD_THRESHOLD = 0.5
 DEFAULT_VAD_MODEL_POOL_SIZE = DEFAULT_MAX_SESSIONS
@@ -74,6 +75,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "level": "log_level",
         "file": "log_file",
         "faster_whisper_level": "faster_whisper_log_level",
+        "log_transcripts": "log_transcripts",
     },
     "storage": {
         "persist_audio": "persist_audio",
@@ -97,6 +99,7 @@ __all__ = [
     "DEFAULT_METRICS_PORT",
     "DEFAULT_DECODE_TIMEOUT",
     "DEFAULT_LOG_METRICS",
+    "DEFAULT_LOG_TRANSCRIPTS",
     "DEFAULT_VAD_SILENCE",
     "DEFAULT_VAD_THRESHOLD",
     "DEFAULT_VAD_MODEL_POOL_SIZE",

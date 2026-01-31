@@ -28,6 +28,7 @@ from stt_server.config.default import (
     DEFAULT_LOG_FILE,
     DEFAULT_LOG_LEVEL,
     DEFAULT_LOG_METRICS,
+    DEFAULT_LOG_TRANSCRIPTS,
     DEFAULT_MAX_BUFFER_SEC,
     DEFAULT_MAX_CHUNK_MS,
     DEFAULT_MAX_PENDING_DECODES_GLOBAL,
@@ -75,6 +76,7 @@ class ServerConfig:
     metrics_port: int = DEFAULT_METRICS_PORT
     decode_timeout_sec: float = DEFAULT_DECODE_TIMEOUT
     log_metrics: bool = DEFAULT_LOG_METRICS
+    log_transcripts: bool = DEFAULT_LOG_TRANSCRIPTS
     vad_silence: float = DEFAULT_VAD_SILENCE
     vad_threshold: float = DEFAULT_VAD_THRESHOLD
     vad_model_pool_size: int = DEFAULT_VAD_MODEL_POOL_SIZE

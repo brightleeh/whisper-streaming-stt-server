@@ -92,6 +92,7 @@ def serve(config: ServerConfig) -> None:
         health_min_events=config.health_min_events,
         health_max_timeout_ratio=config.health_max_timeout_ratio,
         health_min_success_ratio=config.health_min_success_ratio,
+        log_transcripts=config.log_transcripts,
     )
     storage_cfg = StorageRuntimeConfig(
         enabled=config.persist_audio,
@@ -252,7 +253,19 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Disable metric logging (overrides config)",
     )
-    parser.set_defaults(log_metrics=None, language_fix=None)
+    parser.add_argument(
+        "--log-transcripts",
+        dest="log_transcripts",
+        action="store_true",
+        help="Log transcript text in decode logs (PII risk)",
+    )
+    parser.add_argument(
+        "--no-log-transcripts",
+        dest="log_transcripts",
+        action="store_false",
+        help="Disable transcript logging (overrides config)",
+    )
+    parser.set_defaults(log_metrics=None, log_transcripts=None, language_fix=None)
     parser.add_argument(
         "--log-level",
         default=None,
@@ -331,6 +344,8 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.speech_rms_threshold = args.speech_threshold
     if args.log_metrics is not None:
         config.log_metrics = args.log_metrics
+    if args.log_transcripts is not None:
+        config.log_transcripts = args.log_transcripts
     if args.log_level is not None:
         config.log_level = args.log_level
     if args.log_file is not None:

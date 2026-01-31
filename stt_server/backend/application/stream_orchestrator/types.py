@@ -45,6 +45,7 @@ class StreamSettings:
     default_sample_rate: int
     decode_timeout_sec: float
     language_lookup: SupportedLanguages
+    log_transcripts: bool = False
 
 
 @dataclass(frozen=True)

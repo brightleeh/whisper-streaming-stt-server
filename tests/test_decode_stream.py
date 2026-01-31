@@ -153,3 +153,68 @@ def test_decode_stream_drop_pending_partials_updates_counts():
     assert scheduler.pending_decodes() == 2
     assert stream.pending_partials == 1
     assert len(stream.pending_results) == 2
+
+
+def _build_fake_result(text: str):
+    class FakeSegment:
+        """Test helper FakeSegment."""
+
+        def __init__(self, text: str, start: float, end: float) -> None:
+            self.text = text
+            self.start = start
+            self.end = end
+
+    class FakeResult:
+        """Test helper FakeResult."""
+
+        def __init__(self) -> None:
+            self.segments = [FakeSegment(text, 0.0, 0.1)]
+            self.language_code = "en"
+            self.language_probability = 0.9
+            self.latency_sec = 0.25
+            self.rtf = 0.5
+            self.queue_wait_sec = 0.3
+            self.audio_duration = 0.1
+
+    return FakeResult()
+
+
+def _build_stream_with_result(log_transcripts: bool) -> DecodeStream:
+    hooks = DecodeSchedulerHooks(on_decode_result=MagicMock())
+    language_lookup = MagicMock()
+    language_lookup.get_name.return_value = "English"
+    scheduler = DecodeScheduler(
+        MagicMock(), 0.0, language_lookup, hooks=hooks, log_transcripts=log_transcripts
+    )
+    stream = DecodeStream(scheduler)
+    mock_future = MagicMock(spec=futures.Future)
+    mock_future.done.return_value = True
+    mock_future.result.return_value = _build_fake_result("secret")
+    scheduler._increment_pending()
+    stream.pending_results.append((mock_future, True, 0.0, False, 0.0, False))
+    return stream
+
+
+def test_decode_stream_logs_transcript_only_when_enabled():
+    """Test transcript logging respects log_transcripts flag."""
+    with patch("stt_server.backend.component.decode_scheduler.LOGGER") as logger:
+        stream = _build_stream_with_result(log_transcripts=False)
+        list(stream.emit_ready(block=False))
+
+    info_messages = [call.args[0] for call in logger.info.call_args_list]
+    assert not any("result='" in message for message in info_messages)
+    debug_calls = [
+        call for call in logger.debug.call_args_list if "result_len=" in call.args[0]
+    ]
+    assert debug_calls
+    assert debug_calls[0].args[3] == len("secret")
+
+    with patch("stt_server.backend.component.decode_scheduler.LOGGER") as logger:
+        stream = _build_stream_with_result(log_transcripts=True)
+        list(stream.emit_ready(block=False))
+
+    info_calls = [
+        call for call in logger.info.call_args_list if "result='" in call.args[0]
+    ]
+    assert info_calls
+    assert info_calls[0].args[3] == "secret"
