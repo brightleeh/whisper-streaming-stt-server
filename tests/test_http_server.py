@@ -199,6 +199,91 @@ def test_http_admin_model_path_forbidden_returns_error_payload(monkeypatch):
     assert response.json() == http_payload_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
 
 
+def test_http_admin_load_model_status_tracks_success(monkeypatch):
+    """Test admin load model status transitions to success."""
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    load_started = threading.Event()
+    block_event = threading.Event()
+
+    def slow_load(_model_id, _cfg):
+        load_started.set()
+        block_event.wait(timeout=0.2)
+
+    runtime.model_registry.load_model.side_effect = slow_load
+
+    app, load_threads, load_threads_lock = build_http_app(
+        runtime, {"grpc_running": True}
+    )
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.post(
+        "/admin/load_model", json={"model_id": "test-model"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert load_started.wait(timeout=0.5)
+
+    status = client.get(
+        "/admin/load_model_status",
+        params={"model_id": "test-model"},
+        headers=headers,
+    )
+    assert status.status_code == 200
+    assert status.json()["status"] == "running"
+
+    block_event.set()
+    with load_threads_lock:
+        threads = list(load_threads)
+    for thread in threads:
+        thread.join(timeout=0.5)
+
+    status = client.get(
+        "/admin/load_model_status",
+        params={"model_id": "test-model"},
+        headers=headers,
+    )
+    assert status.status_code == 200
+    assert status.json()["status"] == "success"
+
+
+def test_http_admin_load_model_status_tracks_failure(monkeypatch):
+    """Test admin load model status transitions to failed."""
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+
+    def fail_load(_model_id, _cfg):
+        raise RuntimeError("boom")
+
+    runtime.model_registry.load_model.side_effect = fail_load
+
+    app, load_threads, load_threads_lock = build_http_app(
+        runtime, {"grpc_running": True}
+    )
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.post(
+        "/admin/load_model", json={"model_id": "bad-model"}, headers=headers
+    )
+    assert response.status_code == 200
+
+    with load_threads_lock:
+        threads = list(load_threads)
+    for thread in threads:
+        thread.join(timeout=0.5)
+
+    status = client.get(
+        "/admin/load_model_status",
+        params={"model_id": "bad-model"},
+        headers=headers,
+    )
+    assert status.status_code == 200
+    payload = status.json()
+    assert payload["status"] == "failed"
+    assert "boom" in payload.get("error", "")
+
+
 def test_metrics_endpoints_format(monkeypatch):
     """Test metrics endpoints format."""
     runtime = _build_runtime()

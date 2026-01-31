@@ -108,6 +108,30 @@ class LoadModelRequest(BaseModel):
 
 
 @dataclass
+class LoadJobState:
+    """Track the status of a background model load."""
+
+    status: str
+    model_id: str
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+    error: Optional[str] = None
+
+    def to_payload(self) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "status": self.status,
+            "model_id": self.model_id,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+        }
+        if self.error:
+            payload["error"] = self.error
+        if self.started_at is not None and self.finished_at is not None:
+            payload["duration_sec"] = max(0.0, self.finished_at - self.started_at)
+        return payload
+
+
+@dataclass
 class HttpServerHandle:
     """Handle for the background HTTP server and admin load threads."""
 
@@ -146,12 +170,38 @@ def build_http_app(
     health_snapshot = runtime.health_snapshot
     load_threads: List[threading.Thread] = []
     load_threads_lock = threading.Lock()
+    load_statuses: Dict[str, LoadJobState] = {}
+    load_statuses_lock = threading.Lock()
 
     def _prune_load_threads() -> None:
         with load_threads_lock:
             if not load_threads:
                 return
             load_threads[:] = [thread for thread in load_threads if thread.is_alive()]
+
+    def _get_load_status(model_id: str) -> Optional[LoadJobState]:
+        with load_statuses_lock:
+            return load_statuses.get(model_id)
+
+    def _set_load_status(
+        model_id: str,
+        status: str,
+        *,
+        started_at: Optional[float] = None,
+        finished_at: Optional[float] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        with load_statuses_lock:
+            state = load_statuses.get(model_id)
+            if state is None:
+                state = LoadJobState(status=status, model_id=model_id)
+                load_statuses[model_id] = state
+            state.status = status
+            if started_at is not None:
+                state.started_at = started_at
+            if finished_at is not None:
+                state.finished_at = finished_at
+            state.error = error
 
     @app.exception_handler(STTError)
     async def stt_error_handler(_request: Request, exc: STTError) -> JSONResponse:
@@ -228,6 +278,15 @@ def build_http_app(
             raise STTError(ErrorCode.ADMIN_API_DISABLED)
 
         _prune_load_threads()
+        existing = _get_load_status(req.model_id)
+        if existing and existing.status in {"queued", "running"}:
+            return JSONResponse(
+                {
+                    "status": existing.status,
+                    "message": f"Model '{req.model_id}' is already loading.",
+                    "job": existing.to_payload(),
+                }
+            )
         if model_registry.is_loaded(req.model_id):
             raise STTError(
                 ErrorCode.MODEL_ALREADY_LOADED,
@@ -236,24 +295,60 @@ def build_http_app(
         if not _model_path_allowed(req.model_path):
             raise STTError(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
 
+        _set_load_status(
+            req.model_id,
+            "queued",
+            error=None,
+            started_at=None,
+            finished_at=None,
+        )
+
         # Load in a separate thread to prevent blocking the main loop
         def _load_model_safe() -> None:
+            _set_load_status(
+                req.model_id, "running", started_at=time.time(), error=None
+            )
             try:
                 load_fn(req.model_id, req.model_dump())
-            except (OSError, RuntimeError, TypeError, ValueError, STTError):
+            except (OSError, RuntimeError, TypeError, ValueError, STTError) as exc:
+                error = str(exc).strip() or exc.__class__.__name__
+                _set_load_status(
+                    req.model_id,
+                    "failed",
+                    finished_at=time.time(),
+                    error=error,
+                )
                 LOGGER.exception("Failed to load model '%s'", req.model_id)
+                return
+            _set_load_status(
+                req.model_id, "success", finished_at=time.time(), error=None
+            )
 
         thread = threading.Thread(target=_load_model_safe, daemon=True)
         with load_threads_lock:
             load_threads.append(thread)
         thread.start()
 
+        job_state = _get_load_status(req.model_id)
         return JSONResponse(
             {
                 "status": "loading_started",
                 "message": f"Model '{req.model_id}' is loading in the background.",
+                "job": (
+                    job_state.to_payload()
+                    if job_state
+                    else {"status": "unknown", "model_id": req.model_id}
+                ),
             }
         )
+
+    @app.get("/admin/load_model_status")
+    def load_model_status_endpoint(model_id: str, request: Request) -> JSONResponse:
+        _require_admin(request)
+        state = _get_load_status(model_id)
+        if not state:
+            return JSONResponse({"status": "unknown", "model_id": model_id})
+        return JSONResponse(state.to_payload())
 
     @app.post("/admin/unload_model")
     def unload_model_endpoint(
