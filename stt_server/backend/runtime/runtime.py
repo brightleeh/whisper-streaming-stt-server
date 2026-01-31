@@ -14,8 +14,17 @@ from stt_server.backend.application.session_manager import (
 )
 from stt_server.backend.application.stream_orchestrator import (
     StreamOrchestrator,
-    StreamOrchestratorConfig,
     StreamOrchestratorHooks,
+)
+from stt_server.backend.application.stream_orchestrator.types import (
+    BufferLimits,
+    DecodeQueueSettings,
+    HealthSettings,
+    PartialDecodeSettings,
+    StorageSettings,
+    StreamOrchestratorConfig,
+    StreamSettings,
+    VADPoolSettings,
 )
 from stt_server.backend.component.decode_scheduler import DecodeSchedulerHooks
 from stt_server.backend.component.vad_gate import release_vad_slot
@@ -27,7 +36,7 @@ from stt_server.config.languages import SupportedLanguages
 from stt_server.utils.logger import LOGGER
 
 
-class ApplicationRuntime:
+class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
     """Builds and owns application-layer dependencies."""
 
     def __init__(
@@ -77,7 +86,7 @@ class ApplicationRuntime:
             default_vad_threshold=streaming_config.vad_threshold,
         )
         storage_config = self.config.storage
-        orchestrator_config = StreamOrchestratorConfig(
+        stream_settings = StreamSettings(
             vad_threshold=streaming_config.vad_threshold,
             vad_silence=streaming_config.vad_silence,
             speech_rms_threshold=streaming_config.speech_rms_threshold,
@@ -85,30 +94,51 @@ class ApplicationRuntime:
             default_sample_rate=streaming_config.sample_rate,
             decode_timeout_sec=streaming_config.decode_timeout_sec,
             language_lookup=self.supported_languages,
-            vad_model_pool_size=streaming_config.vad_model_pool_size,
-            vad_model_prewarm=streaming_config.vad_model_prewarm,
-            vad_model_pool_max_size=streaming_config.vad_model_pool_max_size,
-            vad_model_pool_growth_factor=streaming_config.vad_model_pool_growth_factor,
+        )
+        storage_settings = StorageSettings(
+            enabled=storage_config.enabled,
+            directory=storage_config.directory,
+            queue_max_chunks=storage_config.queue_max_chunks,
+            max_bytes=storage_config.max_bytes,
+            max_files=storage_config.max_files,
+            max_age_days=storage_config.max_age_days,
+        )
+        vad_pool_settings = VADPoolSettings(
+            size=streaming_config.vad_model_pool_size,
+            prewarm=streaming_config.vad_model_prewarm,
+            max_size=streaming_config.vad_model_pool_max_size,
+            growth_factor=streaming_config.vad_model_pool_growth_factor,
+        )
+        buffer_limits = BufferLimits(
             max_buffer_sec=streaming_config.max_buffer_sec,
             max_buffer_bytes=streaming_config.max_buffer_bytes,
             max_chunk_ms=streaming_config.max_chunk_ms,
-            partial_decode_interval_sec=streaming_config.partial_decode_interval_sec,
-            partial_decode_window_sec=streaming_config.partial_decode_window_sec,
+            max_total_buffer_bytes=streaming_config.max_total_buffer_bytes,
+            buffer_overlap_sec=streaming_config.buffer_overlap_sec,
+        )
+        partial_decode = PartialDecodeSettings(
+            interval_sec=streaming_config.partial_decode_interval_sec,
+            window_sec=streaming_config.partial_decode_window_sec,
+        )
+        decode_queue = DecodeQueueSettings(
             max_pending_decodes_per_stream=streaming_config.max_pending_decodes_per_stream,
             max_pending_decodes_global=streaming_config.max_pending_decodes_global,
-            max_total_buffer_bytes=streaming_config.max_total_buffer_bytes,
             decode_queue_timeout_sec=streaming_config.decode_queue_timeout_sec,
-            buffer_overlap_sec=streaming_config.buffer_overlap_sec,
-            health_window_sec=streaming_config.health_window_sec,
-            health_min_events=streaming_config.health_min_events,
-            health_max_timeout_ratio=streaming_config.health_max_timeout_ratio,
-            health_min_success_ratio=streaming_config.health_min_success_ratio,
-            storage_enabled=storage_config.enabled,
-            storage_directory=storage_config.directory,
-            storage_queue_max_chunks=storage_config.queue_max_chunks,
-            storage_max_bytes=storage_config.max_bytes,
-            storage_max_files=storage_config.max_files,
-            storage_max_age_days=storage_config.max_age_days,
+        )
+        health = HealthSettings(
+            window_sec=streaming_config.health_window_sec,
+            min_events=streaming_config.health_min_events,
+            max_timeout_ratio=streaming_config.health_max_timeout_ratio,
+            min_success_ratio=streaming_config.health_min_success_ratio,
+        )
+        orchestrator_config = StreamOrchestratorConfig(
+            stream=stream_settings,
+            storage=storage_settings,
+            vad_pool=vad_pool_settings,
+            buffer_limits=buffer_limits,
+            partial_decode=partial_decode,
+            decode_queue=decode_queue,
+            health=health,
         )
         decode_hooks = DecodeSchedulerHooks(
             on_error=self.metrics.record_error,
@@ -160,6 +190,7 @@ class ApplicationRuntime:
             self.metrics.decrease_active_sessions(info.api_key)
 
     def health_snapshot(self) -> Dict[str, Any]:
+        """Return a point-in-time snapshot of runtime health metrics."""
         metrics_snapshot = self.metrics.snapshot()
         registry_summary = self.model_registry.health_summary()
         return {
@@ -175,4 +206,5 @@ class ApplicationRuntime:
         }
 
     def shutdown(self) -> None:
+        """Release runtime resources before exiting."""
         self.model_registry.close()
