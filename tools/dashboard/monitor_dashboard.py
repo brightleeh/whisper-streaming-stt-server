@@ -13,7 +13,7 @@ def fetch_json(
         response = requests.get(url, timeout=timeout)
         response.raise_for_status()
         return response.json(), None
-    except Exception as exc:  # pylint: disable=broad-exception-caught
+    except (requests.RequestException, ValueError) as exc:
         return None, str(exc)
 
 

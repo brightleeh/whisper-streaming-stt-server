@@ -125,7 +125,7 @@ def _extract_decode_metrics(
             value = value.decode(errors="replace")
         try:
             mapping[key_lower] = float(value)
-        except Exception:
+        except (ValueError, TypeError):
             continue
     return mapping
 
@@ -154,7 +154,7 @@ class BenchStats:
         self.failures += 1
         try:
             code = exc.code().name
-        except Exception:
+        except (AttributeError, ValueError, TypeError):
             code = "UNKNOWN"
         self.error_counts[code] = self.error_counts.get(code, 0) + 1
 
@@ -437,7 +437,7 @@ def run_channel(
                 responses += 1
             try:
                 trailing = call.trailing_metadata()
-            except Exception:
+            except grpc.RpcError:
                 trailing = None
             decode_metrics = _extract_decode_metrics(trailing)
             end = time.perf_counter()

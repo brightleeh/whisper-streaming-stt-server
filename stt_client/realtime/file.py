@@ -356,7 +356,7 @@ def run(
             file=sys.stderr,
         )
         raise
-    except Exception as exc:
+    except (RuntimeError, ValueError, OSError) as exc:
         print(
             f"[STREAM] session_id={session_id} terminated by client error: {exc}",
             file=sys.stderr,

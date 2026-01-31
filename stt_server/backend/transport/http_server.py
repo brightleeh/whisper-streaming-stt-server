@@ -231,7 +231,7 @@ def build_http_app(
         def _load_model_safe() -> None:
             try:
                 load_fn(req.model_id, req.model_dump())
-            except Exception:
+            except (OSError, RuntimeError, TypeError, ValueError, STTError):
                 LOGGER.exception("Failed to load model '%s'", req.model_id)
 
         thread = threading.Thread(target=_load_model_safe, daemon=True)

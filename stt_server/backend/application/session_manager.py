@@ -174,7 +174,7 @@ class SessionFacade:
         if isinstance(value, bytes):
             try:
                 value = value.decode("utf-8", errors="ignore")
-            except Exception:
+            except UnicodeDecodeError:
                 return None
         normalized = str(value).strip()
         return normalized or None

@@ -36,7 +36,7 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
             self._record_error(exc.status)
             LOGGER.error(str(exc))
             context.abort(exc.status, str(exc))
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError):
             self._record_error(status_for(ErrorCode.CREATE_SESSION_UNEXPECTED))
             LOGGER.exception(format_error(ErrorCode.CREATE_SESSION_UNEXPECTED))
             raise
@@ -55,7 +55,7 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
             self._record_error(exc.status)
             LOGGER.error(str(exc))
             context.abort(exc.status, str(exc))
-        except Exception:
+        except (AttributeError, KeyError, OSError, RuntimeError, TypeError, ValueError):
             self._record_error(status_for(ErrorCode.STREAM_UNEXPECTED))
             LOGGER.exception(format_error(ErrorCode.STREAM_UNEXPECTED))
             raise

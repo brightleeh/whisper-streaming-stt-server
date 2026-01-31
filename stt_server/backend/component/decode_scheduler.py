@@ -502,13 +502,25 @@ class DecodeStream:
         ) in ready:
             try:
                 result = future.result()
-            except Exception as e:
+            except STTError as exc:
+                self.scheduler._on_decode_error(exc.status)
+                self.scheduler._record_health_event("error")
+                self._finalize_pending(is_final, holds_slot)
+                raise
+            except (
+                futures.CancelledError,
+                futures.TimeoutError,
+                RuntimeError,
+                ValueError,
+                TypeError,
+                OSError,
+            ) as exc:
                 self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
                 self.scheduler._record_health_event("error")
                 self._finalize_pending(is_final, holds_slot)
                 raise STTError(
-                    ErrorCode.DECODE_TASK_FAILED, f"decode task failed: {e}"
-                ) from e
+                    ErrorCode.DECODE_TASK_FAILED, f"decode task failed: {exc}"
+                ) from exc
 
             language_name = self.scheduler.language_lookup.get_name(
                 result.language_code

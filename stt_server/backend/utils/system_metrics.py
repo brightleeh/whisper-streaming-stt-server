@@ -97,12 +97,12 @@ def _collect_nvidia_metrics() -> List[Dict[str, Any]]:
                 }
             )
         return gpus
-    except Exception:
+    except (pynvml.NVMLError, OSError, ValueError):
         return []
     finally:
         try:
             pynvml.nvmlShutdown()
-        except Exception:
+        except (pynvml.NVMLError, OSError):
             pass
 
 

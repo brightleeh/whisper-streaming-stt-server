@@ -318,7 +318,7 @@ def run(
         raise
     except KeyboardInterrupt:
         print(f"[STREAM] session_id={session_id} interrupted by user")
-    except Exception as exc:
+    except (RuntimeError, ValueError, OSError) as exc:
         print(
             f"[STREAM] session_id={session_id} terminated by client error: {exc}",
             file=sys.stderr,

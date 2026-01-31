@@ -73,7 +73,7 @@ def _load_silero_model() -> VADModel:
     assert load_silero_vad is not None
     try:
         return cast(VADModel, load_silero_vad(onnx=True))
-    except Exception as exc:  # pylint: disable=broad-except
+    except (ImportError, OSError, RuntimeError, TypeError, ValueError) as exc:
         # Silero loader can raise many runtime errors depending on backends.
         LOGGER.warning(
             "Failed to load ONNX Silero VAD model; falling back to TorchScript. "
@@ -99,7 +99,7 @@ def _new_silero_model():
     base_model = _load_silero_base_model()
     try:
         model = copy.deepcopy(base_model)
-    except Exception:  # pylint: disable=broad-except
+    except (AttributeError, RuntimeError, TypeError, ValueError):
         # deepcopy can fail for non-picklable model components; reload instead.
         model = _load_silero_model()
     if hasattr(model, "eval"):
@@ -164,7 +164,7 @@ def configure_vad_model_pool(
                 break
         try:
             model = _new_silero_model()
-        except Exception:  # pylint: disable=broad-except
+        except (OSError, RuntimeError, TypeError, ValueError):
             LOGGER.exception("Failed to prewarm VAD model pool")
             break
         with state.pool_lock:

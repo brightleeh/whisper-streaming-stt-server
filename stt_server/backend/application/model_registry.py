@@ -136,12 +136,10 @@ class ModelRegistry:
                 LOGGER.info(
                     "Successfully loaded model '%s' (pool_size=%d)", model_id, pool_size
                 )
-            except Exception:
+            except (RuntimeError, ValueError, OSError, TypeError):
                 LOGGER.exception("Failed to load model '%s'", model_id)
-                # Cleanup partially loaded workers
-                for w in workers:
-                    # ModelWorker doesn't have explicit close, but we drop references
-                    pass
+                # ModelWorker doesn't expose an explicit cleanup API.
+                workers.clear()
                 raise
 
     def get_worker(self, model_id: str) -> Optional[ModelWorker]:
@@ -207,8 +205,8 @@ class ModelRegistry:
         for worker in workers:
             try:
                 worker.close(timeout)
-            except Exception:
-                LOGGER.exception("Failed to close model worker")
+            except (RuntimeError, ValueError) as exc:
+                LOGGER.exception("Failed to close model worker: %s", exc)
         # Force garbage collection advice could be placed here
         return True
 
@@ -223,5 +221,5 @@ class ModelRegistry:
             for worker in pool:
                 try:
                     worker.close()
-                except Exception:
-                    LOGGER.exception("Failed to close model worker")
+                except (RuntimeError, ValueError) as exc:
+                    LOGGER.exception("Failed to close model worker: %s", exc)

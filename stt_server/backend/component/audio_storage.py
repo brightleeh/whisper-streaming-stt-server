@@ -72,7 +72,7 @@ class SessionAudioRecorder:
                 self._wave.writeframes(chunk)
                 with self._lock:
                     self._bytes_written += len(chunk)
-        except Exception:
+        except (OSError, ValueError, wave.Error):
             LOGGER.exception(
                 "Audio writer failed session_id=%s path=%s", self.session_id, self.path
             )
