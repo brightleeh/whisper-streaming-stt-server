@@ -1,3 +1,5 @@
+"""Realtime microphone client for the STT server."""
+
 import argparse
 import queue
 import sys
@@ -34,6 +36,7 @@ CONFIG_KEYS = {
 
 
 def load_yaml_config(path: Path) -> Dict[str, Any]:
+    """Load a YAML configuration file into a dict."""
     with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     if not isinstance(data, dict):
@@ -42,6 +45,7 @@ def load_yaml_config(path: Path) -> Dict[str, Any]:
 
 
 def task_to_enum(value: str) -> stt_pb2.Task.ValueType:
+    """Map a task string to the protobuf enum."""
     return (
         stt_pb2.TASK_TRANSLATE
         if value.lower() == "translate"
@@ -50,6 +54,7 @@ def task_to_enum(value: str) -> stt_pb2.Task.ValueType:
 
 
 def profile_to_enum(value: str) -> stt_pb2.DecodeProfile.ValueType:
+    """Map a decode profile string to the protobuf enum."""
     return (
         stt_pb2.DECODE_PROFILE_ACCURATE
         if value.lower() == "accurate"
@@ -62,6 +67,7 @@ def _create_channel(
     grpc_max_receive_message_bytes: Optional[int],
     grpc_max_send_message_bytes: Optional[int],
 ) -> grpc.Channel:
+    """Create a gRPC channel with optional message size limits."""
     options = []
     if grpc_max_receive_message_bytes and grpc_max_receive_message_bytes > 0:
         options.append(
@@ -88,11 +94,13 @@ class MicrophoneStream:
         self.samples_sent = 0
 
     def start(self) -> "MicrophoneStream":
+        """Start the background audio capture thread."""
         self.thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.thread.start()
         return self
 
     def _capture_loop(self) -> None:
+        """Capture audio frames and enqueue them for streaming."""
         try:
             with sd.RawInputStream(
                 samplerate=self.sample_rate,
@@ -117,6 +125,7 @@ class MicrophoneStream:
     def request_stream(
         self, session_id: str, session_token: str
     ) -> Iterator[stt_pb2.AudioChunk]:
+        """Yield AudioChunk messages from captured microphone audio."""
         while True:
             item = self.queue.get()
             if item is None:
@@ -141,6 +150,7 @@ class MicrophoneStream:
         )
 
     def stop(self) -> None:
+        """Signal the capture thread to stop and drain the queue."""
         self.stop_event.set()
         if self.thread and self.thread.is_alive():
             self.thread.join(timeout=1.0)
@@ -149,6 +159,7 @@ class MicrophoneStream:
 
     @property
     def duration_seconds(self) -> float:
+        """Return total captured audio duration in seconds."""
         if self.sample_rate <= 0:
             return 0.0
         return self.samples_sent / float(self.sample_rate)
@@ -170,7 +181,10 @@ def run(
     vad_silence: Optional[float],
     vad_threshold: Optional[float],
 ) -> None:
+    """Run a realtime microphone streaming session."""
+
     def merge_transcript(prefix: str, next_text: str) -> str:
+        """Combine partial transcripts without duplicating prefixes."""
         prefix = prefix.strip()
         next_text = next_text.strip()
         if not prefix:
@@ -190,6 +204,7 @@ def run(
         score: float,
         recognized_at: float,
     ) -> str:
+        """Format a single recognition response for display."""
         return (
             f"{prefix} TEXT: {text}\n"
             f"   TIME: {start_sec:.2f}-{end_sec:.2f}s\n"
@@ -323,6 +338,7 @@ def run(
 
 
 def main() -> None:
+    """CLI entrypoint for the realtime microphone client."""
     config_parser = argparse.ArgumentParser(add_help=False)
     config_parser.add_argument(
         "-c",

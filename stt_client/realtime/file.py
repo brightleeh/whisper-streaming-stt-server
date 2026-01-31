@@ -1,3 +1,5 @@
+"""Realtime file-streaming client for the STT server."""
+
 import argparse
 import sys
 import time
@@ -39,12 +41,16 @@ CONFIG_KEYS = {
 
 @dataclass
 class StreamStats:
+    """Accumulates stream counters for chunks and responses."""
+
     chunks: int = 0
     responses: int = 0
 
 
 @dataclass(frozen=True)
 class ResultDisplay:
+    """Display-ready fields for a recognition result."""
+
     session_id: str
     text: str
     time: str
@@ -56,6 +62,8 @@ class ResultDisplay:
 
 @dataclass(frozen=True)
 class MetricSummary:
+    """Summary of client-side streaming metrics."""
+
     session_id: str
     mode: str
     chunks_sent: int
@@ -66,6 +74,7 @@ class MetricSummary:
 
 
 def load_yaml_config(path: Path) -> Dict[str, Any]:
+    """Load a YAML configuration file into a dict."""
     with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     if not isinstance(data, dict):
@@ -74,6 +83,7 @@ def load_yaml_config(path: Path) -> Dict[str, Any]:
 
 
 def task_to_enum(value: str) -> stt_pb2.Task.ValueType:
+    """Map a task string to the protobuf enum."""
     return (
         stt_pb2.TASK_TRANSLATE
         if value.lower() == "translate"
@@ -82,6 +92,7 @@ def task_to_enum(value: str) -> stt_pb2.Task.ValueType:
 
 
 def profile_to_enum(value: str) -> stt_pb2.DecodeProfile.ValueType:
+    """Map a decode profile string to the protobuf enum."""
     return (
         stt_pb2.DECODE_PROFILE_ACCURATE
         if value.lower() == "accurate"
@@ -90,6 +101,7 @@ def profile_to_enum(value: str) -> stt_pb2.DecodeProfile.ValueType:
 
 
 def load_audio(filepath: str) -> Tuple[np.ndarray, int]:
+    """Load an audio file and return PCM16 samples with sample rate."""
     audio, sr = sf.read(filepath)
     if audio.ndim > 1:
         audio = audio[:, 0]  # mono only
@@ -98,6 +110,7 @@ def load_audio(filepath: str) -> Tuple[np.ndarray, int]:
 
 
 def merge_transcript(prefix: str, next_text: str) -> str:
+    """Combine partial transcripts while avoiding duplicated prefixes."""
     prefix = prefix.strip()
     next_text = next_text.strip()
     if not prefix:
@@ -114,6 +127,7 @@ def _create_channel(
     grpc_max_receive_message_bytes: Optional[int],
     grpc_max_send_message_bytes: Optional[int],
 ) -> grpc.Channel:
+    """Create a gRPC channel with optional message size limits."""
     options = []
     if grpc_max_receive_message_bytes and grpc_max_receive_message_bytes > 0:
         options.append(
@@ -127,6 +141,7 @@ def _create_channel(
 
 
 def _format_value(key: str, value: Any) -> str:
+    """Format scalar values for key/value display."""
     if isinstance(value, float):
         suffix = "s" if key.endswith("_sec") else ""
         return f"{value:.2f}{suffix}"
@@ -134,6 +149,7 @@ def _format_value(key: str, value: Any) -> str:
 
 
 def format_kv_block(title: str, values: Dict[str, Any]) -> str:
+    """Format a dict into an aligned key/value block."""
     if not values:
         return f"[{title}]"
     width = max(len(label) for label in values)
@@ -154,6 +170,7 @@ def format_output(
     recognized_at: float,
     session_id: str,
 ) -> str:
+    """Format a recognition response for display."""
     display = ResultDisplay(
         session_id=session_id,
         text=text,
@@ -176,6 +193,7 @@ def stream_chunks(
     session_token: str,
     progress_state: Optional[Dict[str, bool]] = None,
 ) -> Iterator[stt_pb2.AudioChunk]:
+    """Yield PCM chunks as AudioChunk messages, optionally in real time."""
     samples_per_chunk = max(int(sr * (chunk_ms / 1000)), 1)
     idx = 0
     total = len(audio)
@@ -236,6 +254,7 @@ def run(
     vad_silence: Optional[float],
     vad_threshold: Optional[float],
 ) -> None:
+    """Run a realtime streaming session for a single audio file."""
     channel = _create_channel(
         target, grpc_max_receive_message_bytes, grpc_max_send_message_bytes
     )
@@ -362,6 +381,7 @@ def run(
 
 
 def main() -> None:
+    """CLI entrypoint for the realtime file client."""
     config_parser = argparse.ArgumentParser(add_help=False)
     config_parser.add_argument(
         "-c",
