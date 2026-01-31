@@ -28,6 +28,9 @@ DEFAULT_DECODE_QUEUE_TIMEOUT_SEC = 1.0
 DEFAULT_BUFFER_OVERLAP_SEC = 0.5
 DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES = 8 * 1024 * 1024
 DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES = 4 * 1024 * 1024
+DEFAULT_GRPC_WORKER_THREADS = (
+    0  # 0 = auto; keep >max_sessions to avoid starving short RPCs.
+)
 DEFAULT_TLS_CERT_FILE = None
 DEFAULT_TLS_KEY_FILE = None
 DEFAULT_HEALTH_WINDOW_SEC = 60.0
@@ -46,6 +49,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "http_host": "http_host",
         "max_sessions": "max_sessions",
         "metrics_port": "metrics_port",
+        "grpc_worker_threads": "grpc_worker_threads",
         "decode_timeout_sec": "decode_timeout_sec",
         "max_buffer_sec": "max_buffer_sec",
         "max_buffer_bytes": "max_buffer_bytes",
@@ -127,6 +131,7 @@ __all__ = [
     "DEFAULT_BUFFER_OVERLAP_SEC",
     "DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES",
     "DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES",
+    "DEFAULT_GRPC_WORKER_THREADS",
     "DEFAULT_TLS_CERT_FILE",
     "DEFAULT_TLS_KEY_FILE",
     "DEFAULT_MAX_PENDING_DECODES_PER_STREAM",

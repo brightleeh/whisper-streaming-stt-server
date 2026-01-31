@@ -60,6 +60,7 @@ python -m stt_server.main --log-metrics
 - `--decode-timeout` specifies the wait time for outstanding decode tasks
   during draining (<=0 waits indefinitely).
 - `--metrics-port` sets the FastAPI metrics/health server port (default 8000).
+- `--grpc-worker-threads` controls the gRPC thread pool size (0/unset = auto).
 - Sessions auto-disconnect after 60 seconds of silence; adjust `server.session_timeout_sec` in `config/server.yaml` (or set your own config file).
 
 If you want TLS on the server, pass cert/key paths:

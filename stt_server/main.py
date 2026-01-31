@@ -33,7 +33,10 @@ def serve(config: ServerConfig) -> None:
     shutdown_once = threading.Event()
     shutdown_done = threading.Event()
     force_exit_scheduled = threading.Event()
-    grpc_executor = futures.ThreadPoolExecutor(max_workers=config.max_sessions)
+    grpc_workers = config.grpc_worker_threads
+    if grpc_workers <= 0:
+        grpc_workers = max(4, config.max_sessions + 4)
+    grpc_executor = futures.ThreadPoolExecutor(max_workers=grpc_workers)
     grpc_options = []
     if (
         config.grpc_max_receive_message_bytes
@@ -251,6 +254,12 @@ def parse_args() -> argparse.Namespace:
         help="Port for HTTP metrics/health server",
     )
     parser.add_argument(
+        "--grpc-worker-threads",
+        type=int,
+        default=None,
+        help="gRPC thread pool size (0 or unset uses auto sizing)",
+    )
+    parser.add_argument(
         "--max-sessions",
         type=int,
         default=None,
@@ -369,6 +378,8 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.max_sessions = args.max_sessions
     if args.metrics_port is not None:
         config.metrics_port = args.metrics_port
+    if args.grpc_worker_threads is not None:
+        config.grpc_worker_threads = args.grpc_worker_threads
     if args.decode_timeout is not None:
         config.decode_timeout_sec = args.decode_timeout
     if args.speech_threshold is not None:
