@@ -66,9 +66,8 @@ if TYPE_CHECKING:
     from stt_server.model.worker import ModelWorker
 
 
-_VAD_MODE_ENUM = stt_pb2.DESCRIPTOR.enum_types_by_name["VADMode"]
-VAD_CONTINUE = _VAD_MODE_ENUM.values_by_name["VAD_CONTINUE"].number
-VAD_AUTO_END = _VAD_MODE_ENUM.values_by_name["VAD_AUTO_END"].number
+VAD_CONTINUE = stt_pb2.VAD_CONTINUE
+VAD_AUTO_END = stt_pb2.VAD_AUTO_END
 
 
 class StreamOrchestrator:

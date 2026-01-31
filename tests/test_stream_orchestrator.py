@@ -25,10 +25,6 @@ from stt_server.backend.application.stream_orchestrator.types import (
 from stt_server.config.languages import SupportedLanguages
 from stt_server.errors import ErrorCode, status_for
 
-_VAD_MODE_ENUM = stt_pb2.DESCRIPTOR.enum_types_by_name["VADMode"]
-VAD_CONTINUE = _VAD_MODE_ENUM.values_by_name["VAD_CONTINUE"].number
-AudioChunk = getattr(stt_pb2, "AudioChunk")
-
 
 class FakeContext:
     """Minimal gRPC context stub for stream orchestrator tests."""
@@ -230,7 +226,7 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
         session_id,
         SessionInfo(
             attributes={},
-            vad_mode=VAD_CONTINUE,
+            vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
             token="",
@@ -252,8 +248,8 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
     sample_rate = 16000
     one_sec_pcm16 = b"\x00\x00" * sample_rate
     chunks = [
-        AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
-        AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
+        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
+        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
     ]
 
     context = FakeContext()
@@ -298,7 +294,7 @@ def test_stream_orchestrator_buffer_limit_uses_window_bytes(monkeypatch):
         session_id,
         SessionInfo(
             attributes={},
-            vad_mode=VAD_CONTINUE,
+            vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=1.0,
             token="",
@@ -320,8 +316,8 @@ def test_stream_orchestrator_buffer_limit_uses_window_bytes(monkeypatch):
     sample_rate = 16000
     one_sec_pcm16 = b"\x00\x00" * sample_rate
     chunks = [
-        AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
-        AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
+        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
+        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id),
     ]
 
     context = FakeContext()
@@ -367,7 +363,7 @@ def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
         session_id,
         SessionInfo(
             attributes={},
-            vad_mode=VAD_CONTINUE,
+            vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
             token="",
@@ -389,7 +385,7 @@ def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
     sample_rate = 16000
     oversized_pcm16 = b"\x00\x00" * 1000
     chunks = [
-        AudioChunk(
+        stt_pb2.AudioChunk(
             pcm16=oversized_pcm16, sample_rate=sample_rate, session_id=session_id
         )
     ]
@@ -411,7 +407,7 @@ def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
         session_id,
         SessionInfo(
             attributes={},
-            vad_mode=VAD_CONTINUE,
+            vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=1.0,
             token="",
@@ -469,7 +465,7 @@ def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
     sample_rate = 16000
     one_sec_pcm16 = b"\x00\x00" * sample_rate
     chunks = [
-        AudioChunk(
+        stt_pb2.AudioChunk(
             pcm16=one_sec_pcm16,
             sample_rate=sample_rate,
             session_id=session_id,
@@ -494,7 +490,7 @@ def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
         session_id,
         SessionInfo(
             attributes={},
-            vad_mode=VAD_CONTINUE,
+            vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
             token="",
@@ -551,7 +547,7 @@ def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
     sample_rate = 16000
     one_sec_pcm16 = b"\x00\x00" * sample_rate
     chunks = [
-        AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id)
+        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=sample_rate, session_id=session_id)
     ]
 
     context = FakeContext()
@@ -571,7 +567,7 @@ def test_stream_orchestrator_aborts_when_global_pending_limit_reached(
         session_id,
         SessionInfo(
             attributes={},
-            vad_mode=VAD_CONTINUE,
+            vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
             token="",
@@ -626,7 +622,7 @@ def test_stream_orchestrator_aborts_when_global_pending_limit_reached(
         sample_rate = 16000
         pcm16 = b"\x00\x00" * 400
         chunks = [
-            AudioChunk(
+            stt_pb2.AudioChunk(
                 pcm16=pcm16,
                 sample_rate=sample_rate,
                 session_id=session_id,
@@ -653,7 +649,7 @@ def test_stream_orchestrator_timeout_ignored_while_pending_decode(monkeypatch):
         session_id,
         SessionInfo(
             attributes={},
-            vad_mode=VAD_CONTINUE,
+            vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
             token="",

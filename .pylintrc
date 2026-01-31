@@ -1,0 +1,5 @@
+[MASTER]
+persistent=no
+
+[TYPECHECK]
+generated-members=gen.stt.python.v1.stt_pb2.*,gen.stt.python.v1.stt_pb2_grpc.*,stt_pb2.*,stt_pb2_grpc.*
