@@ -1,5 +1,6 @@
 """HTTP endpoints for metrics, health, and admin actions."""
 
+import ipaddress
 import logging
 import os
 import threading
@@ -30,6 +31,10 @@ _ADMIN_ENABLE_ENV = "STT_ADMIN_ENABLED"
 _ADMIN_TOKEN_ENV = "STT_ADMIN_TOKEN"
 _ADMIN_ALLOW_MODEL_PATH_ENV = "STT_ADMIN_ALLOW_MODEL_PATH"
 _ADMIN_MODEL_PATH_ALLOWLIST_ENV = "STT_ADMIN_MODEL_PATH_ALLOWLIST"
+_OBS_TOKEN_ENV = "STT_OBSERVABILITY_TOKEN"
+_HTTP_RATE_LIMIT_RPS_ENV = "STT_HTTP_RATE_LIMIT_RPS"
+_HTTP_RATE_LIMIT_BURST_ENV = "STT_HTTP_RATE_LIMIT_BURST"
+_HTTP_ALLOWLIST_ENV = "STT_HTTP_ALLOWLIST"
 LOGGER = logging.getLogger("stt_server.http_server")
 
 
@@ -71,6 +76,10 @@ def _admin_token() -> str:
     return os.getenv(_ADMIN_TOKEN_ENV, "").strip()
 
 
+def _observability_token() -> str:
+    return os.getenv(_OBS_TOKEN_ENV, "").strip()
+
+
 def _require_admin(request: Request) -> None:
     if not _env_enabled(_ADMIN_ENABLE_ENV) or not _admin_token():
         raise STTError(ErrorCode.ADMIN_API_DISABLED)
@@ -80,6 +89,63 @@ def _require_admin(request: Request) -> None:
     token = auth[7:].strip()
     if token != _admin_token():
         raise STTError(ErrorCode.ADMIN_UNAUTHORIZED)
+
+
+def _require_observability(request: Request) -> None:
+    token = _observability_token()
+    if not token:
+        return
+    auth = request.headers.get("authorization", "").strip()
+    if not auth.lower().startswith("bearer "):
+        raise STTError(ErrorCode.OBS_UNAUTHORIZED)
+    if auth[7:].strip() != token:
+        raise STTError(ErrorCode.OBS_UNAUTHORIZED)
+
+
+def _parse_rate_limit_value(value: str, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+@dataclass
+class _RateState:
+    tokens: float
+    last_refill: float
+
+
+class _RateLimiter:
+    def __init__(self, rate_per_sec: float, burst: float) -> None:
+        self._rate_per_sec = max(0.0, float(rate_per_sec))
+        self._burst = max(0.0, float(burst))
+        self._states: Dict[str, _RateState] = {}
+        self._lock = threading.Lock()
+
+    def allow(self, key: str) -> bool:
+        if self._rate_per_sec <= 0 or self._burst <= 0:
+            return True
+        now = time.monotonic()
+        with self._lock:
+            state = self._states.get(key)
+            if state is None:
+                state = _RateState(tokens=self._burst, last_refill=now)
+                self._states[key] = state
+            elapsed = max(0.0, now - state.last_refill)
+            state.tokens = min(self._burst, state.tokens + elapsed * self._rate_per_sec)
+            state.last_refill = now
+            if state.tokens < 1.0:
+                return False
+            state.tokens -= 1.0
+            return True
+
+
+def _extract_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    client = request.client
+    return client.host if client else ""
 
 
 def _model_path_allowed(model_path: Optional[str]) -> bool:
@@ -170,6 +236,20 @@ def build_http_app(
     health_snapshot = runtime.health_snapshot
     load_threads: List[threading.Thread] = []
     load_threads_lock = threading.Lock()
+    rate_limit_rps = _parse_rate_limit_value(
+        os.getenv(_HTTP_RATE_LIMIT_RPS_ENV, ""), 0.0
+    )
+    rate_limit_burst = _parse_rate_limit_value(
+        os.getenv(_HTTP_RATE_LIMIT_BURST_ENV, ""), max(1.0, rate_limit_rps)
+    )
+    rate_limiter = _RateLimiter(rate_limit_rps, rate_limit_burst)
+    allowlist_raw = os.getenv(_HTTP_ALLOWLIST_ENV, "")
+    allowlist: List[ipaddress._BaseNetwork] = []
+    for entry in [item.strip() for item in allowlist_raw.split(",") if item.strip()]:
+        try:
+            allowlist.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            LOGGER.warning("Invalid HTTP allowlist entry ignored: %s", entry)
     load_statuses: Dict[str, LoadJobState] = {}
     load_statuses_lock = threading.Lock()
 
@@ -178,6 +258,23 @@ def build_http_app(
             if not load_threads:
                 return
             load_threads[:] = [thread for thread in load_threads if thread.is_alive()]
+
+    def _enforce_ip_allowlist(request: Request) -> None:
+        if not allowlist:
+            return
+        client_ip = _extract_client_ip(request)
+        try:
+            addr = ipaddress.ip_address(client_ip)
+        except ValueError:
+            raise STTError(ErrorCode.HTTP_IP_FORBIDDEN)
+        if not any(addr in network for network in allowlist):
+            raise STTError(ErrorCode.HTTP_IP_FORBIDDEN)
+
+    def _enforce_rate_limit(request: Request) -> None:
+        client = request.client
+        key = client.host if client else "unknown"
+        if not rate_limiter.allow(key):
+            raise STTError(ErrorCode.HTTP_RATE_LIMITED)
 
     def _get_load_status(model_id: str) -> Optional[LoadJobState]:
         with load_statuses_lock:
@@ -248,17 +345,26 @@ def build_http_app(
         return "\n".join(lines) + "\n"
 
     @app.get("/metrics")
-    def metrics_endpoint() -> Response:
+    def metrics_endpoint(request: Request) -> Response:
+        _enforce_ip_allowlist(request)
+        _enforce_rate_limit(request)
+        _require_observability(request)
         payload = metrics.render()
         text = _prometheus_text(payload)
         return Response(content=text, media_type="text/plain; version=0.0.4")
 
     @app.get("/metrics.json")
-    def metrics_json_endpoint() -> JSONResponse:
+    def metrics_json_endpoint(request: Request) -> JSONResponse:
+        _enforce_ip_allowlist(request)
+        _enforce_rate_limit(request)
+        _require_observability(request)
         return JSONResponse(metrics.render(), status_code=200)
 
     @app.get("/health")
-    def health_endpoint() -> JSONResponse:
+    def health_endpoint(request: Request) -> JSONResponse:
+        _enforce_ip_allowlist(request)
+        _enforce_rate_limit(request)
+        _require_observability(request)
         snapshot = health_snapshot()
         snapshot["grpc_running"] = server_state.get("grpc_running", False)
         healthy = snapshot["grpc_running"] and snapshot["model_pool_healthy"]
@@ -267,11 +373,16 @@ def build_http_app(
         return JSONResponse(payload, status_code=status)
 
     @app.get("/system")
-    def system_endpoint() -> JSONResponse:
+    def system_endpoint(request: Request) -> JSONResponse:
+        _enforce_ip_allowlist(request)
+        _enforce_rate_limit(request)
+        _require_observability(request)
         return JSONResponse(collect_system_metrics(), status_code=200)
 
     @app.post("/admin/load_model")
     def load_model_endpoint(req: LoadModelRequest, request: Request) -> JSONResponse:
+        _enforce_ip_allowlist(request)
+        _enforce_rate_limit(request)
         _require_admin(request)
         load_fn = getattr(model_registry, "load_model", None)
         if not callable(load_fn):
@@ -344,6 +455,8 @@ def build_http_app(
 
     @app.get("/admin/load_model_status")
     def load_model_status_endpoint(model_id: str, request: Request) -> JSONResponse:
+        _enforce_ip_allowlist(request)
+        _enforce_rate_limit(request)
         _require_admin(request)
         state = _get_load_status(model_id)
         if not state:
@@ -354,6 +467,8 @@ def build_http_app(
     def unload_model_endpoint(
         model_id: str, request: Request, drain_timeout_sec: float | None = None
     ) -> JSONResponse:
+        _enforce_ip_allowlist(request)
+        _enforce_rate_limit(request)
         _require_admin(request)
         unload_fn = getattr(model_registry, "unload_model", None)
         if not callable(unload_fn):
@@ -366,6 +481,8 @@ def build_http_app(
 
     @app.get("/admin/list_models")
     def list_models_endpoint(request: Request) -> JSONResponse:
+        _enforce_ip_allowlist(request)
+        _enforce_rate_limit(request)
         _require_admin(request)
         return JSONResponse({"models": model_registry.list_models()})
 

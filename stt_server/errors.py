@@ -38,6 +38,9 @@ class ErrorCode(str, Enum):
     MODEL_UNLOAD_FAILED = "ERR4003"
     ADMIN_UNAUTHORIZED = "ERR4004"
     ADMIN_MODEL_PATH_FORBIDDEN = "ERR4005"
+    OBS_UNAUTHORIZED = "ERR4006"
+    HTTP_RATE_LIMITED = "ERR4007"
+    HTTP_IP_FORBIDDEN = "ERR4008"
 
 
 @dataclass(frozen=True)
@@ -164,6 +167,24 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.PERMISSION_DENIED,
         403,
         "model_path is not allowed",
+    ),
+    ErrorCode.OBS_UNAUTHORIZED: ErrorSpec(
+        ErrorCode.OBS_UNAUTHORIZED,
+        grpc.StatusCode.UNAUTHENTICATED,
+        401,
+        "Invalid or missing observability token",
+    ),
+    ErrorCode.HTTP_RATE_LIMITED: ErrorSpec(
+        ErrorCode.HTTP_RATE_LIMITED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        429,
+        "Too many HTTP requests",
+    ),
+    ErrorCode.HTTP_IP_FORBIDDEN: ErrorSpec(
+        ErrorCode.HTTP_IP_FORBIDDEN,
+        grpc.StatusCode.PERMISSION_DENIED,
+        403,
+        "Client IP not allowed",
     ),
 }
 

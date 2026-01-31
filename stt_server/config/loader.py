@@ -23,6 +23,7 @@ from stt_server.config.default import (
     DEFAULT_HEALTH_MIN_EVENTS,
     DEFAULT_HEALTH_MIN_SUCCESS_RATIO,
     DEFAULT_HEALTH_WINDOW_SEC,
+    DEFAULT_HTTP_HOST,
     DEFAULT_LANGUAGE,
     DEFAULT_LANGUAGE_FIX,
     DEFAULT_LOG_FILE,
@@ -76,6 +77,7 @@ class ServerConfig:
     port: int = DEFAULT_PORT
     max_sessions: int = DEFAULT_MAX_SESSIONS
     metrics_port: int = DEFAULT_METRICS_PORT
+    http_host: str = DEFAULT_HTTP_HOST
     decode_timeout_sec: float = DEFAULT_DECODE_TIMEOUT
     log_metrics: bool = DEFAULT_LOG_METRICS
     log_transcripts: bool = DEFAULT_LOG_TRANSCRIPTS

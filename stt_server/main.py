@@ -132,7 +132,7 @@ def serve(config: ServerConfig) -> None:
     http_handle = start_http_server(
         runtime=servicer.runtime,
         server_state=server_state,
-        host="0.0.0.0",
+        host=config.http_host,
         port=config.metrics_port,
     )
     LOGGER.info(

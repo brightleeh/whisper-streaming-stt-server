@@ -199,6 +199,22 @@ def test_http_admin_model_path_forbidden_returns_error_payload(monkeypatch):
     assert response.json() == http_payload_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
 
 
+def test_http_metrics_requires_observability_token(monkeypatch):
+    """Test observability endpoints require token when configured."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_OBSERVABILITY_TOKEN", "metrics-token")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/metrics")
+    assert response.status_code == http_status_for(ErrorCode.OBS_UNAUTHORIZED)
+    assert response.json() == http_payload_for(ErrorCode.OBS_UNAUTHORIZED)
+
+    response = client.get("/metrics", headers={"Authorization": "Bearer metrics-token"})
+    assert response.status_code == 200
+
+
 def test_http_admin_load_model_status_tracks_success(monkeypatch):
     """Test admin load model status transitions to success."""
     runtime = _build_runtime()
@@ -282,6 +298,38 @@ def test_http_admin_load_model_status_tracks_failure(monkeypatch):
     payload = status.json()
     assert payload["status"] == "failed"
     assert "boom" in payload.get("error", "")
+
+
+def test_http_rate_limit_blocks_excess_requests(monkeypatch):
+    """Test HTTP rate limiter blocks excess requests."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_HTTP_RATE_LIMIT_RPS", "1")
+    monkeypatch.setenv("STT_HTTP_RATE_LIMIT_BURST", "1")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/metrics")
+    assert response.status_code == 200
+    response = client.get("/metrics")
+    assert response.status_code == http_status_for(ErrorCode.HTTP_RATE_LIMITED)
+    assert response.json() == http_payload_for(ErrorCode.HTTP_RATE_LIMITED)
+
+
+def test_http_allowlist_blocks_unknown_ip(monkeypatch):
+    """Test HTTP allowlist denies non-matching client IPs."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_HTTP_ALLOWLIST", "127.0.0.1/32")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/metrics", headers={"X-Forwarded-For": "10.0.0.2"})
+    assert response.status_code == http_status_for(ErrorCode.HTTP_IP_FORBIDDEN)
+    assert response.json() == http_payload_for(ErrorCode.HTTP_IP_FORBIDDEN)
+
+    response = client.get("/metrics", headers={"X-Forwarded-For": "127.0.0.1"})
+    assert response.status_code == 200
 
 
 def test_metrics_endpoints_format(monkeypatch):

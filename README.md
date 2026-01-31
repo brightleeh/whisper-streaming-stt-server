@@ -127,6 +127,7 @@ Copy/edit the server YAMLs (or point `--config` / `--model-config` at your own Y
 ```yaml
 server:
   port: 50051 # gRPC listen port
+  http_host: "127.0.0.1" # HTTP metrics/health bind host
   max_sessions: 4 # Concurrent gRPC sessions
   metrics_port: 8000 # HTTP metrics/health port
   decode_timeout_sec: 30 # Wait time for pending decodes during drain
@@ -223,6 +224,15 @@ decode_profiles: # Named decode options (unknown keys return ERR1010)
 Decode options are validated against a whitelist; unknown keys return `ERR1010`.
 
 CLI flags always override YAML entries if provided.
+
+**Observability security**
+
+- The HTTP metrics/health server binds to `server.http_host` (default `127.0.0.1`).
+- Set `STT_OBSERVABILITY_TOKEN` to require `Authorization: Bearer <token>` for
+  `/metrics`, `/metrics.json`, `/system`, and `/health`.
+- Optional IP allowlist: `STT_HTTP_ALLOWLIST` (comma-separated CIDR blocks, e.g. `10.0.0.0/8,127.0.0.1/32`).
+- Optional rate limiting: `STT_HTTP_RATE_LIMIT_RPS` (requests/sec) and
+  `STT_HTTP_RATE_LIMIT_BURST` (burst size) apply to all HTTP endpoints.
 
 **Operations/Capacity**
 

@@ -5,6 +5,7 @@ from typing import Dict
 DEFAULT_PORT = 50051
 DEFAULT_MAX_SESSIONS = 4
 DEFAULT_METRICS_PORT = 8000
+DEFAULT_HTTP_HOST = "127.0.0.1"
 DEFAULT_DECODE_TIMEOUT = 30.0
 DEFAULT_LOG_METRICS = False
 DEFAULT_LOG_TRANSCRIPTS = False
@@ -42,6 +43,7 @@ DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS = 256
 SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
     "server": {
         "port": "port",
+        "http_host": "http_host",
         "max_sessions": "max_sessions",
         "metrics_port": "metrics_port",
         "decode_timeout_sec": "decode_timeout_sec",
@@ -103,6 +105,7 @@ __all__ = [
     "DEFAULT_PORT",
     "DEFAULT_MAX_SESSIONS",
     "DEFAULT_METRICS_PORT",
+    "DEFAULT_HTTP_HOST",
     "DEFAULT_DECODE_TIMEOUT",
     "DEFAULT_LOG_METRICS",
     "DEFAULT_LOG_TRANSCRIPTS",
