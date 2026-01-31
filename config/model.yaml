@@ -11,6 +11,19 @@ model:
 
   # Default profile when clients do not request one
   default_decode_profile: "realtime"
+  default_model_load_profile: "default" # Default profile for /admin/load_model
+
+# Optional admin load profiles for /admin/load_model (profile_id)
+# If omitted, a default profile is derived from the "model" section above.
+model_load_profiles:
+  default:
+    model_size: "small"
+    device: "cpu"
+    compute_type: "int8"
+    pool_size: 1
+    language_fix: false
+    language: "ko"
+    task: "transcribe"
 
 # Decode profiles picked per client request
 decode_profiles:

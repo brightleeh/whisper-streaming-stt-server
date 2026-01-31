@@ -64,6 +64,8 @@ def serve(config: ServerConfig) -> None:
         model_pool_size=config.model_pool_size,
         decode_profiles=config.decode_profiles,
         default_decode_profile=config.default_decode_profile,
+        model_load_profiles=config.model_load_profiles,
+        default_model_load_profile=config.default_model_load_profile,
     )
     vad_pool_size = config.vad_model_pool_size
     if vad_pool_size <= 0:

@@ -20,6 +20,7 @@ from stt_server.backend.utils.system_metrics import collect_system_metrics
 from stt_server.config.default.model import (
     DEFAULT_COMPUTE_TYPE,
     DEFAULT_DEVICE,
+    DEFAULT_MODEL_LOAD_PROFILE_NAME,
     DEFAULT_MODEL_NAME,
 )
 from stt_server.errors import ErrorCode, STTError, http_payload_for, http_status_for
@@ -160,10 +161,18 @@ def _model_path_allowed(model_path: Optional[str]) -> bool:
     return any(model_path.startswith(prefix) for prefix in allowlist)
 
 
+def _request_fields_set(model: BaseModel) -> set[str]:
+    fields_set = getattr(model, "model_fields_set", None)
+    if fields_set is None:
+        fields_set = getattr(model, "__fields_set__", set())
+    return set(fields_set or ())
+
+
 class LoadModelRequest(BaseModel):
     """Request body for admin model load endpoint."""
 
     model_id: str
+    profile_id: Optional[str] = None
     model_path: Optional[str] = None  # local path or HuggingFace ID
     model_size: Optional[str] = (
         DEFAULT_MODEL_NAME  # size name to use if model_path is missing (e.g. "small")
@@ -252,6 +261,18 @@ def build_http_app(
             LOGGER.warning("Invalid HTTP allowlist entry ignored: %s", entry)
     load_statuses: Dict[str, LoadJobState] = {}
     load_statuses_lock = threading.Lock()
+    model_profiles: Dict[str, Dict[str, Any]] = {}
+    default_model_profile: Optional[str] = None
+    runtime_config = getattr(runtime, "config", None)
+    if runtime_config is not None:
+        model_config = getattr(runtime_config, "model", None)
+        if model_config is not None:
+            profiles = getattr(model_config, "model_load_profiles", None)
+            if isinstance(profiles, dict):
+                model_profiles = profiles
+            default_model_profile = getattr(
+                model_config, "default_model_load_profile", None
+            )
 
     def _prune_load_threads() -> None:
         with load_threads_lock:
@@ -403,7 +424,36 @@ def build_http_app(
                 ErrorCode.MODEL_ALREADY_LOADED,
                 f"Model '{req.model_id}' is already loaded",
             )
-        if not _model_path_allowed(req.model_path):
+        profile_id = req.profile_id
+        legacy_fields = {
+            "model_path",
+            "model_size",
+            "device",
+            "compute_type",
+            "language",
+        }
+        fields_set = _request_fields_set(req)
+        use_legacy = bool(fields_set & legacy_fields)
+        if profile_id:
+            profile_cfg = model_profiles.get(profile_id)
+            if not profile_cfg:
+                raise STTError(
+                    ErrorCode.ADMIN_MODEL_PROFILE_UNKNOWN,
+                    f"Unknown model profile '{profile_id}'",
+                )
+            load_config = dict(profile_cfg)
+        elif model_profiles and not use_legacy:
+            profile_id = default_model_profile or DEFAULT_MODEL_LOAD_PROFILE_NAME
+            profile_cfg = model_profiles.get(profile_id)
+            if not profile_cfg:
+                raise STTError(
+                    ErrorCode.ADMIN_MODEL_PROFILE_UNKNOWN,
+                    f"Unknown model profile '{profile_id}'",
+                )
+            load_config = dict(profile_cfg)
+        else:
+            load_config = req.model_dump(exclude={"profile_id"})
+        if not _model_path_allowed(load_config.get("model_path")):
             raise STTError(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
 
         _set_load_status(
@@ -420,7 +470,7 @@ def build_http_app(
                 req.model_id, "running", started_at=time.time(), error=None
             )
             try:
-                load_fn(req.model_id, req.model_dump())
+                load_fn(req.model_id, load_config)
             except (OSError, RuntimeError, TypeError, ValueError, STTError) as exc:
                 error = str(exc).strip() or exc.__class__.__name__
                 _set_load_status(

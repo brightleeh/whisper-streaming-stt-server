@@ -41,6 +41,7 @@ class ErrorCode(str, Enum):
     OBS_UNAUTHORIZED = "ERR4006"
     HTTP_RATE_LIMITED = "ERR4007"
     HTTP_IP_FORBIDDEN = "ERR4008"
+    ADMIN_MODEL_PROFILE_UNKNOWN = "ERR4009"
 
 
 @dataclass(frozen=True)
@@ -185,6 +186,12 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.PERMISSION_DENIED,
         403,
         "Client IP not allowed",
+    ),
+    ErrorCode.ADMIN_MODEL_PROFILE_UNKNOWN: ErrorSpec(
+        ErrorCode.ADMIN_MODEL_PROFILE_UNKNOWN,
+        grpc.StatusCode.INVALID_ARGUMENT,
+        400,
+        "Unknown model profile",
     ),
 }
 

@@ -11,6 +11,7 @@ DEFAULT_LANGUAGE = "ko"
 DEFAULT_LANGUAGE_FIX = False
 DEFAULT_MODEL_POOL_SIZE = 1
 DEFAULT_DECODE_PROFILE_NAME = "realtime"
+DEFAULT_MODEL_LOAD_PROFILE_NAME = "default"
 
 DEFAULT_DECODE_PROFILE: Dict[str, Any] = {
     "beam_size": 1,
@@ -72,6 +73,7 @@ MODEL_SECTION_MAP = {
     "pool_size": "model_pool_size",
     "task": "task",
     "default_decode_profile": "default_decode_profile",
+    "default_model_load_profile": "default_model_load_profile",
 }
 
 
@@ -85,6 +87,7 @@ __all__ = [
     "DEFAULT_LANGUAGE_FIX",
     "DEFAULT_MODEL_POOL_SIZE",
     "DEFAULT_DECODE_PROFILE_NAME",
+    "DEFAULT_MODEL_LOAD_PROFILE_NAME",
     "DEFAULT_DECODE_PROFILE",
     "ALLOWED_DECODE_OPTION_KEYS",
     "default_decode_profiles",

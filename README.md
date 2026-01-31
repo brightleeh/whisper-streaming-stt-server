@@ -493,12 +493,39 @@ These endpoints allow operators to manage Whisper models without restarting the 
 
 - `POST /admin/load_model`
   Loads a Whisper model into the runtime. This can be used to pre-warm models or dynamically add new model variants.
+  Prefer `profile_id` to select a pre-defined load profile from `model_load_profiles` in `config/model.yaml`.
+  If no profile is provided and no legacy overrides are sent, the default profile is used.
 
 - `POST /admin/unload_model`
   Unloads a previously loaded model to free CPU/GPU memory. Active sessions using the model must complete or fail gracefully.
 
 - `GET /admin/list_models`
   Returns the list of currently loaded models and their runtime status.
+
+#### Load model (profile-based)
+
+Define profiles in `config/model.yaml`:
+
+```yaml
+model:
+  default_model_load_profile: "default"
+
+model_load_profiles:
+  default:
+    model_size: "small"
+    device: "cpu"
+    compute_type: "int8"
+    pool_size: 1
+```
+
+Then load by profile:
+
+```bash
+curl -X POST "http://localhost:8000/admin/load_model" \
+  -H "Authorization: Bearer $STT_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model_id":"small-rt","profile_id":"default"}'
+```
 
 **Note:** Admin endpoints are intended for operator use only and should be protected or restricted in production environments.
 
@@ -553,6 +580,7 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 - `ERR4003` (HTTP 400): model not found or is default (unload failed)
 - `ERR4004` (HTTP 401): invalid or missing admin token
 - `ERR4005` (HTTP 403): `model_path` not allowed
+- `ERR4009` (HTTP 400): unknown model load profile
 
 ## Development
 

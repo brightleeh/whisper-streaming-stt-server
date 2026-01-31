@@ -75,6 +75,15 @@ def _build_runtime():
     return runtime
 
 
+def _attach_model_profiles(runtime, profiles, default_profile="default"):
+    """Helper for attaching model load profiles to runtime config."""
+    runtime.config = MagicMock()
+    runtime.config.model = MagicMock()
+    runtime.config.model.model_load_profiles = profiles
+    runtime.config.model.default_model_load_profile = default_profile
+    return runtime
+
+
 def test_http_admin_api_disabled_returns_error_payload(monkeypatch):
     """Test http admin api disabled returns error payload."""
     runtime = _build_runtime()
@@ -197,6 +206,134 @@ def test_http_admin_model_path_forbidden_returns_error_payload(monkeypatch):
 
     assert response.status_code == http_status_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
     assert response.json() == http_payload_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
+
+
+def test_http_admin_load_model_uses_profile_id(monkeypatch):
+    """Test admin load model uses profile_id config."""
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    profile_cfg = {
+        "model_size": "tiny",
+        "device": "cpu",
+        "compute_type": "int8",
+        "pool_size": 2,
+    }
+    _attach_model_profiles(runtime, {"fast": profile_cfg}, default_profile="fast")
+    runtime.model_registry.load_model.return_value = None
+
+    app, load_threads, load_threads_lock = build_http_app(
+        runtime, {"grpc_running": True}
+    )
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.post(
+        "/admin/load_model",
+        json={"model_id": "fast-model", "profile_id": "fast"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    with load_threads_lock:
+        threads = list(load_threads)
+    for thread in threads:
+        thread.join(timeout=0.5)
+
+    runtime.model_registry.load_model.assert_called_once_with("fast-model", profile_cfg)
+
+
+def test_http_admin_load_model_defaults_to_profile(monkeypatch):
+    """Test admin load model defaults to model profile."""
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    profile_cfg = {
+        "model_size": "small",
+        "device": "cpu",
+        "compute_type": "int8",
+        "pool_size": 1,
+    }
+    _attach_model_profiles(runtime, {"default": profile_cfg}, default_profile="default")
+    runtime.model_registry.load_model.return_value = None
+
+    app, load_threads, load_threads_lock = build_http_app(
+        runtime, {"grpc_running": True}
+    )
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.post(
+        "/admin/load_model", json={"model_id": "default-model"}, headers=headers
+    )
+
+    assert response.status_code == 200
+    with load_threads_lock:
+        threads = list(load_threads)
+    for thread in threads:
+        thread.join(timeout=0.5)
+
+    runtime.model_registry.load_model.assert_called_once_with(
+        "default-model", profile_cfg
+    )
+
+
+def test_http_admin_load_model_unknown_profile_returns_error_payload(monkeypatch):
+    """Test admin load model fails for unknown profile."""
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    _attach_model_profiles(
+        runtime, {"default": {"model_size": "small"}}, default_profile="default"
+    )
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.post(
+        "/admin/load_model",
+        json={"model_id": "bad-model", "profile_id": "missing"},
+        headers=headers,
+    )
+
+    assert response.status_code == http_status_for(
+        ErrorCode.ADMIN_MODEL_PROFILE_UNKNOWN
+    )
+    assert response.json() == http_payload_for(
+        ErrorCode.ADMIN_MODEL_PROFILE_UNKNOWN,
+        "Unknown model profile 'missing'",
+    )
+
+
+def test_http_admin_load_model_legacy_fields_override_profiles(monkeypatch):
+    """Test legacy load model fields override profile defaults."""
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    _attach_model_profiles(
+        runtime, {"default": {"model_size": "small"}}, default_profile="default"
+    )
+    runtime.model_registry.load_model.return_value = None
+    monkeypatch.setenv("STT_ADMIN_ALLOW_MODEL_PATH", "true")
+
+    app, load_threads, load_threads_lock = build_http_app(
+        runtime, {"grpc_running": True}
+    )
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.post(
+        "/admin/load_model",
+        json={"model_id": "legacy-model", "model_path": "/tmp/legacy"},
+        headers=headers,
+    )
+
+    assert response.status_code == 200
+    with load_threads_lock:
+        threads = list(load_threads)
+    for thread in threads:
+        thread.join(timeout=0.5)
+
+    args, _ = runtime.model_registry.load_model.call_args
+    assert args[0] == "legacy-model"
+    assert args[1]["model_path"] == "/tmp/legacy"
 
 
 def test_http_metrics_requires_observability_token(monkeypatch):

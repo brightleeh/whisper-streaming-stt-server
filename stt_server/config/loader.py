@@ -38,6 +38,7 @@ from stt_server.config.default import (
     DEFAULT_MAX_SESSIONS,
     DEFAULT_MAX_TOTAL_BUFFER_BYTES,
     DEFAULT_METRICS_PORT,
+    DEFAULT_MODEL_LOAD_PROFILE_NAME,
     DEFAULT_MODEL_NAME,
     DEFAULT_MODEL_POOL_SIZE,
     DEFAULT_PARTIAL_DECODE_INTERVAL_SEC,
@@ -74,6 +75,8 @@ class ServerConfig:
         default_factory=default_decode_profiles
     )
     default_decode_profile: str = DEFAULT_DECODE_PROFILE_NAME
+    model_load_profiles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    default_model_load_profile: str = DEFAULT_MODEL_LOAD_PROFILE_NAME
     model_pool_size: int = DEFAULT_MODEL_POOL_SIZE
     port: int = DEFAULT_PORT
     max_sessions: int = DEFAULT_MAX_SESSIONS
@@ -145,6 +148,8 @@ def load_config(
     if model_data:
         _apply_sections(cfg, model_data)
 
+    _ensure_default_model_load_profile(cfg)
+
     return cfg
 
 
@@ -169,6 +174,7 @@ def _apply_sections(cfg: ServerConfig, raw: Dict[str, Any]) -> None:
                 setattr(cfg, attr, data[key])
         if section == "model":
             _apply_decode_profiles(cfg, data.get("decode_profiles"))
+            _apply_model_load_profiles(cfg, data.get("model_load_profiles"))
         if (
             section == "server"
             and "session_timeout_sec" in data
@@ -177,6 +183,7 @@ def _apply_sections(cfg: ServerConfig, raw: Dict[str, Any]) -> None:
             cfg.session_timeout_sec = float(data["session_timeout_sec"])
 
     _apply_decode_profiles(cfg, raw.get("decode_profiles"))
+    _apply_model_load_profiles(cfg, raw.get("model_load_profiles"))
 
     for key, value in raw.items():
         if key in SECTION_MAP:
@@ -193,6 +200,14 @@ def _apply_decode_profiles(
         cfg.decode_profiles = normalized
 
 
+def _apply_model_load_profiles(
+    cfg: ServerConfig, profiles: Optional[Dict[str, Any]]
+) -> None:
+    normalized = _normalize_profiles(profiles)
+    if normalized:
+        cfg.model_load_profiles = normalized
+
+
 def _normalize_profiles(
     profiles: Optional[Dict[str, Any]],
 ) -> Dict[str, Dict[str, Any]]:
@@ -203,6 +218,29 @@ def _normalize_profiles(
         if isinstance(options, dict):
             normalized[name] = dict(options)
     return normalized
+
+
+def _build_default_model_load_profile(cfg: ServerConfig) -> Dict[str, Any]:
+    return {
+        "model_size": cfg.model,
+        "device": cfg.device,
+        "compute_type": cfg.compute_type,
+        "pool_size": max(1, int(cfg.model_pool_size)),
+        "language": cfg.language,
+        "language_fix": cfg.language_fix,
+        "task": cfg.task,
+        "log_metrics": cfg.log_metrics,
+    }
+
+
+def _ensure_default_model_load_profile(cfg: ServerConfig) -> None:
+    if cfg.model_load_profiles:
+        if cfg.default_model_load_profile not in cfg.model_load_profiles:
+            cfg.default_model_load_profile = next(iter(cfg.model_load_profiles))
+        return
+    cfg.model_load_profiles = {
+        cfg.default_model_load_profile: _build_default_model_load_profile(cfg)
+    }
 
 
 __all__ = [
