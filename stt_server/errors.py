@@ -113,8 +113,8 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
     ),
     ErrorCode.DECODE_TIMEOUT: ErrorSpec(
         ErrorCode.DECODE_TIMEOUT,
-        grpc.StatusCode.INTERNAL,
-        500,
+        grpc.StatusCode.DEADLINE_EXCEEDED,
+        504,
         "decode timeout waiting for pending tasks",
     ),
     ErrorCode.DECODE_TASK_FAILED: ErrorSpec(

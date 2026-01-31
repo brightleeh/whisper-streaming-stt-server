@@ -14,7 +14,7 @@ import grpc
 from gen.stt.python.v1 import stt_pb2
 from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
-from stt_server.errors import ErrorCode, STTError
+from stt_server.errors import ErrorCode, STTError, status_for
 from stt_server.utils.logger import LOGGER
 
 if TYPE_CHECKING:
@@ -468,7 +468,7 @@ class DecodeStream:
                 return_when=futures.FIRST_COMPLETED,
             )
             if not done:
-                self.scheduler._on_decode_error(grpc.StatusCode.INTERNAL)
+                self.scheduler._on_decode_error(status_for(ErrorCode.DECODE_TIMEOUT))
                 self.scheduler._record_health_event("timeout", len(pending_snapshot))
                 self._drop_pending_results()
                 detail = (

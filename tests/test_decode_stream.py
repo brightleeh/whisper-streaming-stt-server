@@ -9,7 +9,7 @@ from stt_server.backend.component.decode_scheduler import (
     DecodeSchedulerHooks,
     DecodeStream,
 )
-from stt_server.errors import ErrorCode, STTError
+from stt_server.errors import ErrorCode, STTError, status_for
 
 
 def test_decode_stream_logic_err2001_timeout():
@@ -34,7 +34,7 @@ def test_decode_stream_logic_err2001_timeout():
             list(stream.emit_ready(block=True))
 
     assert exc.value.code == ErrorCode.DECODE_TIMEOUT
-    hooks.on_error.assert_called_once_with(grpc.StatusCode.INTERNAL)
+    hooks.on_error.assert_called_once_with(status_for(ErrorCode.DECODE_TIMEOUT))
     assert scheduler.pending_decodes() == 0
     assert stream.pending_partials == 0
     assert stream.pending_results == []
