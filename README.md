@@ -1,6 +1,7 @@
 # Whisper Streaming STT Server
 
 Whisper Streaming STT Server is a gRPC service that performs low-latency speech to text with VAD-based endpointing, streaming partial/final results as audio arrives.
+It supports both `faster_whisper` (CPU/CUDA) and `torch_whisper` (CPU/MPS) backends.
 
 ## Quickstart
 
@@ -376,6 +377,8 @@ flowchart TD
         VADState[Session VAD State]
       end
       Decode[Decode Scheduler]
+      SessionQueues[Per-session Queues]
+      Dispatcher[Fair Dispatcher + In-flight Gate]
       Store[Audio Storage]
     end
 
@@ -406,7 +409,9 @@ Orchestrator <-->|check vad| VADGate
 VADState <-->|acquire/release| VADPool
 Orchestrator <-->|schedule/decode| Decode
 Orchestrator -->|store audio| Store
-Decode <-->|transcribe audio| Worker
+Decode -->|enqueue| SessionQueues
+SessionQueues -->|round-robin| Dispatcher
+Dispatcher -->|dispatch| Worker
 
 Runtime <-->|request/render| Metrics
 
