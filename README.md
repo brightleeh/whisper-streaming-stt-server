@@ -641,7 +641,17 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 
 - Unit tests only (skip integration): `./tools/run_tests.sh unit`
 - Integration tests (requires running server): `./tools/run_tests.sh integration`
+- Abuse/load smoke tests (starts temp server): `./tools/run_tests.sh abuse`
 - Full test run: `./tools/run_tests.sh all`
+
+### Long-run abuse/profiling
+
+Manual helper for longer-running noise/silence streams (RSS/threads delta summary):
+
+```bash
+python3 tools/long_run_abuse.py --server localhost:50051 --http http://localhost:8000 \\
+  --duration-sec 600 --mode noise --token "$STT_OBSERVABILITY_TOKEN"
+```
 
 ### Generate gRPC stubs
 

@@ -19,11 +19,15 @@ case "$MODE" in
     export STT_REQUIRE_EXISTING=${STT_REQUIRE_EXISTING:-1}
     python3 -m pytest tests/test_integration.py -q
     ;;
+  abuse)
+    export STT_RUN_ABUSE_TESTS=1
+    python3 -m pytest tests/test_abuse_scenarios.py -q
+    ;;
   all)
     python3 -m pytest -q
     ;;
   *)
-    echo "Usage: $0 {unit|integration|all}" >&2
+    echo "Usage: $0 {unit|integration|abuse|all}" >&2
     exit 1
     ;;
 esac
