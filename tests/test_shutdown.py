@@ -88,6 +88,7 @@ def test_graceful_shutdown_on_signal(monkeypatch):
 
     assert fake_server.stop_calls == [2.5]
     fake_http_handle.stop.assert_called_once_with(timeout=3.5)
+    fake_runtime.stop_accepting_sessions.assert_called_once()
     fake_runtime.shutdown.assert_called_once()
     fake_executor.shutdown.assert_called_once_with(wait=False)
 

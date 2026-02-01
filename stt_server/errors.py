@@ -25,6 +25,7 @@ class ErrorCode(str, Enum):
     DECODE_OPTION_INVALID = "ERR1010"
     SESSION_LIMIT_EXCEEDED = "ERR1011"
     CREATE_SESSION_RATE_LIMITED = "ERR1012"
+    SERVER_SHUTTING_DOWN = "ERR1013"
 
     # decode (ERR200x)
     DECODE_TIMEOUT = "ERR2001"
@@ -130,6 +131,12 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.RESOURCE_EXHAUSTED,
         429,
         "create session rate limited",
+    ),
+    ErrorCode.SERVER_SHUTTING_DOWN: ErrorSpec(
+        ErrorCode.SERVER_SHUTTING_DOWN,
+        grpc.StatusCode.UNAVAILABLE,
+        503,
+        "server shutting down",
     ),
     ErrorCode.DECODE_TIMEOUT: ErrorSpec(
         ErrorCode.DECODE_TIMEOUT,

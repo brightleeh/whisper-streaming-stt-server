@@ -227,6 +227,7 @@ class CreateSessionConfig:
     create_session_burst: float = 0.0
     max_sessions_per_ip: int = 0
     max_sessions_per_api_key: int = 0
+    allow_new_sessions: Callable[[], bool] = lambda: True
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -260,6 +261,9 @@ class CreateSessionHandler:
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
     ) -> stt_pb2.SessionResponse:
         """Validate a CreateSession request and return a session response."""
+        if not self._config.allow_new_sessions():
+            LOGGER.warning("CreateSession rejected during shutdown")
+            abort_with_error(context, ErrorCode.SERVER_SHUTTING_DOWN)
         if not request.session_id:
             LOGGER.error(format_error(ErrorCode.SESSION_ID_REQUIRED))
             abort_with_error(context, ErrorCode.SESSION_ID_REQUIRED)

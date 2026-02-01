@@ -193,6 +193,7 @@ def serve(config: ServerConfig) -> None:
             return
         shutdown_once.set()
         server_state["grpc_running"] = False
+        servicer.runtime.stop_accepting_sessions()
         grace = config.decode_timeout_sec if config.decode_timeout_sec > 0 else 5.0
         LOGGER.info("Graceful shutdown started (grace=%.2fs)", grace)
         try:

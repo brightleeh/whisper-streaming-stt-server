@@ -535,6 +535,9 @@ These endpoints allow operators to manage Whisper models without restarting the 
 - `GET /admin/list_models`
   Returns the list of currently loaded models and their runtime status.
 
+- `GET /admin/load_model_status?model_id=...`
+  Returns load job status (`queued`, `running`, `success`, `failed`) and error info when available.
+
 #### Load model (profile-based)
 
 Define profiles in `config/model.yaml`:
@@ -622,6 +625,7 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 - `ERR1010` (INVALID_ARGUMENT): invalid decode option(s)
 - `ERR1011` (RESOURCE_EXHAUSTED): session limit exceeded
 - `ERR1012` (RESOURCE_EXHAUSTED): CreateSession rate limited
+- `ERR1013` (UNAVAILABLE): server shutting down
 
 #### `ERR2xxx`: decode pipeline/runtime failures
 
@@ -645,6 +649,10 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 - `ERR4009` (HTTP 400): unknown model load profile
 
 ## Development
+
+### SLO/Performance
+
+See `docs/slo.md` for draft targets and a load-test report template.
 
 ### Tests
 

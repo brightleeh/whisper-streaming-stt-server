@@ -46,6 +46,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
     ) -> None:
         self.metrics = Metrics()
         self.config = config
+        self._accepting_sessions = True
         model_config = self.config.model
         streaming_config = self.config.streaming
         self.metrics.set_expose_api_key_metrics(streaming_config.expose_api_key_metrics)
@@ -88,6 +89,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             create_session_burst=streaming_config.create_session_burst,
             max_sessions_per_ip=streaming_config.max_sessions_per_ip,
             max_sessions_per_api_key=streaming_config.max_sessions_per_api_key,
+            allow_new_sessions=self._allow_new_sessions,
         )
         self.create_session_handler = CreateSessionHandler(
             session_registry=self.session_registry,
@@ -221,3 +223,10 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
     def shutdown(self) -> None:
         """Release runtime resources before exiting."""
         self.model_registry.close()
+
+    def stop_accepting_sessions(self) -> None:
+        """Block new CreateSession requests."""
+        self._accepting_sessions = False
+
+    def _allow_new_sessions(self) -> bool:
+        return self._accepting_sessions

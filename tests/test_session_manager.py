@@ -77,6 +77,45 @@ def test_err1001_missing_session_id(create_session_handler, mock_servicer_contex
     )
 
 
+def test_err1013_rejects_create_session_when_shutting_down(
+    mock_session_registry, mock_servicer_context
+):
+    """Test err1013 rejects CreateSession during shutdown."""
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    supported_languages = MagicMock()
+    supported_languages.is_supported.return_value = True
+
+    config = CreateSessionConfig(
+        decode_profiles={"default": {}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+        require_api_key=False,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
+        allow_new_sessions=lambda: False,
+    )
+    handler = CreateSessionHandler(
+        session_registry=mock_session_registry,
+        model_registry=mock_model_registry,
+        config=config,
+    )
+
+    request = stt_pb2.SessionRequest(session_id="ok")
+    with pytest.raises(grpc.RpcError):
+        handler.handle(request, mock_servicer_context)
+    mock_servicer_context.abort.assert_called_with(
+        grpc.StatusCode.UNAVAILABLE, "ERR1013 server shutting down"
+    )
+
+
 def test_err1002_duplicate_session_id(
     create_session_handler, mock_session_registry, mock_servicer_context
 ):
