@@ -238,16 +238,29 @@ CLI flags always override YAML entries if provided.
 - Optional strict health details: set `STT_HEALTH_DETAIL_MODE=token` to always require the
   observability token for detailed `/health` responses. Without a token, only `{status}` is returned.
 - Optional IP allowlist: `STT_HTTP_ALLOWLIST` (comma-separated CIDR blocks, e.g. `10.0.0.0/8,127.0.0.1/32`).
-- Optional rate limiting: `STT_HTTP_RATE_LIMIT_RPS` (requests/sec) and
-  `STT_HTTP_RATE_LIMIT_BURST` (burst size) apply to all HTTP endpoints.
+- Optional rate limiting: `server.http_rate_limit_rps` and
+  `server.http_rate_limit_burst` (config file). Env overrides are still supported
+  via `STT_HTTP_RATE_LIMIT_RPS` / `STT_HTTP_RATE_LIMIT_BURST`.
 
 **Operations/Capacity**
 
 - `model.languages`: languages to force during decoding (repeat to weight; `null`/omit enables auto-detect).
 - `model.pool_size`: number of Whisper model instances to preload.
 - `server.max_sessions`: concurrent gRPC stream cap.
+- `server.create_session_rps` / `server.create_session_burst`: CreateSession rate limiter (per api_key or client IP).
+- `server.max_sessions_per_ip` / `server.max_sessions_per_api_key`: per-identity concurrent session caps.
+- `server.max_audio_seconds_per_session`: hard cap on total streamed audio seconds per session.
+- `server.max_audio_bytes_per_sec` / `server.max_audio_bytes_per_sec_burst`: inbound audio byte rate limiter (per api_key or client IP).
 - `vad.model_pool_size` / `vad.model_prewarm`: VAD pool size/prewarm (`model_pool_size=0` uses `server.max_sessions`).
 - `vad.model_pool_growth_factor`: pool growth factor on VAD demand spikes (up to `server.max_sessions`), beyond that rejects with `ERR1008`.
+
+Suggested production defaults (tune per traffic profile):
+
+- `server.create_session_rps`: 2-5, burst 2x
+- `server.max_sessions_per_ip`: 2-4
+- `server.max_sessions_per_api_key`: 4-8
+- `server.max_audio_seconds_per_session`: 120-300
+- `server.max_audio_bytes_per_sec`: `sample_rate * 2` (e.g., 32000 for 16k PCM), burst 2x
 
 **Buffer**
 
@@ -598,11 +611,15 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 - `ERR1008` (RESOURCE_EXHAUSTED): VAD capacity exhausted
 - `ERR1009` (UNAUTHENTICATED): API key required but missing
 - `ERR1010` (INVALID_ARGUMENT): invalid decode option(s)
+- `ERR1011` (RESOURCE_EXHAUSTED): session limit exceeded
+- `ERR1012` (RESOURCE_EXHAUSTED): CreateSession rate limited
 
 #### `ERR2xxx`: decode pipeline/runtime failures
 
-- `ERR2001` (INTERNAL): decode timeout waiting for pending tasks
+- `ERR2001` (DEADLINE_EXCEEDED): decode timeout waiting for pending tasks
 - `ERR2002` (INTERNAL): decode task failed
+- `ERR2003` (RESOURCE_EXHAUSTED): stream rate limit exceeded
+- `ERR2004` (RESOURCE_EXHAUSTED): stream audio limit exceeded
 
 #### `ERR3xxx`: unexpected server exceptions
 
@@ -619,6 +636,12 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 - `ERR4009` (HTTP 400): unknown model load profile
 
 ## Development
+
+### Tests
+
+- Unit tests only (skip integration): `./tools/run_tests.sh unit`
+- Integration tests (requires running server): `./tools/run_tests.sh integration`
+- Full test run: `./tools/run_tests.sh all`
 
 ### Generate gRPC stubs
 

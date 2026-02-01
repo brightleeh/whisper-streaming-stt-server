@@ -93,6 +93,13 @@ def serve(config: ServerConfig) -> None:
         max_total_buffer_bytes=config.max_total_buffer_bytes,
         decode_queue_timeout_sec=config.decode_queue_timeout_sec,
         buffer_overlap_sec=config.buffer_overlap_sec,
+        create_session_rps=config.create_session_rps,
+        create_session_burst=config.create_session_burst,
+        max_sessions_per_ip=config.max_sessions_per_ip,
+        max_sessions_per_api_key=config.max_sessions_per_api_key,
+        max_audio_seconds_per_session=config.max_audio_seconds_per_session,
+        max_audio_bytes_per_sec=config.max_audio_bytes_per_sec,
+        max_audio_bytes_per_sec_burst=config.max_audio_bytes_per_sec_burst,
         health_window_sec=config.health_window_sec,
         health_min_events=config.health_min_events,
         health_max_timeout_ratio=config.health_max_timeout_ratio,
@@ -171,6 +178,8 @@ def serve(config: ServerConfig) -> None:
         server_state=server_state,
         host=config.http_host,
         port=config.metrics_port,
+        http_rate_limit_rps=config.http_rate_limit_rps,
+        http_rate_limit_burst=config.http_rate_limit_burst,
     )
     LOGGER.info(
         "STT Server started on port %s (model=%s, device=%s)",

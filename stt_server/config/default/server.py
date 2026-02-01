@@ -31,6 +31,15 @@ DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES = 4 * 1024 * 1024
 DEFAULT_GRPC_WORKER_THREADS = (
     0  # 0 = auto; keep >max_sessions to avoid starving short RPCs.
 )
+DEFAULT_CREATE_SESSION_RPS = 5.0
+DEFAULT_CREATE_SESSION_BURST = 10.0
+DEFAULT_MAX_SESSIONS_PER_IP = 4
+DEFAULT_MAX_SESSIONS_PER_API_KEY = 8
+DEFAULT_MAX_AUDIO_SECONDS_PER_SESSION = 300.0
+DEFAULT_MAX_AUDIO_BYTES_PER_SEC = 32000
+DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST = 64000
+DEFAULT_HTTP_RATE_LIMIT_RPS = 5.0
+DEFAULT_HTTP_RATE_LIMIT_BURST = 10.0
 DEFAULT_TLS_CERT_FILE = None
 DEFAULT_TLS_KEY_FILE = None
 DEFAULT_TLS_REQUIRED = False
@@ -52,6 +61,15 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_sessions": "max_sessions",
         "metrics_port": "metrics_port",
         "grpc_worker_threads": "grpc_worker_threads",
+        "create_session_rps": "create_session_rps",
+        "create_session_burst": "create_session_burst",
+        "max_sessions_per_ip": "max_sessions_per_ip",
+        "max_sessions_per_api_key": "max_sessions_per_api_key",
+        "max_audio_seconds_per_session": "max_audio_seconds_per_session",
+        "max_audio_bytes_per_sec": "max_audio_bytes_per_sec",
+        "max_audio_bytes_per_sec_burst": "max_audio_bytes_per_sec_burst",
+        "http_rate_limit_rps": "http_rate_limit_rps",
+        "http_rate_limit_burst": "http_rate_limit_burst",
         "decode_timeout_sec": "decode_timeout_sec",
         "max_buffer_sec": "max_buffer_sec",
         "max_buffer_bytes": "max_buffer_bytes",
@@ -138,6 +156,15 @@ __all__ = [
     "DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES",
     "DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES",
     "DEFAULT_GRPC_WORKER_THREADS",
+    "DEFAULT_CREATE_SESSION_RPS",
+    "DEFAULT_CREATE_SESSION_BURST",
+    "DEFAULT_MAX_SESSIONS_PER_IP",
+    "DEFAULT_MAX_SESSIONS_PER_API_KEY",
+    "DEFAULT_MAX_AUDIO_SECONDS_PER_SESSION",
+    "DEFAULT_MAX_AUDIO_BYTES_PER_SEC",
+    "DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST",
+    "DEFAULT_HTTP_RATE_LIMIT_RPS",
+    "DEFAULT_HTTP_RATE_LIMIT_BURST",
     "DEFAULT_TLS_CERT_FILE",
     "DEFAULT_TLS_KEY_FILE",
     "DEFAULT_TLS_REQUIRED",

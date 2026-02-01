@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from uvicorn.config import LOGGING_CONFIG
 
 from stt_server.backend.runtime import ApplicationRuntime
+from stt_server.backend.utils.rate_limit import KeyedRateLimiter
 from stt_server.backend.utils.system_metrics import collect_system_metrics
 from stt_server.config.default.model import (
     DEFAULT_COMPUTE_TYPE,
@@ -126,35 +127,10 @@ def _parse_rate_limit_value(value: str, default: float) -> float:
         return default
 
 
-@dataclass
-class _RateState:
-    tokens: float
-    last_refill: float
-
-
-class _RateLimiter:
-    def __init__(self, rate_per_sec: float, burst: float) -> None:
-        self._rate_per_sec = max(0.0, float(rate_per_sec))
-        self._burst = max(0.0, float(burst))
-        self._states: Dict[str, _RateState] = {}
-        self._lock = threading.Lock()
-
-    def allow(self, key: str) -> bool:
-        if self._rate_per_sec <= 0 or self._burst <= 0:
-            return True
-        now = time.monotonic()
-        with self._lock:
-            state = self._states.get(key)
-            if state is None:
-                state = _RateState(tokens=self._burst, last_refill=now)
-                self._states[key] = state
-            elapsed = max(0.0, now - state.last_refill)
-            state.tokens = min(self._burst, state.tokens + elapsed * self._rate_per_sec)
-            state.last_refill = now
-            if state.tokens < 1.0:
-                return False
-            state.tokens -= 1.0
-            return True
+def _create_rate_limiter(
+    rate_limit_rps: float, rate_limit_burst: float
+) -> KeyedRateLimiter:
+    return KeyedRateLimiter(rate_limit_rps, rate_limit_burst or None)
 
 
 def _extract_client_ip(request: Request) -> str:
@@ -252,7 +228,10 @@ class HttpServerHandle:
 
 
 def build_http_app(
-    runtime: ApplicationRuntime, server_state: Dict[str, bool]
+    runtime: ApplicationRuntime,
+    server_state: Dict[str, bool],
+    http_rate_limit_rps: float | None = None,
+    http_rate_limit_burst: float | None = None,
 ) -> Tuple[FastAPI, List[threading.Thread], threading.Lock]:
     """Create the FastAPI app and load-model thread tracking state."""
     app = FastAPI()
@@ -261,13 +240,19 @@ def build_http_app(
     health_snapshot = runtime.health_snapshot
     load_threads: List[threading.Thread] = []
     load_threads_lock = threading.Lock()
-    rate_limit_rps = _parse_rate_limit_value(
-        os.getenv(_HTTP_RATE_LIMIT_RPS_ENV, ""), 0.0
-    )
-    rate_limit_burst = _parse_rate_limit_value(
-        os.getenv(_HTTP_RATE_LIMIT_BURST_ENV, ""), max(1.0, rate_limit_rps)
-    )
-    rate_limiter = _RateLimiter(rate_limit_rps, rate_limit_burst)
+    if http_rate_limit_rps is None:
+        rate_limit_rps = _parse_rate_limit_value(
+            os.getenv(_HTTP_RATE_LIMIT_RPS_ENV, ""), 0.0
+        )
+    else:
+        rate_limit_rps = float(http_rate_limit_rps)
+    if http_rate_limit_burst is None:
+        rate_limit_burst = _parse_rate_limit_value(
+            os.getenv(_HTTP_RATE_LIMIT_BURST_ENV, ""), max(1.0, rate_limit_rps)
+        )
+    else:
+        rate_limit_burst = float(http_rate_limit_burst)
+    rate_limiter = _create_rate_limiter(rate_limit_rps, rate_limit_burst)
     allowlist_raw = os.getenv(_HTTP_ALLOWLIST_ENV, "")
     allowlist: List[ipaddress._BaseNetwork] = []
     for entry in [item.strip() for item in allowlist_raw.split(",") if item.strip()]:
@@ -577,9 +562,16 @@ def start_http_server(
     server_state: Dict[str, bool],
     host: str,
     port: int,
+    http_rate_limit_rps: float | None = None,
+    http_rate_limit_burst: float | None = None,
 ) -> HttpServerHandle:
     """Start FastAPI app for /metrics and /health in a background thread."""
-    app, load_threads, load_threads_lock = build_http_app(runtime, server_state)
+    app, load_threads, load_threads_lock = build_http_app(
+        runtime,
+        server_state,
+        http_rate_limit_rps=http_rate_limit_rps,
+        http_rate_limit_burst=http_rate_limit_burst,
+    )
     config = uvicorn.Config(
         app,
         host=host,

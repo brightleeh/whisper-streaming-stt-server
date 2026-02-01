@@ -336,6 +336,7 @@ def step_streaming(
             ErrorCode.AUDIO_CHUNK_TOO_LARGE,
             detail=f"chunk bytes {len(chunk.pcm16)} exceeds max {max_chunk_bytes}",
         )
+    flow.limits.enforce_chunk(state, chunk, context)
     state.session.audio_recorder = flow.audio.capture_audio_chunk(
         state.session.audio_recorder,
         state.session.session_state,

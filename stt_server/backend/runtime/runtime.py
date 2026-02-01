@@ -84,6 +84,10 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             default_vad_silence=streaming_config.vad_silence,
             default_vad_threshold=streaming_config.vad_threshold,
             require_api_key=self.config.model.require_api_key,
+            create_session_rps=streaming_config.create_session_rps,
+            create_session_burst=streaming_config.create_session_burst,
+            max_sessions_per_ip=streaming_config.max_sessions_per_ip,
+            max_sessions_per_api_key=streaming_config.max_sessions_per_api_key,
         )
         self.create_session_handler = CreateSessionHandler(
             session_registry=self.session_registry,
@@ -100,6 +104,9 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             decode_timeout_sec=streaming_config.decode_timeout_sec,
             language_lookup=self.supported_languages,
             log_transcripts=streaming_config.log_transcripts,
+            max_audio_seconds_per_session=streaming_config.max_audio_seconds_per_session,
+            max_audio_bytes_per_sec=streaming_config.max_audio_bytes_per_sec,
+            max_audio_bytes_per_sec_burst=streaming_config.max_audio_bytes_per_sec_burst,
         )
         storage_settings = StorageSettings(
             enabled=storage_config.enabled,

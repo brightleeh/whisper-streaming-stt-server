@@ -47,6 +47,13 @@ class StreamingRuntimeConfig:
     max_total_buffer_bytes: Optional[int] = 64 * 1024 * 1024
     decode_queue_timeout_sec: float = 1.0
     buffer_overlap_sec: float = 0.5
+    create_session_rps: float = 0.0
+    create_session_burst: float = 0.0
+    max_sessions_per_ip: int = 0
+    max_sessions_per_api_key: int = 0
+    max_audio_seconds_per_session: float = 0.0
+    max_audio_bytes_per_sec: int = 0
+    max_audio_bytes_per_sec_burst: int = 0
     health_window_sec: float = 60.0
     health_min_events: int = 5
     health_max_timeout_ratio: float = 0.5

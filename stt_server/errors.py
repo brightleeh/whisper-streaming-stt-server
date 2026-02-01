@@ -23,10 +23,14 @@ class ErrorCode(str, Enum):
     VAD_POOL_EXHAUSTED = "ERR1008"
     API_KEY_MISSING = "ERR1009"
     DECODE_OPTION_INVALID = "ERR1010"
+    SESSION_LIMIT_EXCEEDED = "ERR1011"
+    CREATE_SESSION_RATE_LIMITED = "ERR1012"
 
     # decode (ERR200x)
     DECODE_TIMEOUT = "ERR2001"
     DECODE_TASK_FAILED = "ERR2002"
+    STREAM_RATE_LIMITED = "ERR2003"
+    STREAM_AUDIO_LIMIT_EXCEEDED = "ERR2004"
 
     # internal (ERR300x)
     CREATE_SESSION_UNEXPECTED = "ERR3001"
@@ -115,6 +119,18 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         400,
         "invalid decode option",
     ),
+    ErrorCode.SESSION_LIMIT_EXCEEDED: ErrorSpec(
+        ErrorCode.SESSION_LIMIT_EXCEEDED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        429,
+        "session limit exceeded",
+    ),
+    ErrorCode.CREATE_SESSION_RATE_LIMITED: ErrorSpec(
+        ErrorCode.CREATE_SESSION_RATE_LIMITED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        429,
+        "create session rate limited",
+    ),
     ErrorCode.DECODE_TIMEOUT: ErrorSpec(
         ErrorCode.DECODE_TIMEOUT,
         grpc.StatusCode.DEADLINE_EXCEEDED,
@@ -126,6 +142,18 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.INTERNAL,
         500,
         "decode task failed",
+    ),
+    ErrorCode.STREAM_RATE_LIMITED: ErrorSpec(
+        ErrorCode.STREAM_RATE_LIMITED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        429,
+        "stream rate limit exceeded",
+    ),
+    ErrorCode.STREAM_AUDIO_LIMIT_EXCEEDED: ErrorSpec(
+        ErrorCode.STREAM_AUDIO_LIMIT_EXCEEDED,
+        grpc.StatusCode.RESOURCE_EXHAUSTED,
+        429,
+        "stream audio limit exceeded",
     ),
     ErrorCode.CREATE_SESSION_UNEXPECTED: ErrorSpec(
         ErrorCode.CREATE_SESSION_UNEXPECTED,

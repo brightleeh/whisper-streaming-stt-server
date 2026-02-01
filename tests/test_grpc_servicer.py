@@ -13,6 +13,7 @@ def mock_servicer_context():
     """Fixture for mock servicer context."""
     context = MagicMock()
     context.abort.side_effect = grpc.RpcError("Aborted")
+    context.peer.return_value = ""
     return context
 
 

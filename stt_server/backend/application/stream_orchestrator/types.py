@@ -46,6 +46,9 @@ class StreamSettings:
     decode_timeout_sec: float
     language_lookup: SupportedLanguages
     log_transcripts: bool = False
+    max_audio_seconds_per_session: float = 0.0
+    max_audio_bytes_per_sec: int = 0
+    max_audio_bytes_per_sec_burst: int = 0
 
 
 @dataclass(frozen=True)
@@ -198,6 +201,13 @@ class FlowActivityOps:
 
 
 @dataclass(frozen=True)
+class FlowLimitOps:
+    """Limit enforcement operations used by the flow helpers."""
+
+    enforce_chunk: Callable[["_StreamState", Any, Any], None]
+
+
+@dataclass(frozen=True)
 class StreamFlowContext:
     """Adapter interface for stream flow helpers."""
 
@@ -208,6 +218,7 @@ class StreamFlowContext:
     hooks: FlowHooksOps
     audio: FlowAudioOps
     activity: FlowActivityOps
+    limits: FlowLimitOps
 
 
 class StreamPhase(Enum):

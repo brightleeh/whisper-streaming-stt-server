@@ -21,6 +21,7 @@ from stt_server.backend.utils.profile_resolver import (
     resolve_task,
     task_enum_from_name,
 )
+from stt_server.backend.utils.rate_limit import KeyedRateLimiter
 from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
 from stt_server.errors import ErrorCode, abort_with_error, format_error
@@ -37,6 +38,7 @@ class SessionInfo:
     vad_threshold: float
     token: str
     token_required: bool
+    client_ip: str
     api_key: str
     decode_profile: str
     decode_options: Dict[str, Any]
@@ -91,6 +93,22 @@ class SessionRegistry:
         """Return the current number of active sessions."""
         with self._lock:
             return len(self._sessions)
+
+    def active_count_by_ip(self, client_ip: str) -> int:
+        """Return active session count for the given client IP."""
+        if not client_ip:
+            return 0
+        with self._lock:
+            return sum(
+                1 for info in self._sessions.values() if info.client_ip == client_ip
+            )
+
+    def active_count_by_api_key(self, api_key: str) -> int:
+        """Return active session count for the given API key."""
+        if not api_key:
+            return 0
+        with self._lock:
+            return sum(1 for info in self._sessions.values() if info.api_key == api_key)
 
 
 @dataclass
@@ -205,6 +223,10 @@ class CreateSessionConfig:
     default_vad_silence: float
     default_vad_threshold: float
     require_api_key: bool = False
+    create_session_rps: float = 0.0
+    create_session_burst: float = 0.0
+    max_sessions_per_ip: int = 0
+    max_sessions_per_api_key: int = 0
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -227,6 +249,12 @@ class CreateSessionHandler:
         self._session_registry = session_registry
         self._model_registry = model_registry
         self._config = config
+        self._create_session_limiter = None
+        if config.create_session_rps > 0:
+            self._create_session_limiter = KeyedRateLimiter(
+                config.create_session_rps,
+                config.create_session_burst or None,
+            )
 
     def handle(
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
@@ -238,6 +266,7 @@ class CreateSessionHandler:
 
         session_id = request.session_id
         set_session_id(session_id)
+        client_ip = _extract_client_ip(context)
         vad_mode = (
             request.vad_mode
             if request.vad_mode in (stt_pb2.VAD_CONTINUE, stt_pb2.VAD_AUTO_END)
@@ -262,6 +291,8 @@ class CreateSessionHandler:
         if (self._config.require_api_key or api_key_required) and not api_key:
             LOGGER.error(format_error(ErrorCode.API_KEY_MISSING))
             abort_with_error(context, ErrorCode.API_KEY_MISSING)
+
+        self._enforce_session_limits(session_id, api_key, client_ip, context)
 
         requested_profile = profile_name_from_enum(request.decode_profile)
         if not requested_profile:
@@ -319,6 +350,7 @@ class CreateSessionHandler:
             vad_threshold=vad_threshold,
             token=token,
             token_required=token_required,
+            client_ip=client_ip,
             api_key=api_key,
             decode_profile=profile_name,
             decode_options=options,
@@ -376,6 +408,46 @@ class CreateSessionHandler:
             return self._config.default_vad_silence
         return value
 
+    def _enforce_session_limits(
+        self,
+        session_id: str,
+        api_key: str,
+        client_ip: str,
+        context: grpc.ServicerContext,
+    ) -> None:
+        limiter = self._create_session_limiter
+        if limiter:
+            key = api_key or client_ip or "anonymous"
+            if not limiter.allow(key):
+                LOGGER.warning(
+                    "CreateSession rate limited (key=%s, session_id=%s)",
+                    key,
+                    session_id,
+                )
+                abort_with_error(context, ErrorCode.CREATE_SESSION_RATE_LIMITED)
+        if self._config.max_sessions_per_ip > 0 and client_ip:
+            if (
+                self._session_registry.active_count_by_ip(client_ip)
+                >= self._config.max_sessions_per_ip
+            ):
+                LOGGER.warning(
+                    "Max sessions per IP exceeded (ip=%s limit=%d)",
+                    client_ip,
+                    self._config.max_sessions_per_ip,
+                )
+                abort_with_error(context, ErrorCode.SESSION_LIMIT_EXCEEDED)
+        if self._config.max_sessions_per_api_key > 0 and api_key:
+            if (
+                self._session_registry.active_count_by_api_key(api_key)
+                >= self._config.max_sessions_per_api_key
+            ):
+                LOGGER.warning(
+                    "Max sessions per API key exceeded (api_key=%s limit=%d)",
+                    api_key,
+                    self._config.max_sessions_per_api_key,
+                )
+                abort_with_error(context, ErrorCode.SESSION_LIMIT_EXCEEDED)
+
     def _resolve_vad_threshold(
         self,
         value: float,
@@ -388,6 +460,19 @@ class CreateSessionHandler:
         if allow_default and value == 0:
             return self._config.default_vad_threshold
         return value
+
+
+def _extract_client_ip(context: grpc.ServicerContext) -> str:
+    peer = context.peer() if context else ""
+    if not peer:
+        return ""
+    for prefix in ("ipv4:", "ipv6:"):
+        if peer.startswith(prefix):
+            rest = peer[len(prefix) :]
+            if rest.startswith("[") and "]" in rest:
+                return rest[1 : rest.index("]")]
+            return rest.split(":", 1)[0]
+    return ""
 
 
 __all__ = [

@@ -254,6 +254,7 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
             vad_threshold=0.0,
             token="",
             token_required=False,
+            client_ip="",
             api_key="",
             decode_profile="realtime",
             decode_options={},
@@ -327,6 +328,7 @@ def test_stream_orchestrator_buffer_limit_uses_window_bytes(monkeypatch):
             vad_threshold=1.0,
             token="",
             token_required=False,
+            client_ip="",
             api_key="",
             decode_profile="realtime",
             decode_options={},
@@ -401,6 +403,7 @@ def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
             vad_threshold=0.0,
             token="",
             token_required=False,
+            client_ip="",
             api_key="",
             decode_profile="realtime",
             decode_options={},
@@ -433,6 +436,138 @@ def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
     assert "ERR1007" in details
 
 
+def test_stream_rate_limit_aborts(monkeypatch):
+    """Test stream rate limit aborts the stream."""
+    session_registry = SessionRegistry()
+    session_id = "session-rate-limit"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=0.0,
+            token="",
+            token_required=False,
+            client_ip="",
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    stream_settings = StreamSettings(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        max_audio_bytes_per_sec=2,
+        max_audio_bytes_per_sec_burst=2,
+    )
+    storage_settings = StorageSettings(
+        enabled=False,
+        directory=".",
+        max_bytes=None,
+        max_files=None,
+        max_age_days=None,
+    )
+    config = StreamOrchestratorConfig(
+        stream=stream_settings,
+        storage=storage_settings,
+    )
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream((0.0, 0.0, 0.0, 0.0, 0))
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+
+    chunk = b"\x00\x00"
+    chunks = [
+        stt_pb2.AudioChunk(pcm16=chunk, sample_rate=16000, session_id=session_id),
+        stt_pb2.AudioChunk(pcm16=chunk, sample_rate=16000, session_id=session_id),
+    ]
+
+    context = FakeContext()
+    with pytest.raises(RuntimeError, match="ERR2003"):
+        list(orchestrator.run(iter(chunks), context))  # type: ignore[arg-type]
+
+    assert len(context.abort_calls) == 1
+    code, details, _abort_thread = context.abort_calls[0]
+    assert code == status_for(ErrorCode.STREAM_RATE_LIMITED)
+    assert "ERR2003" in details
+
+
+def test_stream_audio_limit_aborts(monkeypatch):
+    """Test stream audio length limit aborts the stream."""
+    session_registry = SessionRegistry()
+    session_id = "session-audio-limit"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=0.0,
+            token="",
+            token_required=False,
+            client_ip="",
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    stream_settings = StreamSettings(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=1000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        max_audio_seconds_per_session=0.5,
+    )
+    storage_settings = StorageSettings(
+        enabled=False,
+        directory=".",
+        max_bytes=None,
+        max_files=None,
+        max_age_days=None,
+    )
+    config = StreamOrchestratorConfig(
+        stream=stream_settings,
+        storage=storage_settings,
+    )
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream((0.0, 0.0, 0.0, 0.0, 0))
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+
+    one_sec_pcm16 = b"\x00\x00" * 1000
+    chunks = [
+        stt_pb2.AudioChunk(pcm16=one_sec_pcm16, sample_rate=1000, session_id=session_id)
+    ]
+
+    context = FakeContext()
+    with pytest.raises(RuntimeError, match="ERR2004"):
+        list(orchestrator.run(iter(chunks), context))  # type: ignore[arg-type]
+
+    assert len(context.abort_calls) == 1
+    code, details, _abort_thread = context.abort_calls[0]
+    assert code == status_for(ErrorCode.STREAM_AUDIO_LIMIT_EXCEEDED)
+    assert "ERR2004" in details
+
+
 def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
     """Test stream orchestrator keeps activity while decode inflight."""
     session_registry = SessionRegistry()
@@ -446,6 +581,7 @@ def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
             vad_threshold=1.0,
             token="",
             token_required=False,
+            client_ip="",
             api_key="",
             decode_profile="realtime",
             decode_options={},
@@ -534,6 +670,7 @@ def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
             vad_threshold=0.0,
             token="",
             token_required=False,
+            client_ip="",
             api_key="",
             decode_profile="realtime",
             decode_options={},
@@ -615,6 +752,7 @@ def test_stream_orchestrator_aborts_when_global_pending_limit_reached(
             vad_threshold=0.0,
             token="",
             token_required=False,
+            client_ip="",
             api_key="",
             decode_profile="realtime",
             decode_options={},
@@ -698,6 +836,7 @@ def test_stream_orchestrator_timeout_ignored_while_pending_decode(monkeypatch):
             vad_threshold=0.0,
             token="",
             token_required=False,
+            client_ip="",
             api_key="",
             decode_profile="realtime",
             decode_options={},

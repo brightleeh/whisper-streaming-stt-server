@@ -19,6 +19,7 @@ def mock_servicer_context():
     """Fixture for mock servicer context."""
     context = MagicMock()
     context.abort.side_effect = grpc.RpcError("Aborted")
+    context.peer.return_value = ""
     return context
 
 
@@ -48,6 +49,10 @@ def create_session_handler(mock_session_registry):
         default_vad_silence=0.5,
         default_vad_threshold=0.5,
         require_api_key=False,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
     )
     return CreateSessionHandler(
         session_registry=mock_session_registry,
@@ -128,6 +133,10 @@ def test_err1009_missing_api_key_when_config_requires(
         default_vad_silence=0.5,
         default_vad_threshold=0.5,
         require_api_key=True,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
     )
     handler = CreateSessionHandler(
         session_registry=mock_session_registry,
@@ -161,6 +170,10 @@ def test_err1010_invalid_decode_options(mock_session_registry, mock_servicer_con
         default_vad_silence=0.5,
         default_vad_threshold=0.5,
         require_api_key=False,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
     )
     handler = CreateSessionHandler(
         session_registry=mock_session_registry,
@@ -233,6 +246,98 @@ def test_vad_pool_exhausted_rejects_session(
         grpc.StatusCode.RESOURCE_EXHAUSTED, "ERR1008 VAD capacity exhausted"
     )
     vad_gate.configure_vad_model_pool(max_size=0, prewarm=0, max_capacity=0)
+
+
+def test_err1011_session_limit_per_ip():
+    """Test err1011 session limit per client IP."""
+    session_registry = SessionRegistry()
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    supported_languages = MagicMock()
+    supported_languages.is_supported.return_value = True
+    config = CreateSessionConfig(
+        decode_profiles={"default": {}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+        require_api_key=False,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=1,
+        max_sessions_per_api_key=0,
+    )
+    handler = CreateSessionHandler(
+        session_registry=session_registry,
+        model_registry=mock_model_registry,
+        config=config,
+    )
+    context = MagicMock()
+    context.abort.side_effect = grpc.RpcError("Aborted")
+    context.peer.return_value = "ipv4:127.0.0.1:12345"
+
+    handler.handle(
+        stt_pb2.SessionRequest(session_id="s1", vad_threshold_override=0.0),
+        context,
+    )
+
+    with pytest.raises(grpc.RpcError):
+        handler.handle(
+            stt_pb2.SessionRequest(session_id="s2", vad_threshold_override=0.0),
+            context,
+        )
+    context.abort.assert_called_with(
+        grpc.StatusCode.RESOURCE_EXHAUSTED, "ERR1011 session limit exceeded"
+    )
+
+
+def test_err1012_create_session_rate_limited():
+    """Test err1012 create session rate limited."""
+    session_registry = SessionRegistry()
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    supported_languages = MagicMock()
+    supported_languages.is_supported.return_value = True
+    config = CreateSessionConfig(
+        decode_profiles={"default": {}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+        require_api_key=False,
+        create_session_rps=1.0,
+        create_session_burst=1.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
+    )
+    handler = CreateSessionHandler(
+        session_registry=session_registry,
+        model_registry=mock_model_registry,
+        config=config,
+    )
+    context = MagicMock()
+    context.abort.side_effect = grpc.RpcError("Aborted")
+    context.peer.return_value = "ipv4:127.0.0.1:2222"
+
+    handler.handle(
+        stt_pb2.SessionRequest(session_id="s1", vad_threshold_override=0.0),
+        context,
+    )
+
+    with pytest.raises(grpc.RpcError):
+        handler.handle(
+            stt_pb2.SessionRequest(session_id="s2", vad_threshold_override=0.0),
+            context,
+        )
+    context.abort.assert_called_with(
+        grpc.StatusCode.RESOURCE_EXHAUSTED, "ERR1012 create session rate limited"
+    )
 
 
 def test_metrics_api_key_sessions_hidden_by_default():

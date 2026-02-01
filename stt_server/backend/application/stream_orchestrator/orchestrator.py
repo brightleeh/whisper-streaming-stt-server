@@ -26,6 +26,7 @@ from stt_server.backend.component.vad_gate import (
     buffer_is_speech,
     configure_vad_model_pool,
 )
+from stt_server.backend.utils.rate_limit import KeyedRateLimiter
 from stt_server.errors import ErrorCode, abort_with_error
 from stt_server.utils import audio
 from stt_server.utils.logger import LOGGER, clear_session_id, set_session_id
@@ -53,6 +54,7 @@ from .types import (
     FlowBufferOps,
     FlowDecodeOps,
     FlowHooksOps,
+    FlowLimitOps,
     FlowSessionOps,
     StreamFlowContext,
     StreamOrchestratorConfig,
@@ -88,6 +90,12 @@ class StreamOrchestrator:
         self._decode_scheduler = self._create_decode_scheduler(config)
         self._audio_storage: Optional[AudioStorageManager] = None
         self._buffer_manager = _AudioBufferManager(config)
+        self._stream_rate_limiter: Optional[KeyedRateLimiter] = None
+        if config.stream.max_audio_bytes_per_sec > 0:
+            self._stream_rate_limiter = KeyedRateLimiter(
+                config.stream.max_audio_bytes_per_sec,
+                config.stream.max_audio_bytes_per_sec_burst or None,
+            )
         configure_vad_model_pool(
             config.vad_pool.size,
             config.vad_pool.prewarm,
@@ -191,6 +199,9 @@ class StreamOrchestrator:
             activity=FlowActivityOps(
                 mark=self._mark_activity,
             ),
+            limits=FlowLimitOps(
+                enforce_chunk=self._enforce_stream_limits,
+            ),
         )
 
     def _on_vad_trigger(self) -> None:
@@ -201,6 +212,52 @@ class StreamOrchestrator:
 
     def _active_vad_utterances(self) -> int:
         return self._hooks.active_vad_utterances()
+
+    def _stream_rate_key(self, session_state: SessionState) -> str:
+        info = session_state.session_info
+        if info.api_key:
+            return f"api:{info.api_key}"
+        if info.client_ip:
+            return f"ip:{info.client_ip}"
+        return f"session:{session_state.session_id}"
+
+    def _enforce_stream_limits(
+        self,
+        state: _StreamState,
+        chunk: stt_pb2.AudioChunk,
+        context: grpc.ServicerContext,
+    ) -> None:
+        if not state.session.session_state:
+            return
+        chunk_bytes = len(chunk.pcm16)
+        if chunk_bytes <= 0:
+            return
+        if self._stream_rate_limiter:
+            key = self._stream_rate_key(state.session.session_state)
+            if not self._stream_rate_limiter.allow(key, amount=chunk_bytes):
+                LOGGER.warning(
+                    "Stream rate limit exceeded (key=%s session_id=%s)",
+                    key,
+                    state.session.session_state.session_id,
+                )
+                abort_with_error(context, ErrorCode.STREAM_RATE_LIMITED)
+        max_seconds = self._config.stream.max_audio_seconds_per_session
+        if max_seconds and max_seconds > 0:
+            sample_rate = (
+                state.session.sample_rate or self._config.stream.default_sample_rate
+            )
+            next_total = (
+                state.activity.audio_received_sec
+                + audio.chunk_duration_seconds(chunk_bytes, sample_rate)
+            )
+            if next_total > max_seconds:
+                LOGGER.warning(
+                    "Stream audio limit exceeded (session_id=%s total=%.2f limit=%.2f)",
+                    state.session.session_state.session_id,
+                    next_total,
+                    max_seconds,
+                )
+                abort_with_error(context, ErrorCode.STREAM_AUDIO_LIMIT_EXCEEDED)
 
     def _ensure_decode_capacity(
         self,

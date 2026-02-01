@@ -59,7 +59,11 @@ def grpc_server():
             }
             return
     except requests.exceptions.RequestException:
-        if os.getenv("STT_REQUIRE_EXISTING", "").strip().lower() in {"1", "true", "yes"}:
+        if os.getenv("STT_REQUIRE_EXISTING", "").strip().lower() in {
+            "1",
+            "true",
+            "yes",
+        }:
             pytest.skip("Existing server not reachable; STT_REQUIRE_EXISTING set.")
 
     # 2. Start a temporary server
@@ -210,8 +214,9 @@ def test_client_integration(grpc_server):
         "stt_client/config/file.yaml",
         "--server",
         grpc_server["grpc_target"],
-        "--no-realtime",  # Process as fast as possible
     ]
+    if os.getenv("STT_TEST_NO_REALTIME", "").strip().lower() in {"1", "true", "yes"}:
+        cmd.append("--no-realtime")  # Process as fast as possible
 
     result = subprocess.run(
         cmd, cwd=PROJECT_ROOT, capture_output=True, text=True, timeout=30
