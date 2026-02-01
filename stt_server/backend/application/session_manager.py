@@ -204,6 +204,7 @@ class CreateSessionConfig:
     supported_languages: SupportedLanguages
     default_vad_silence: float
     default_vad_threshold: float
+    require_api_key: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -258,7 +259,7 @@ class CreateSessionHandler:
             "yes",
             "on",
         )
-        if api_key_required and not api_key:
+        if (self._config.require_api_key or api_key_required) and not api_key:
             LOGGER.error(format_error(ErrorCode.API_KEY_MISSING))
             abort_with_error(context, ErrorCode.API_KEY_MISSING)
 

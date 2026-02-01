@@ -83,6 +83,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             supported_languages=self.supported_languages,
             default_vad_silence=streaming_config.vad_silence,
             default_vad_threshold=streaming_config.vad_threshold,
+            require_api_key=self.config.model.require_api_key,
         )
         self.create_session_handler = CreateSessionHandler(
             session_registry=self.session_registry,

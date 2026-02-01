@@ -40,9 +40,13 @@ logging:
 tls:
   cert_file: null # Path to TLS cert chain (enables gRPC TLS)
   key_file: null # Path to TLS private key (enables gRPC TLS)
+  required: false # Require TLS; refuse to start without cert/key
 
 metrics:
   expose_api_key_sessions: false # Include active_sessions_by_api in /metrics payload
+
+auth:
+  require_api_key: false # Require api_key attribute on CreateSession
 
 storage:
   persist_audio: false # Enable server-side audio capture

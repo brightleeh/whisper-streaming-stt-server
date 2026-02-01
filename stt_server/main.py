@@ -66,6 +66,7 @@ def serve(config: ServerConfig) -> None:
         default_decode_profile=config.default_decode_profile,
         model_load_profiles=config.model_load_profiles,
         default_model_load_profile=config.default_model_load_profile,
+        require_api_key=config.require_api_key,
     )
     vad_pool_size = config.vad_model_pool_size
     if vad_pool_size <= 0:
@@ -112,12 +113,15 @@ def serve(config: ServerConfig) -> None:
     )
     servicer = STTGrpcServicer(servicer_config)
     stt_pb2_grpc.add_STTBackendServicer_to_server(servicer, server)  # type: ignore[name-defined]
+
     def _bind_grpc_port(bind_address: str, secure: bool) -> None:
         if secure:
             server.add_secure_port(bind_address, credentials)
         else:
             server.add_insecure_port(bind_address)
 
+    if config.tls_required and (not config.tls_cert_file or not config.tls_key_file):
+        raise ValueError("TLS is required but tls_cert_file/tls_key_file not set.")
     if config.tls_cert_file or config.tls_key_file:
         if not config.tls_cert_file or not config.tls_key_file:
             raise ValueError(
@@ -325,7 +329,13 @@ def parse_args() -> argparse.Namespace:
         action="store_false",
         help="Disable transcript logging (overrides config)",
     )
-    parser.set_defaults(log_metrics=None, log_transcripts=None, language_fix=None)
+    parser.set_defaults(
+        log_metrics=None,
+        log_transcripts=None,
+        language_fix=None,
+        tls_required=None,
+        require_api_key=None,
+    )
     parser.add_argument(
         "--log-level",
         default=None,
@@ -352,6 +362,18 @@ def parse_args() -> argparse.Namespace:
         help="Path to TLS private key for gRPC server",
     )
     parser.add_argument(
+        "--tls-required",
+        dest="tls_required",
+        action="store_true",
+        help="Require TLS; refuse to start without cert/key",
+    )
+    parser.add_argument(
+        "--no-tls-required",
+        dest="tls_required",
+        action="store_false",
+        help="Allow running gRPC without TLS (overrides config)",
+    )
+    parser.add_argument(
         "--vad-silence",
         type=float,
         default=None,
@@ -374,6 +396,18 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=None,
         help="Fallback sample rate for streams that omit it",
+    )
+    parser.add_argument(
+        "--require-api-key",
+        dest="require_api_key",
+        action="store_true",
+        help="Require api_key attribute on CreateSession",
+    )
+    parser.add_argument(
+        "--no-require-api-key",
+        dest="require_api_key",
+        action="store_false",
+        help="Disable api_key requirement (overrides config)",
     )
     return parser.parse_args()
 
@@ -428,12 +462,16 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.tls_cert_file = args.tls_cert_file
     if args.tls_key_file is not None:
         config.tls_key_file = args.tls_key_file
+    if args.tls_required is not None:
+        config.tls_required = args.tls_required
     if args.vad_silence is not None:
         config.vad_silence = args.vad_silence
     if args.vad_threshold is not None:
         config.vad_threshold = args.vad_threshold
     if args.sample_rate is not None:
         config.sample_rate = args.sample_rate
+    if args.require_api_key is not None:
+        config.require_api_key = args.require_api_key
 
     configure_logging(
         config.log_level, config.log_file, config.faster_whisper_log_level

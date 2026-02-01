@@ -45,11 +45,13 @@ from stt_server.config.default import (
     DEFAULT_PARTIAL_DECODE_WINDOW_SEC,
     DEFAULT_PERSIST_AUDIO,
     DEFAULT_PORT,
+    DEFAULT_REQUIRE_API_KEY,
     DEFAULT_SAMPLE_RATE,
     DEFAULT_SPEECH_RMS_THRESHOLD,
     DEFAULT_TASK,
     DEFAULT_TLS_CERT_FILE,
     DEFAULT_TLS_KEY_FILE,
+    DEFAULT_TLS_REQUIRED,
     DEFAULT_VAD_MODEL_POOL_GROWTH_FACTOR,
     DEFAULT_VAD_MODEL_POOL_SIZE,
     DEFAULT_VAD_MODEL_PREWARM,
@@ -114,6 +116,8 @@ class ServerConfig:
     grpc_worker_threads: int = DEFAULT_GRPC_WORKER_THREADS
     tls_cert_file: Optional[str] = DEFAULT_TLS_CERT_FILE
     tls_key_file: Optional[str] = DEFAULT_TLS_KEY_FILE
+    tls_required: bool = DEFAULT_TLS_REQUIRED
+    require_api_key: bool = DEFAULT_REQUIRE_API_KEY
     health_window_sec: float = DEFAULT_HEALTH_WINDOW_SEC
     health_min_events: int = DEFAULT_HEALTH_MIN_EVENTS
     health_max_timeout_ratio: float = DEFAULT_HEALTH_MAX_TIMEOUT_RATIO

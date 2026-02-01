@@ -33,6 +33,8 @@ DEFAULT_GRPC_WORKER_THREADS = (
 )
 DEFAULT_TLS_CERT_FILE = None
 DEFAULT_TLS_KEY_FILE = None
+DEFAULT_TLS_REQUIRED = False
+DEFAULT_REQUIRE_API_KEY = False
 DEFAULT_HEALTH_WINDOW_SEC = 60.0
 DEFAULT_HEALTH_MIN_EVENTS = 5
 DEFAULT_HEALTH_MAX_TIMEOUT_RATIO = 0.5
@@ -88,6 +90,10 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
     "tls": {
         "cert_file": "tls_cert_file",
         "key_file": "tls_key_file",
+        "required": "tls_required",
+    },
+    "auth": {
+        "require_api_key": "require_api_key",
     },
     "storage": {
         "persist_audio": "persist_audio",
@@ -134,6 +140,8 @@ __all__ = [
     "DEFAULT_GRPC_WORKER_THREADS",
     "DEFAULT_TLS_CERT_FILE",
     "DEFAULT_TLS_KEY_FILE",
+    "DEFAULT_TLS_REQUIRED",
+    "DEFAULT_REQUIRE_API_KEY",
     "DEFAULT_MAX_PENDING_DECODES_PER_STREAM",
     "DEFAULT_HEALTH_WINDOW_SEC",
     "DEFAULT_HEALTH_MIN_EVENTS",

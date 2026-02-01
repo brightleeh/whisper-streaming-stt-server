@@ -18,6 +18,7 @@ class ModelRuntimeConfig:
     task: str = "transcribe"
     decode_profiles: Optional[Dict[str, Dict[str, Any]]] = None
     default_decode_profile: str = "realtime"
+    require_api_key: bool = False
     model_load_profiles: Optional[Dict[str, Dict[str, Any]]] = None
     default_model_load_profile: str = "default"
 

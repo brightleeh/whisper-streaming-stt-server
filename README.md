@@ -52,11 +52,13 @@ python -m stt_server.main --log-metrics
 - `--log-level` / `--log-file` override the logging section (console/file).
 - `--faster-whisper-log-level` overrides the `faster_whisper` logger level (default WARNING).
 - `--tls-cert-file` / `--tls-key-file` enable gRPC TLS with a server cert + key.
+- `--tls-required` enforces TLS (server refuses to start without cert/key).
 - `--vad-silence` / `--vad-threshold` configure the VAD gate (silence duration + Silero VAD probability threshold, 0-1) that triggers final decoding.
 - `--speech-threshold` sets the minimum RMS required before buffering is treated as speech (helps ignore low-level noise).
 - `--decode-timeout` specifies the wait time for outstanding decode tasks during draining (<=0 waits indefinitely).
 - `--metrics-port` sets the FastAPI metrics/health server port (default 8000).
 - `--grpc-worker-threads` controls the gRPC thread pool size (0/unset = auto).
+- `--require-api-key` enforces api_key on CreateSession (server-side auth gate).
 - Sessions auto-disconnect after 60 seconds of silence; adjust `server.session_timeout_sec` in `config/server.yaml` (or set your own config file).
 
 If you want TLS on the server, pass cert/key paths:
@@ -162,9 +164,13 @@ logging:
 tls:
   cert_file: null # Path to TLS cert chain (enables gRPC TLS)
   key_file: null # Path to TLS private key (enables gRPC TLS)
+  required: false # Require TLS; refuse to start without cert/key
 
 metrics:
   expose_api_key_sessions: false # Include active_sessions_by_api in /metrics payload
+
+auth:
+  require_api_key: false # Require api_key attribute on CreateSession
 
 storage:
   persist_audio: false

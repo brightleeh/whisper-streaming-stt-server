@@ -47,6 +47,7 @@ def create_session_handler(mock_session_registry):
         supported_languages=supported_languages,
         default_vad_silence=0.5,
         default_vad_threshold=0.5,
+        require_api_key=False,
     )
     return CreateSessionHandler(
         session_registry=mock_session_registry,
@@ -108,6 +109,40 @@ def test_err1009_missing_api_key_when_required(
     )
 
 
+def test_err1009_missing_api_key_when_config_requires(
+    mock_session_registry, mock_servicer_context
+):
+    """Test err1009 missing api key when config requires."""
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    supported_languages = MagicMock()
+    supported_languages.is_supported.return_value = True
+
+    config = CreateSessionConfig(
+        decode_profiles={"default": {}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+        require_api_key=True,
+    )
+    handler = CreateSessionHandler(
+        session_registry=mock_session_registry,
+        model_registry=mock_model_registry,
+        config=config,
+    )
+
+    request = stt_pb2.SessionRequest(session_id="ok")
+    with pytest.raises(grpc.RpcError):
+        handler.handle(request, mock_servicer_context)
+    mock_servicer_context.abort.assert_called_with(
+        grpc.StatusCode.UNAUTHENTICATED, "ERR1009 API key is required"
+    )
+
+
 def test_err1010_invalid_decode_options(mock_session_registry, mock_servicer_context):
     """Test err1010 invalid decode options."""
     mock_model_registry = MagicMock()
@@ -125,6 +160,7 @@ def test_err1010_invalid_decode_options(mock_session_registry, mock_servicer_con
         supported_languages=supported_languages,
         default_vad_silence=0.5,
         default_vad_threshold=0.5,
+        require_api_key=False,
     )
     handler = CreateSessionHandler(
         session_registry=mock_session_registry,
