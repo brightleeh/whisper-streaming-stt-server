@@ -58,6 +58,5 @@ jobs:
         env:
           PYTHONPATH: .
           STT_REQUIRE_EXISTING: 0
-          STT_TEST_NO_REALTIME: 1
         run: |
           ./tools/run_tests.sh integration
