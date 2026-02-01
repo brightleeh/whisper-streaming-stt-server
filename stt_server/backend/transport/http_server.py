@@ -34,6 +34,7 @@ _ADMIN_ALLOW_MODEL_PATH_ENV = "STT_ADMIN_ALLOW_MODEL_PATH"
 _ADMIN_MODEL_PATH_ALLOWLIST_ENV = "STT_ADMIN_MODEL_PATH_ALLOWLIST"
 _OBS_TOKEN_ENV = "STT_OBSERVABILITY_TOKEN"
 _PUBLIC_HEALTH_ENV = "STT_PUBLIC_HEALTH"
+_HEALTH_DETAIL_MODE_ENV = "STT_HEALTH_DETAIL_MODE"
 _HTTP_RATE_LIMIT_RPS_ENV = "STT_HTTP_RATE_LIMIT_RPS"
 _HTTP_RATE_LIMIT_BURST_ENV = "STT_HTTP_RATE_LIMIT_BURST"
 _HTTP_ALLOWLIST_ENV = "STT_HTTP_ALLOWLIST"
@@ -86,6 +87,13 @@ def _public_health_mode() -> str:
     value = os.getenv(_PUBLIC_HEALTH_ENV, "").strip().lower()
     if value in {"1", "true", "yes", "on", "minimal"}:
         return "minimal"
+    return ""
+
+
+def _health_detail_mode() -> str:
+    value = os.getenv(_HEALTH_DETAIL_MODE_ENV, "").strip().lower()
+    if value in {"1", "true", "yes", "on", "token"}:
+        return "token"
     return ""
 
 
@@ -394,7 +402,8 @@ def build_http_app(
         _enforce_ip_allowlist(request)
         _enforce_rate_limit(request)
         public_mode = _public_health_mode()
-        if public_mode == "minimal":
+        detail_mode = _health_detail_mode()
+        if public_mode == "minimal" or detail_mode == "token":
             token = _observability_token()
             auth_ok = False
             if token:

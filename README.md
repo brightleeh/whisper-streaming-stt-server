@@ -229,6 +229,8 @@ CLI flags always override YAML entries if provided.
 - Optional public health: set `STT_PUBLIC_HEALTH=minimal` to allow `/health` without a token,
   returning only `{status}` with HTTP 200/503. Supplying the observability token still returns
   full details.
+- Optional strict health details: set `STT_HEALTH_DETAIL_MODE=token` to always require the
+  observability token for detailed `/health` responses. Without a token, only `{status}` is returned.
 - Optional IP allowlist: `STT_HTTP_ALLOWLIST` (comma-separated CIDR blocks, e.g. `10.0.0.0/8,127.0.0.1/32`).
 - Optional rate limiting: `STT_HTTP_RATE_LIMIT_RPS` (requests/sec) and
   `STT_HTTP_RATE_LIMIT_BURST` (burst size) apply to all HTTP endpoints.

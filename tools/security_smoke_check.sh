@@ -3,6 +3,7 @@ set -euo pipefail
 
 BASE_URL="${1:-http://localhost:8000}"
 PUBLIC_HEALTH="${STT_PUBLIC_HEALTH:-}"
+HEALTH_DETAIL_MODE="${STT_HEALTH_DETAIL_MODE:-}"
 
 ok() { echo "[ok] $*"; }
 fail() { echo "[fail] $*" >&2; exit 1; }
@@ -37,7 +38,7 @@ expect_health() {
   local url="${BASE_URL}${path}"
   local status
   if status=$(request_status "$url"); then
-    if [[ "$PUBLIC_HEALTH" =~ ^(1|true|yes|on|minimal)$ ]]; then
+    if [[ "$PUBLIC_HEALTH" =~ ^(1|true|yes|on|minimal)$ || "$HEALTH_DETAIL_MODE" =~ ^(1|true|yes|on|token)$ ]]; then
       if [[ "$status" == "200" || "$status" == "503" ]]; then
         ok "$path public minimal ($status)"
         return 0

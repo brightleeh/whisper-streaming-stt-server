@@ -409,6 +409,27 @@ def test_http_health_minimal_with_token_includes_details(monkeypatch):
     assert payload["model_pool_healthy"] is True
 
 
+def test_http_health_detail_mode_requires_token(monkeypatch):
+    """Test health details require token when detail mode is enabled."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_OBSERVABILITY_TOKEN", "metrics-token")
+    monkeypatch.setenv("STT_HEALTH_DETAIL_MODE", "token")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    response = client.get("/health", headers={"Authorization": "Bearer metrics-token"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["grpc_running"] is True
+    assert payload["model_pool_healthy"] is True
+
+
 def test_http_admin_load_model_status_tracks_success(monkeypatch):
     """Test admin load model status transitions to success."""
     runtime = _build_runtime()
