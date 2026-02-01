@@ -256,6 +256,7 @@ CLI flags always override YAML entries if provided.
   via `STT_HTTP_RATE_LIMIT_RPS` / `STT_HTTP_RATE_LIMIT_BURST`.
   The rate limiter keys off the same client IP used for allowlist checks, so set
   `STT_HTTP_TRUSTED_PROXIES` when running behind a proxy that terminates HTTP.
+  Limiter state is bounded with TTL/LRU pruning to avoid unbounded key growth.
 
 **Operations/Capacity**
 
