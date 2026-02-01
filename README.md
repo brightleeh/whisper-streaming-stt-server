@@ -425,7 +425,7 @@ style RuntimeWrap fill:#f0f2f5,stroke:#8f9aa6,stroke-width:1px,color:#2f3740
 linkStyle 0,1,2,3 stroke:#3498db,stroke-width:1px;
 linkStyle 4,5 stroke:#f1c40f,stroke-width:1px;
 linkStyle 6,7,8,9,10 stroke:#2ecc71,stroke-width:1px;
-linkStyle 11,12,13,14,15,16,17,18,19 stroke:#e74c3c,stroke-width:1px;
+linkStyle 11,12,13,14,15,16,17,18,19,20,21 stroke:#e74c3c,stroke-width:1px;
 ```
 
 ## Observability/Operations
