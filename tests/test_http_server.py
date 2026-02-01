@@ -75,12 +75,15 @@ def _build_runtime():
     return runtime
 
 
-def _attach_model_profiles(runtime, profiles, default_profile="default"):
+def _attach_model_profiles(
+    runtime, profiles, default_profile="default", backend="faster_whisper"
+):
     """Helper for attaching model load profiles to runtime config."""
     runtime.config = MagicMock()
     runtime.config.model = MagicMock()
     runtime.config.model.model_load_profiles = profiles
     runtime.config.model.default_model_load_profile = default_profile
+    runtime.config.model.model_backend = backend
     return runtime
 
 
@@ -208,6 +211,85 @@ def test_http_admin_model_path_forbidden_returns_error_payload(monkeypatch):
     assert response.json() == http_payload_for(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
 
 
+def test_http_admin_load_model_defaults_backend(monkeypatch):
+    """Test admin load model fills backend from runtime config."""
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    runtime.config = MagicMock()
+    runtime.config.model = MagicMock()
+    runtime.config.model.model_backend = "torch_whisper"
+    runtime.config.model.model_load_profiles = {}
+    runtime.config.model.default_model_load_profile = "default"
+
+    load_event = threading.Event()
+    captured = {}
+
+    def load_model(model_id, cfg):
+        captured["model_id"] = model_id
+        captured["cfg"] = cfg
+        load_event.set()
+
+    runtime.model_registry.load_model.side_effect = load_model
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.post(
+        "/admin/load_model", json={"model_id": "mps-model"}, headers=headers
+    )
+    assert response.status_code == 200
+    assert load_event.wait(timeout=0.5)
+    assert captured["cfg"]["backend"] == "torch_whisper"
+
+
+def test_http_admin_load_model_profile_overrides_request(monkeypatch):
+    """Test profile config wins over legacy request fields."""
+    runtime = _build_runtime()
+    runtime.model_registry.is_loaded.return_value = False
+    runtime = _attach_model_profiles(
+        runtime,
+        profiles={
+            "fast": {
+                "model_size": "tiny",
+                "backend": "faster_whisper",
+                "device": "cpu",
+                "compute_type": "int8",
+            }
+        },
+        default_profile="fast",
+    )
+
+    load_event = threading.Event()
+    captured = {}
+
+    def load_model(model_id, cfg):
+        captured["model_id"] = model_id
+        captured["cfg"] = cfg
+        load_event.set()
+
+    runtime.model_registry.load_model.side_effect = load_model
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+    headers = _enable_admin(monkeypatch)
+
+    response = client.post(
+        "/admin/load_model",
+        json={
+            "model_id": "fast-model",
+            "profile_id": "fast",
+            "device": "cuda",
+            "backend": "torch_whisper",
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert load_event.wait(timeout=0.5)
+    assert captured["cfg"]["backend"] == "faster_whisper"
+    assert captured["cfg"]["device"] == "cpu"
+
+
 def test_http_admin_load_model_uses_profile_id(monkeypatch):
     """Test admin load model uses profile_id config."""
     runtime = _build_runtime()
@@ -239,7 +321,11 @@ def test_http_admin_load_model_uses_profile_id(monkeypatch):
     for thread in threads:
         thread.join(timeout=0.5)
 
-    runtime.model_registry.load_model.assert_called_once_with("fast-model", profile_cfg)
+    expected_cfg = dict(profile_cfg)
+    expected_cfg["backend"] = "faster_whisper"
+    runtime.model_registry.load_model.assert_called_once_with(
+        "fast-model", expected_cfg
+    )
 
 
 def test_http_admin_load_model_defaults_to_profile(monkeypatch):
@@ -271,8 +357,10 @@ def test_http_admin_load_model_defaults_to_profile(monkeypatch):
     for thread in threads:
         thread.join(timeout=0.5)
 
+    expected_cfg = dict(profile_cfg)
+    expected_cfg["backend"] = "faster_whisper"
     runtime.model_registry.load_model.assert_called_once_with(
-        "default-model", profile_cfg
+        "default-model", expected_cfg
     )
 
 

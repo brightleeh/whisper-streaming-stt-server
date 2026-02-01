@@ -10,6 +10,7 @@ from stt_server.config.default.model import (
     DEFAULT_DEVICE,
     DEFAULT_LANGUAGE,
     DEFAULT_LANGUAGE_FIX,
+    DEFAULT_MODEL_BACKEND,
     DEFAULT_MODEL_ID,
     DEFAULT_MODEL_NAME,
     DEFAULT_MODEL_POOL_SIZE,
@@ -58,6 +59,7 @@ class ModelWorkerFactory(Protocol):
         language: Optional[str],
         log_metrics: bool,
         base_options: Optional[Dict[str, Any]] = None,
+        backend: Optional[str] = None,
     ) -> ModelWorkerProtocol:
         """Create a model worker instance."""
         raise NotImplementedError
@@ -151,6 +153,9 @@ class ModelRegistry:
             )
             log_metrics = config.get("log_metrics", False)
             base_options = dict(config.get("base_options") or {})
+            backend = config.get("backend") or config.get("model_backend")
+            if not backend:
+                backend = DEFAULT_MODEL_BACKEND
 
             # Merge task into base_options if provided
             if "task" in config:
@@ -172,6 +177,7 @@ class ModelRegistry:
                             language=language,
                             log_metrics=log_metrics,
                             base_options=base_options,
+                            backend=backend,
                         )
                     )
 

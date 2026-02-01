@@ -1,0 +1,20 @@
+server:
+  max_sessions: 200
+  grpc_worker_threads: 0
+  create_session_rps: 0
+  create_session_burst: 0
+  max_sessions_per_ip: 0
+  max_sessions_per_api_key: 0
+  max_audio_seconds_per_session: 0
+  max_audio_bytes_per_sec: 0
+  max_audio_bytes_per_sec_burst: 0
+  http_rate_limit_rps: 0
+  http_rate_limit_burst: 0
+  max_pending_decodes_per_stream: 0
+  max_pending_decodes_global: 0
+  max_total_buffer_bytes: null
+  decode_queue_timeout_sec: 0.0
+
+health:
+  min_events: 1
+  window_sec: 60

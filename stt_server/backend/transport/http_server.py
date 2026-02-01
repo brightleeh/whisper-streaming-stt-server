@@ -169,6 +169,7 @@ class LoadModelRequest(BaseModel):
     model_size: Optional[str] = (
         DEFAULT_MODEL_NAME  # size name to use if model_path is missing (e.g. "small")
     )
+    backend: Optional[str] = None
     device: str = DEFAULT_DEVICE
     compute_type: str = DEFAULT_COMPUTE_TYPE
     language: Optional[str] = None
@@ -446,6 +447,7 @@ def build_http_app(
         legacy_fields = {
             "model_path",
             "model_size",
+            "backend",
             "device",
             "compute_type",
             "language",
@@ -471,6 +473,11 @@ def build_http_app(
             load_config = dict(profile_cfg)
         else:
             load_config = req.model_dump(exclude={"profile_id"})
+        if not load_config.get("backend") and not load_config.get("model_backend"):
+            default_backend = getattr(
+                runtime.config.model, "model_backend", "faster_whisper"
+            )
+            load_config["backend"] = default_backend or "faster_whisper"
         if not _model_path_allowed(load_config.get("model_path")):
             raise STTError(ErrorCode.ADMIN_MODEL_PATH_FORBIDDEN)
 

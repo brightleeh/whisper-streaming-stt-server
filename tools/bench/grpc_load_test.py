@@ -86,6 +86,25 @@ def audio_chunks(
     )
 
 
+def make_channel(
+    target: str,
+    tls: bool,
+    ca_cert: Optional[str],
+    server_hostname: Optional[str],
+    options: List[Tuple[str, Any]],
+) -> grpc.Channel:
+    """Create gRPC channel with optional TLS support."""
+    if not tls and not ca_cert:
+        return grpc.insecure_channel(target, options=options)
+    root = None
+    if ca_cert:
+        root = Path(ca_cert).expanduser().read_bytes()
+    if server_hostname:
+        options = options + [("grpc.ssl_target_name_override", server_hostname)]
+    creds = grpc.ssl_channel_credentials(root_certificates=root)
+    return grpc.secure_channel(target, creds, options=options)
+
+
 def parse_task(value: str) -> stt_pb2.Task.ValueType:
     """Map a task string to the Task enum."""
     if value == "translate":
@@ -147,19 +166,55 @@ class BenchStats:
     latencies: List[float] = field(default_factory=list)
     response_counts: List[int] = field(default_factory=list)
     error_counts: Dict[str, int] = field(default_factory=dict)
+    failure_stages: Dict[str, int] = field(default_factory=dict)
+    total_audio_sec: float = 0.0
+    rtfs: List[float] = field(default_factory=list)
+    tail_latencies: List[float] = field(default_factory=list)
+    decode_buffer_waits: List[float] = field(default_factory=list)
+    decode_queue_waits: List[float] = field(default_factory=list)
+    decode_inference: List[float] = field(default_factory=list)
+    decode_response_emit: List[float] = field(default_factory=list)
+    decode_totals: List[float] = field(default_factory=list)
     session_logs: List["SessionLog"] = field(default_factory=list)
     warmup_sessions: int = 0
     warmup_failures: int = 0
 
-    def record(self, responses: int, elapsed: float) -> None:
+    def record(
+        self,
+        responses: int,
+        elapsed: float,
+        audio_sec: float,
+        rtf: float,
+        tail_sec: Optional[float],
+        decode_buffer_wait_sec: Optional[float],
+        decode_queue_wait_sec: Optional[float],
+        decode_inference_sec: Optional[float],
+        decode_response_emit_sec: Optional[float],
+        decode_total_sec: Optional[float],
+    ) -> None:
         """Record a successful session result."""
         self.sessions += 1
         self.responses += responses
         self.total_time_sec += elapsed
         self.latencies.append(elapsed)
         self.response_counts.append(responses)
+        self.total_audio_sec += audio_sec
+        if rtf >= 0:
+            self.rtfs.append(rtf)
+        if tail_sec is not None:
+            self.tail_latencies.append(tail_sec)
+        if decode_buffer_wait_sec is not None:
+            self.decode_buffer_waits.append(decode_buffer_wait_sec)
+        if decode_queue_wait_sec is not None:
+            self.decode_queue_waits.append(decode_queue_wait_sec)
+        if decode_inference_sec is not None:
+            self.decode_inference.append(decode_inference_sec)
+        if decode_response_emit_sec is not None:
+            self.decode_response_emit.append(decode_response_emit_sec)
+        if decode_total_sec is not None:
+            self.decode_totals.append(decode_total_sec)
 
-    def record_failure(self, exc: grpc.RpcError) -> None:
+    def record_failure(self, exc: grpc.RpcError, stage: str) -> None:
         """Record a failed session and error code."""
         self.failures += 1
         try:
@@ -167,6 +222,7 @@ class BenchStats:
         except (AttributeError, ValueError, TypeError):
             code = "UNKNOWN"
         self.error_counts[code] = self.error_counts.get(code, 0) + 1
+        self.failure_stages[stage] = self.failure_stages.get(stage, 0) + 1
 
     def record_warmup(self, success: bool) -> None:
         """Record warmup success/failure."""
@@ -195,11 +251,14 @@ class SessionLog:
     first_response_sec: Optional[float] = None
     tail_sec: Optional[float] = None
     total_sec: Optional[float] = None
+    audio_sec: Optional[float] = None
+    rtf: Optional[float] = None
     decode_buffer_wait_sec: Optional[float] = None
     decode_queue_wait_sec: Optional[float] = None
     decode_inference_sec: Optional[float] = None
     decode_response_emit_sec: Optional[float] = None
     decode_total_sec: Optional[float] = None
+    failure_stage: Optional[str] = None
 
 
 SESSION_LOG_HEADERS = [
@@ -207,10 +266,13 @@ SESSION_LOG_HEADERS = [
     "responses",
     "success",
     "error_code",
+    "failure_stage",
     "send_duration_seconds",
     "first_response_seconds",
     "tail_duration_seconds",
     "total_duration_seconds",
+    "audio_seconds",
+    "rtf",
     "decode_buffer_wait_seconds",
     "decode_queue_wait_seconds",
     "decode_inference_seconds",
@@ -223,6 +285,7 @@ SESSION_LOG_COLUMN_DESCRIPTIONS = [
     ("responses", "Number of responses in the stream"),
     ("success", "True when the stream completed without error"),
     ("error_code", "gRPC error code when success is false"),
+    ("failure_stage", "Stage of failure when success is false"),
     ("send_duration_seconds", "Time spent sending audio chunks from the client"),
     ("first_response_seconds", "Time from stream start to first response"),
     (
@@ -230,6 +293,8 @@ SESSION_LOG_COLUMN_DESCRIPTIONS = [
         "Time from last audio chunk sent to final response",
     ),
     ("total_duration_seconds", "Total stream duration from start to finish"),
+    ("audio_seconds", "Total audio seconds sent by the client"),
+    ("rtf", "Real-time factor (audio_sec / total_duration)"),
     (
         "decode_buffer_wait_seconds",
         "Server-side time spent buffering audio before scheduling decode",
@@ -271,10 +336,13 @@ def session_log_payload(entry: SessionLog) -> Dict[str, object]:
         "responses": entry.responses,
         "success": entry.success,
         "error_code": entry.error_code,
+        "failure_stage": entry.failure_stage,
         "send_duration_seconds": format_seconds_value(entry.send_sec),
         "first_response_seconds": format_seconds_value(entry.first_response_sec),
         "tail_duration_seconds": format_seconds_value(entry.tail_sec),
         "total_duration_seconds": format_seconds_value(entry.total_sec),
+        "audio_seconds": format_seconds_value(entry.audio_sec),
+        "rtf": format_seconds_value(entry.rtf),
         "decode_buffer_wait_seconds": format_seconds_value(
             entry.decode_buffer_wait_sec
         ),
@@ -294,10 +362,13 @@ def session_log_row(entry: SessionLog) -> List[str]:
         str(entry.responses),
         "true" if entry.success else "false",
         entry.error_code or "",
+        entry.failure_stage or "",
         format_seconds_string(entry.send_sec),
         format_seconds_string(entry.first_response_sec),
         format_seconds_string(entry.tail_sec),
         format_seconds_string(entry.total_sec),
+        format_seconds_string(entry.audio_sec),
+        format_seconds_string(entry.rtf),
         format_seconds_string(entry.decode_buffer_wait_sec),
         format_seconds_string(entry.decode_queue_wait_sec),
         format_seconds_string(entry.decode_inference_sec),
@@ -412,6 +483,12 @@ class BenchConfig:
     ramp_steps: int
     ramp_interval_sec: float
     session_log_writer: Optional[SessionLogWriter]
+    tls: bool
+    ca_cert: Optional[str]
+    server_hostname: Optional[str]
+    rpc_timeout_sec: Optional[float]
+    stream_timeout_sec: Optional[float]
+    metadata: List[Tuple[str, str]]
 
 
 def run_channel(
@@ -423,7 +500,13 @@ def run_channel(
     lock: threading.Lock,
 ) -> None:
     """Run a single channel and record results."""
-    channel = grpc.insecure_channel(config.target)
+    channel = make_channel(
+        config.target,
+        config.tls,
+        config.ca_cert,
+        config.server_hostname,
+        options=[],
+    )
     stub = stt_pb2_grpc.STTBackendStub(channel)
     task_enum = parse_task(config.task)
     profile_enum = parse_profile(config.profile)
@@ -437,17 +520,40 @@ def run_channel(
             f"bench-{index:0{channel_width}d}-{i:0{iteration_width}d}-"
             f"{uuid.uuid4().hex[:8]}"
         )
+        audio_sec = len(pcm16) / (sample_rate * BYTES_PER_SAMPLE)
         try:
             timing = StreamTiming(start_sec=time.perf_counter())
-            response = stub.CreateSession(
-                stt_pb2.SessionRequest(
-                    session_id=session_id,
-                    require_token=config.require_token,
-                    task=task_enum,
-                    decode_profile=profile_enum,
-                    vad_mode=vad_mode_enum,
+            try:
+                response = stub.CreateSession(
+                    stt_pb2.SessionRequest(
+                        session_id=session_id,
+                        require_token=config.require_token,
+                        task=task_enum,
+                        decode_profile=profile_enum,
+                        vad_mode=vad_mode_enum,
+                    ),
+                    timeout=config.rpc_timeout_sec,
+                    metadata=config.metadata,
                 )
-            )
+            except grpc.RpcError as exc:
+                session_log_entry = SessionLog(
+                    session_id=session_id,
+                    responses=0,
+                    elapsed_sec=0.0,
+                    success=False,
+                    error_code=exc.code().name if hasattr(exc, "code") else "UNKNOWN",
+                    failure_stage="create_session",
+                )
+                if i >= config.warmup_iterations and config.session_log_writer:
+                    config.session_log_writer.write_entry(session_log_entry)
+                with lock:
+                    if i < config.warmup_iterations:
+                        stats.record_warmup(False)
+                    else:
+                        stats.record_failure(exc, "create_session")
+                        if config.log_sessions:
+                            stats.maybe_log(session_log_entry, config.max_session_logs)
+                continue
             token = response.token if response.token_required else ""
             responses = 0
             first_response_at: Optional[float] = None
@@ -461,18 +567,40 @@ def run_channel(
                     session_id,
                     token,
                     timing=timing,
-                )
+                ),
+                timeout=config.stream_timeout_sec,
+                metadata=config.metadata,
             )
-            for _ in call:
-                now = time.perf_counter()
-                if first_response_at is None:
-                    first_response_at = now
-                last_response_at = now
-                responses += 1
             try:
-                trailing = call.trailing_metadata()
-            except grpc.RpcError:
-                trailing = None
+                for _ in call:
+                    now = time.perf_counter()
+                    if first_response_at is None:
+                        first_response_at = now
+                    last_response_at = now
+                    responses += 1
+                try:
+                    trailing = call.trailing_metadata()
+                except grpc.RpcError:
+                    trailing = None
+            except grpc.RpcError as exc:
+                session_log_entry = SessionLog(
+                    session_id=session_id,
+                    responses=responses,
+                    elapsed_sec=0.0,
+                    success=False,
+                    error_code=exc.code().name if hasattr(exc, "code") else "UNKNOWN",
+                    failure_stage="streaming",
+                )
+                if i >= config.warmup_iterations and config.session_log_writer:
+                    config.session_log_writer.write_entry(session_log_entry)
+                with lock:
+                    if i < config.warmup_iterations:
+                        stats.record_warmup(False)
+                    else:
+                        stats.record_failure(exc, "streaming")
+                        if config.log_sessions:
+                            stats.maybe_log(session_log_entry, config.max_session_logs)
+                continue
             decode_metrics = _extract_decode_metrics(trailing)
             end = time.perf_counter()
             elapsed = end - timing.start_sec
@@ -489,11 +617,14 @@ def run_channel(
                 if last_response_at is not None
                 else None
             )
+            rtf = audio_sec / elapsed if elapsed > 0 else 0.0
             session_log_entry = SessionLog(
                 session_id=session_id,
                 responses=responses,
                 elapsed_sec=elapsed,
                 success=True,
+                audio_sec=audio_sec,
+                rtf=rtf,
                 send_sec=send_sec,
                 first_response_sec=first_sec,
                 tail_sec=tail_sec,
@@ -512,7 +643,18 @@ def run_channel(
                 if i < config.warmup_iterations:
                     stats.record_warmup(True)
                 else:
-                    stats.record(responses, elapsed)
+                    stats.record(
+                        responses,
+                        elapsed,
+                        audio_sec,
+                        rtf,
+                        tail_sec,
+                        decode_metrics.get("stt-decode-buffer-wait-sec"),
+                        decode_metrics.get("stt-decode-queue-wait-sec"),
+                        decode_metrics.get("stt-decode-inference-sec"),
+                        decode_metrics.get("stt-decode-response-emit-sec"),
+                        decode_metrics.get("stt-decode-total-sec"),
+                    )
                     if config.log_sessions:
                         stats.maybe_log(session_log_entry, config.max_session_logs)
         except grpc.RpcError as exc:
@@ -522,6 +664,7 @@ def run_channel(
                 elapsed_sec=0.0,
                 success=False,
                 error_code=exc.code().name if hasattr(exc, "code") else "UNKNOWN",
+                failure_stage="unknown",
             )
             if i >= config.warmup_iterations and config.session_log_writer:
                 config.session_log_writer.write_entry(session_log_entry)
@@ -529,7 +672,9 @@ def run_channel(
                 if i < config.warmup_iterations:
                     stats.record_warmup(False)
                 else:
-                    stats.record_failure(exc)
+                    stats.record_failure(
+                        exc, session_log_entry.failure_stage or "unknown"
+                    )
                     if config.log_sessions:
                         stats.maybe_log(session_log_entry, config.max_session_logs)
 
@@ -555,7 +700,22 @@ def main() -> None:
     )
     parser.add_argument("--chunk-ms", type=int, default=100)
     parser.add_argument("--realtime", action="store_true")
+    parser.add_argument("--tls", action="store_true", help="Enable TLS")
+    parser.add_argument("--ca-cert", default=None, help="CA cert for TLS")
+    parser.add_argument(
+        "--server-hostname",
+        default=None,
+        help="Override TLS server hostname (SNI)",
+    )
     parser.add_argument("--require-token", action="store_true")
+    parser.add_argument("--rpc-timeout-sec", type=float, default=None)
+    parser.add_argument("--stream-timeout-sec", type=float, default=None)
+    parser.add_argument(
+        "--deadline-sec",
+        type=float,
+        default=None,
+        help="Set both rpc and stream timeouts",
+    )
     parser.add_argument(
         "--task", choices=("transcribe", "translate"), default="transcribe"
     )
@@ -598,6 +758,9 @@ def main() -> None:
         help="Max number of session logs to keep/print (0 disables)",
     )
     args = parser.parse_args()
+    if args.deadline_sec is not None:
+        args.rpc_timeout_sec = args.deadline_sec
+        args.stream_timeout_sec = args.deadline_sec
 
     test_started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     session_log_writer: Optional[SessionLogWriter] = None
@@ -633,6 +796,12 @@ def main() -> None:
         ramp_steps=max(args.ramp_steps, 1),
         ramp_interval_sec=max(args.ramp_interval_sec, 0.0),
         session_log_writer=session_log_writer,
+        tls=args.tls or bool(args.ca_cert),
+        ca_cert=args.ca_cert,
+        server_hostname=args.server_hostname,
+        rpc_timeout_sec=args.rpc_timeout_sec,
+        stream_timeout_sec=args.stream_timeout_sec,
+        metadata=[],
     )
 
     stats = BenchStats()
@@ -684,37 +853,104 @@ def main() -> None:
     r95 = pct(response_counts, 95)
     r99 = pct(response_counts, 99)
 
-    print("Sessions:", total_sessions)
-    print("Failures:", stats.failures)
-    print("Responses:", stats.responses)
-    print("Wall time:", f"{elapsed:.3f}s")
-    print("Avg session time:", f"{avg_time:.3f}s")
-    print("Sessions/sec:", f"{throughput:.3f}")
+    print("* Info")
+    print("  Sessions:", total_sessions)
+    print("  Failures:", stats.failures)
+    print("  Responses:", stats.responses)
+    print("  Wall time:", f"{elapsed:.3f}s")
+    print("  Avg session time:", f"{avg_time:.3f}s")
+    print("  Sessions/sec:", f"{throughput:.3f}")
+    if stats.total_audio_sec > 0 and elapsed > 0:
+        print("  Audio-sec/sec:", f"{(stats.total_audio_sec / elapsed):.3f}")
     if stats.warmup_sessions:
-        print("Warmup sessions:", stats.warmup_sessions)
-        print("Warmup failures:", stats.warmup_failures)
+        print("* Warmup")
+        print("  Warmup sessions:", stats.warmup_sessions)
+        print("  Warmup failures:", stats.warmup_failures)
     if stats.responses and elapsed > 0:
-        print("Responses/sec:", f"{(stats.responses / elapsed):.3f}")
+        print("* Response Rate")
+        print("  Responses/sec:", f"{(stats.responses / elapsed):.3f}")
     if latencies:
-        print("Latency p50:", f"{p50:.3f}s")
-        print("Latency p90:", f"{p90:.3f}s")
-        print("Latency p95:", f"{p95:.3f}s")
-        print("Latency p99:", f"{p99:.3f}s")
-        print("Latency min:", f"{latencies[0]:.3f}s")
-        print("Latency max:", f"{latencies[-1]:.3f}s")
+        print("* Latency")
+        print("  Latency p50:", f"{p50:.3f}s")
+        print("  Latency p90:", f"{p90:.3f}s")
+        print("  Latency p95:", f"{p95:.3f}s")
+        print("  Latency p99:", f"{p99:.3f}s")
+        print("  Latency min:", f"{latencies[0]:.3f}s")
+        print("  Latency max:", f"{latencies[-1]:.3f}s")
     if response_counts:
         avg_responses = stats.responses / total_sessions if total_sessions else 0.0
-        print("Avg responses/session:", f"{avg_responses:.3f}")
-        print("Responses p50:", f"{r50:.0f}")
-        print("Responses p90:", f"{r90:.0f}")
-        print("Responses p95:", f"{r95:.0f}")
-        print("Responses p99:", f"{r99:.0f}")
-        print("Responses min:", f"{response_counts[0]:.0f}")
-        print("Responses max:", f"{response_counts[-1]:.0f}")
+        print("* Responses Per Session")
+        print("  Avg responses/session:", f"{avg_responses:.3f}")
+        print("  Responses p50:", f"{r50:.0f}")
+        print("  Responses p90:", f"{r90:.0f}")
+        print("  Responses p95:", f"{r95:.0f}")
+        print("  Responses p99:", f"{r99:.0f}")
+        print("  Responses min:", f"{response_counts[0]:.0f}")
+        print("  Responses max:", f"{response_counts[-1]:.0f}")
+    if stats.rtfs:
+        r50 = pct(sorted(stats.rtfs), 50)
+        r95 = pct(sorted(stats.rtfs), 95)
+        r99 = pct(sorted(stats.rtfs), 99)
+        print("* RTF")
+        print("  RTF p50:", f"{r50:.3f}")
+        print("  RTF p95:", f"{r95:.3f}")
+        print("  RTF p99:", f"{r99:.3f}")
+    if stats.tail_latencies:
+        t50 = pct(sorted(stats.tail_latencies), 50)
+        t95 = pct(sorted(stats.tail_latencies), 95)
+        t99 = pct(sorted(stats.tail_latencies), 99)
+        print("* Tail")
+        print("  Tail p50:", f"{t50:.3f}s")
+        print("  Tail p95:", f"{t95:.3f}s")
+        print("  Tail p99:", f"{t99:.3f}s")
+    if stats.decode_buffer_waits:
+        b50 = pct(sorted(stats.decode_buffer_waits), 50)
+        b95 = pct(sorted(stats.decode_buffer_waits), 95)
+        b99 = pct(sorted(stats.decode_buffer_waits), 99)
+        print("* Decode Buffer Wait")
+        print("  Decode buffer wait p50:", f"{b50:.3f}s")
+        print("  Decode buffer wait p95:", f"{b95:.3f}s")
+        print("  Decode buffer wait p99:", f"{b99:.3f}s")
+    if stats.decode_queue_waits:
+        q50 = pct(sorted(stats.decode_queue_waits), 50)
+        q95 = pct(sorted(stats.decode_queue_waits), 95)
+        q99 = pct(sorted(stats.decode_queue_waits), 99)
+        print("* Decode Queue Wait")
+        print("  Decode queue wait p50:", f"{q50:.3f}s")
+        print("  Decode queue wait p95:", f"{q95:.3f}s")
+        print("  Decode queue wait p99:", f"{q99:.3f}s")
+    if stats.decode_inference:
+        i50 = pct(sorted(stats.decode_inference), 50)
+        i95 = pct(sorted(stats.decode_inference), 95)
+        i99 = pct(sorted(stats.decode_inference), 99)
+        print("* Decode Inference")
+        print("  Decode inference p50:", f"{i50:.3f}s")
+        print("  Decode inference p95:", f"{i95:.3f}s")
+        print("  Decode inference p99:", f"{i99:.3f}s")
+    if stats.decode_response_emit:
+        e50 = pct(sorted(stats.decode_response_emit), 50)
+        e95 = pct(sorted(stats.decode_response_emit), 95)
+        e99 = pct(sorted(stats.decode_response_emit), 99)
+        print("* Decode Response Emit")
+        print("  Decode response emit p50:", f"{e50:.3f}s")
+        print("  Decode response emit p95:", f"{e95:.3f}s")
+        print("  Decode response emit p99:", f"{e99:.3f}s")
+    if stats.decode_totals:
+        d50 = pct(sorted(stats.decode_totals), 50)
+        d95 = pct(sorted(stats.decode_totals), 95)
+        d99 = pct(sorted(stats.decode_totals), 99)
+        print("* Decode Total")
+        print("  Decode total p50:", f"{d50:.3f}s")
+        print("  Decode total p95:", f"{d95:.3f}s")
+        print("  Decode total p99:", f"{d99:.3f}s")
     if stats.error_counts:
-        print("Error codes:")
+        print("* Error Codes")
         for code, count in sorted(stats.error_counts.items()):
             print(f"  {code}: {count}")
+    if stats.failure_stages:
+        print("* Failure Stages")
+        for stage, count in sorted(stats.failure_stages.items()):
+            print(f"  {stage}: {count}")
     if stats.session_logs:
         if args.session_log_format == "csv":
             writer = csv.writer(sys.stdout)
