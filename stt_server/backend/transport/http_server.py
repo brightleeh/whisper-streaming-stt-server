@@ -39,6 +39,7 @@ _HEALTH_DETAIL_MODE_ENV = "STT_HEALTH_DETAIL_MODE"
 _HTTP_RATE_LIMIT_RPS_ENV = "STT_HTTP_RATE_LIMIT_RPS"
 _HTTP_RATE_LIMIT_BURST_ENV = "STT_HTTP_RATE_LIMIT_BURST"
 _HTTP_ALLOWLIST_ENV = "STT_HTTP_ALLOWLIST"
+_HTTP_TRUSTED_PROXIES_ENV = "STT_HTTP_TRUSTED_PROXIES"
 LOGGER = logging.getLogger("stt_server.http_server")
 
 
@@ -131,14 +132,6 @@ def _create_rate_limiter(
     rate_limit_rps: float, rate_limit_burst: float
 ) -> KeyedRateLimiter:
     return KeyedRateLimiter(rate_limit_rps, rate_limit_burst or None)
-
-
-def _extract_client_ip(request: Request) -> str:
-    forwarded_for = request.headers.get("x-forwarded-for", "").strip()
-    if forwarded_for:
-        return forwarded_for.split(",")[0].strip()
-    client = request.client
-    return client.host if client else ""
 
 
 def _model_path_allowed(model_path: Optional[str]) -> bool:
@@ -261,6 +254,19 @@ def build_http_app(
             allowlist.append(ipaddress.ip_network(entry, strict=False))
         except ValueError:
             LOGGER.warning("Invalid HTTP allowlist entry ignored: %s", entry)
+    trusted_proxies_raw = os.getenv(_HTTP_TRUSTED_PROXIES_ENV, "")
+    trusted_proxies: List[ipaddress._BaseNetwork] = []
+    trusted_proxy_hosts: List[str] = []
+    for entry in [
+        item.strip() for item in trusted_proxies_raw.split(",") if item.strip()
+    ]:
+        try:
+            trusted_proxies.append(ipaddress.ip_network(entry, strict=False))
+        except ValueError:
+            if any(ch.isalpha() for ch in entry):
+                trusted_proxy_hosts.append(entry)
+            else:
+                LOGGER.warning("Invalid HTTP trusted proxy entry ignored: %s", entry)
     load_statuses: Dict[str, LoadJobState] = {}
     load_statuses_lock = threading.Lock()
     model_profiles: Dict[str, Dict[str, Any]] = {}
@@ -281,6 +287,24 @@ def build_http_app(
             if not load_threads:
                 return
             load_threads[:] = [thread for thread in load_threads if thread.is_alive()]
+
+    def _extract_client_ip(request: Request) -> str:
+        client = request.client
+        client_ip = client.host if client else ""
+        trusted = client_ip in trusted_proxy_hosts
+        if not trusted and trusted_proxies:
+            try:
+                addr = ipaddress.ip_address(client_ip)
+            except ValueError:
+                addr = None
+            if addr is not None and any(addr in network for network in trusted_proxies):
+                trusted = True
+        if not trusted:
+            return client_ip
+        forwarded_for = request.headers.get("x-forwarded-for", "").strip()
+        if not forwarded_for:
+            return client_ip
+        return forwarded_for.split(",")[0].strip()
 
     def _enforce_ip_allowlist(request: Request) -> None:
         if not allowlist:

@@ -249,6 +249,8 @@ CLI flags always override YAML entries if provided.
 - Optional strict health details: set `STT_HEALTH_DETAIL_MODE=token` to always require the
   observability token for detailed `/health` responses. Without a token, only `{status}` is returned.
 - Optional IP allowlist: `STT_HTTP_ALLOWLIST` (comma-separated CIDR blocks, e.g. `10.0.0.0/8,127.0.0.1/32`).
+- Trusted proxy list for `X-Forwarded-For`: `STT_HTTP_TRUSTED_PROXIES` (comma-separated CIDR blocks or hostnames).
+  The server only trusts `X-Forwarded-For` when the direct client IP matches this list; otherwise it uses the socket IP.
 - Optional rate limiting: `server.http_rate_limit_rps` and
   `server.http_rate_limit_burst` (config file). Env overrides are still supported
   via `STT_HTTP_RATE_LIMIT_RPS` / `STT_HTTP_RATE_LIMIT_BURST`.

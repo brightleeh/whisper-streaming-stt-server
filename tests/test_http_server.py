@@ -623,6 +623,7 @@ def test_http_allowlist_blocks_unknown_ip(monkeypatch):
     """Test HTTP allowlist denies non-matching client IPs."""
     runtime = _build_runtime()
     monkeypatch.setenv("STT_HTTP_ALLOWLIST", "127.0.0.1/32")
+    monkeypatch.setenv("STT_HTTP_TRUSTED_PROXIES", "testclient")
 
     app, _, _ = build_http_app(runtime, {"grpc_running": True})
     client = TestClient(app)
