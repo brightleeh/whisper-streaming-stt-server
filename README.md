@@ -592,6 +592,8 @@ Admin endpoints are **disabled by default**. To enable them, set:
 - `STT_ADMIN_TOKEN=<token>`
 
 Requests must include an `Authorization: Bearer <token>` header.
+Do not rely on IP allowlists alone; treat the admin plane as Internet-facing unless explicitly
+firewalled/isolated.
 
 To restrict model loading via `model_path`, set:
 
@@ -603,6 +605,7 @@ To restrict model loading via `model_path`, set:
 
 Changes to public APIs must be **additive**. The rules below are enforced by tests
 (`tests/test_api_contract.py`) and the golden contract files in `tests/compat/`.
+Include API/compat notes in release tags to make contract impact explicit.
 
 ### gRPC/proto rules
 
