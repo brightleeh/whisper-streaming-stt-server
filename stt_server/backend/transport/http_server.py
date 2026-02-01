@@ -33,6 +33,7 @@ _ADMIN_TOKEN_ENV = "STT_ADMIN_TOKEN"
 _ADMIN_ALLOW_MODEL_PATH_ENV = "STT_ADMIN_ALLOW_MODEL_PATH"
 _ADMIN_MODEL_PATH_ALLOWLIST_ENV = "STT_ADMIN_MODEL_PATH_ALLOWLIST"
 _OBS_TOKEN_ENV = "STT_OBSERVABILITY_TOKEN"
+_PUBLIC_HEALTH_ENV = "STT_PUBLIC_HEALTH"
 _HTTP_RATE_LIMIT_RPS_ENV = "STT_HTTP_RATE_LIMIT_RPS"
 _HTTP_RATE_LIMIT_BURST_ENV = "STT_HTTP_RATE_LIMIT_BURST"
 _HTTP_ALLOWLIST_ENV = "STT_HTTP_ALLOWLIST"
@@ -79,6 +80,13 @@ def _admin_token() -> str:
 
 def _observability_token() -> str:
     return os.getenv(_OBS_TOKEN_ENV, "").strip()
+
+
+def _public_health_mode() -> str:
+    value = os.getenv(_PUBLIC_HEALTH_ENV, "").strip().lower()
+    if value in {"1", "true", "yes", "on", "minimal"}:
+        return "minimal"
+    return ""
 
 
 def _require_admin(request: Request) -> None:
@@ -385,6 +393,22 @@ def build_http_app(
     def health_endpoint(request: Request) -> JSONResponse:
         _enforce_ip_allowlist(request)
         _enforce_rate_limit(request)
+        public_mode = _public_health_mode()
+        if public_mode == "minimal":
+            token = _observability_token()
+            auth_ok = False
+            if token:
+                auth = request.headers.get("authorization", "").strip()
+                if auth.lower().startswith("bearer ") and auth[7:].strip() == token:
+                    auth_ok = True
+            snapshot = health_snapshot()
+            snapshot["grpc_running"] = server_state.get("grpc_running", False)
+            healthy = snapshot["grpc_running"] and snapshot["model_pool_healthy"]
+            status = 200 if healthy else 503
+            payload = {"status": "ok" if healthy else "error"}
+            if auth_ok:
+                payload.update(snapshot)
+            return JSONResponse(payload, status_code=status)
         _require_observability(request)
         snapshot = health_snapshot()
         snapshot["grpc_running"] = server_state.get("grpc_running", False)

@@ -352,6 +352,63 @@ def test_http_metrics_requires_observability_token(monkeypatch):
     assert response.status_code == 200
 
 
+def test_http_system_requires_observability_token(monkeypatch):
+    """Test system endpoint requires observability token."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_OBSERVABILITY_TOKEN", "metrics-token")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/system")
+    assert response.status_code == http_status_for(ErrorCode.OBS_UNAUTHORIZED)
+    assert response.json() == http_payload_for(ErrorCode.OBS_UNAUTHORIZED)
+
+
+def test_http_health_requires_observability_token(monkeypatch):
+    """Test health endpoint requires observability token by default."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_OBSERVABILITY_TOKEN", "metrics-token")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/health")
+    assert response.status_code == http_status_for(ErrorCode.OBS_UNAUTHORIZED)
+    assert response.json() == http_payload_for(ErrorCode.OBS_UNAUTHORIZED)
+
+
+def test_http_health_minimal_public_response(monkeypatch):
+    """Test public minimal health response omits details."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_OBSERVABILITY_TOKEN", "metrics-token")
+    monkeypatch.setenv("STT_PUBLIC_HEALTH", "minimal")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_http_health_minimal_with_token_includes_details(monkeypatch):
+    """Test minimal health returns details when token is provided."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_OBSERVABILITY_TOKEN", "metrics-token")
+    monkeypatch.setenv("STT_PUBLIC_HEALTH", "minimal")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/health", headers={"Authorization": "Bearer metrics-token"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "ok"
+    assert payload["grpc_running"] is True
+    assert payload["model_pool_healthy"] is True
+
+
 def test_http_admin_load_model_status_tracks_success(monkeypatch):
     """Test admin load model status transitions to success."""
     runtime = _build_runtime()

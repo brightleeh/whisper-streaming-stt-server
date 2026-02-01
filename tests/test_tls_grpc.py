@@ -1,6 +1,7 @@
 from concurrent import futures
 
 import grpc
+import pytest
 
 from gen.stt.python.v1 import stt_pb2, stt_pb2_grpc
 from stt_client.realtime.file import _create_channel as create_realtime_channel
@@ -101,4 +102,30 @@ def test_tls_grpc_client_server_roundtrip(tmp_path):
     finally:
         if channel is not None:
             channel.close()
+        server.stop(0)
+
+
+def test_tls_grpc_plaintext_connection_fails(tmp_path):
+    """Ensure plaintext gRPC fails against TLS-only server."""
+    cert_path, key_path = _write_tls_files(tmp_path)
+
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
+    stt_pb2_grpc.add_STTBackendServicer_to_server(FakeServicer(), server)
+    credentials = grpc.ssl_server_credentials(
+        [(key_path.read_bytes(), cert_path.read_bytes())]
+    )
+    port = server.add_secure_port("localhost:0", credentials)
+    assert port > 0
+    server.start()
+
+    try:
+        with grpc.insecure_channel(f"localhost:{port}") as channel:
+            stub = stt_pb2_grpc.STTBackendStub(channel)
+            with pytest.raises(grpc.RpcError) as exc:
+                stub.CreateSession(stt_pb2.SessionRequest(session_id="plain-test"))
+            assert exc.value.code() in {
+                grpc.StatusCode.UNAVAILABLE,
+                grpc.StatusCode.INTERNAL,
+            }
+    finally:
         server.stop(0)

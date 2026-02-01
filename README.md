@@ -44,8 +44,7 @@ sudo apt install pkg-config ffmpeg libavformat-dev libavcodec-dev libavdevice-de
 python -m stt_server.main --log-metrics
 ```
 
-- `--model`, `--device`, `--compute-type`, `--language`, `--model-pool-size`,
-  and `--port` let you customize faster-whisper instances and networking.
+- `--model`, `--device`, `--compute-type`, `--language`, `--model-pool-size`, and `--port` let you customize faster-whisper instances and networking.
 - `--max-sessions` controls how many client streams the server accepts in parallel.
 - `--log-metrics` prints decode latency + real-time factor for each decode run.
 - `--config <path>` points to the server YAML (default: `config/server.yaml`).
@@ -53,12 +52,9 @@ python -m stt_server.main --log-metrics
 - `--log-level` / `--log-file` override the logging section (console/file).
 - `--faster-whisper-log-level` overrides the `faster_whisper` logger level (default WARNING).
 - `--tls-cert-file` / `--tls-key-file` enable gRPC TLS with a server cert + key.
-- `--vad-silence` / `--vad-threshold` configure the VAD gate (silence duration +
-  Silero VAD probability threshold, 0-1) that triggers final decoding.
-- `--speech-threshold` sets the minimum RMS required before buffering is treated
-  as speech (helps ignore low-level noise).
-- `--decode-timeout` specifies the wait time for outstanding decode tasks
-  during draining (<=0 waits indefinitely).
+- `--vad-silence` / `--vad-threshold` configure the VAD gate (silence duration + Silero VAD probability threshold, 0-1) that triggers final decoding.
+- `--speech-threshold` sets the minimum RMS required before buffering is treated as speech (helps ignore low-level noise).
+- `--decode-timeout` specifies the wait time for outstanding decode tasks during draining (<=0 waits indefinitely).
 - `--metrics-port` sets the FastAPI metrics/health server port (default 8000).
 - `--grpc-worker-threads` controls the gRPC thread pool size (0/unset = auto).
 - Sessions auto-disconnect after 60 seconds of silence; adjust `server.session_timeout_sec` in `config/server.yaml` (or set your own config file).
@@ -82,8 +78,7 @@ python -m stt_server.main \
    - Use `--server host:port` or `--chunk-ms value` to tweak target and chunking.
    - Use `--vad-mode auto` to enable auto-end sessions (default is `continue`).
    - Override the detector per session via `--vad-silence` (seconds) and `--vad-threshold` (VAD probability).
-   - Use `--language ja`, `--task translate`, or `--decode-profile accurate` to
-     override the server defaults per session.
+   - Use `--language ja`, `--task translate`, or `--decode-profile accurate` to override the server defaults per session.
    - `--attr key=value` (repeatable) attaches arbitrary attributes, and
      `--require-token` asks the server to issue/validate per-session tokens.
    - Use `--tls` for system-trusted certs, or `--tls-ca-file /path/to/cert.pem` for self-signed.
@@ -231,6 +226,9 @@ CLI flags always override YAML entries if provided.
 - The HTTP metrics/health server binds to `server.http_host` (default `127.0.0.1`).
 - Set `STT_OBSERVABILITY_TOKEN` to require `Authorization: Bearer <token>` for
   `/metrics`, `/metrics.json`, `/system`, and `/health`.
+- Optional public health: set `STT_PUBLIC_HEALTH=minimal` to allow `/health` without a token,
+  returning only `{status}` with HTTP 200/503. Supplying the observability token still returns
+  full details.
 - Optional IP allowlist: `STT_HTTP_ALLOWLIST` (comma-separated CIDR blocks, e.g. `10.0.0.0/8,127.0.0.1/32`).
 - Optional rate limiting: `STT_HTTP_RATE_LIMIT_RPS` (requests/sec) and
   `STT_HTTP_RATE_LIMIT_BURST` (burst size) apply to all HTTP endpoints.
@@ -386,6 +384,11 @@ The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 - `GET /metrics.json`: JSON counters/gauges (active sessions, API-key session counts, decode timing aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts).
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models are loaded, and worker pools are healthy; otherwise `500`.
 - `GET /system`: JSON process/system metrics (CPU, RAM, thread counts). Uses `psutil` when available; otherwise falls back to basic RSS info. Optional GPU metrics can be enabled with `STT_ENABLE_GPU_METRICS=1` when `pynvml` is installed.
+
+Security checks:
+
+- `tools/security_smoke_check.sh http://<host>:<port>` verifies `/metrics*`, `/system`, `/health` are protected (or `/health` is minimal when `STT_PUBLIC_HEALTH=minimal`).
+- `tools/check_tls_expiry.py /path/to/cert.pem --warn-days 14` fails when certificates near expiry.
 
 ### Terminal dashboard (optional)
 
