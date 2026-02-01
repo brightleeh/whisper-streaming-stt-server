@@ -1,4 +1,5 @@
 from concurrent import futures
+import socket
 
 import grpc
 import pytest
@@ -78,6 +79,12 @@ def _write_tls_files(tmp_path):
     return cert_path, key_path
 
 
+def _pick_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
 def test_tls_grpc_client_server_roundtrip(tmp_path):
     """Ensure client can talk to a TLS-enabled gRPC server."""
     cert_path, key_path = _write_tls_files(tmp_path)
@@ -87,7 +94,8 @@ def test_tls_grpc_client_server_roundtrip(tmp_path):
     credentials = grpc.ssl_server_credentials(
         [(key_path.read_bytes(), cert_path.read_bytes())]
     )
-    port = server.add_secure_port("localhost:0", credentials)
+    port = _pick_free_port()
+    port = server.add_secure_port(f"localhost:{port}", credentials)
     assert port > 0
     server.start()
 
@@ -114,7 +122,8 @@ def test_tls_grpc_plaintext_connection_fails(tmp_path):
     credentials = grpc.ssl_server_credentials(
         [(key_path.read_bytes(), cert_path.read_bytes())]
     )
-    port = server.add_secure_port("localhost:0", credentials)
+    port = _pick_free_port()
+    port = server.add_secure_port(f"localhost:{port}", credentials)
     assert port > 0
     server.start()
 

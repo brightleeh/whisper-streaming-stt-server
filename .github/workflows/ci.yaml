@@ -41,8 +41,23 @@ jobs:
 
       # 2. Run Tests
       # Set PYTHONPATH to current directory (.) to locate stt_server and gen packages.
-      - name: Run Tests
+      - name: Run Unit Tests
+        env:
+          PYTHONPATH: .
+          STT_SKIP_INTEGRATION: 1
+        run: |
+          ./tools/run_tests.sh unit
+
+      - name: Run Abuse Tests
         env:
           PYTHONPATH: .
         run: |
-          pytest
+          ./tools/run_tests.sh abuse
+
+      - name: Run Integration Tests
+        env:
+          PYTHONPATH: .
+          STT_REQUIRE_EXISTING: 0
+          STT_TEST_NO_REALTIME: 1
+        run: |
+          ./tools/run_tests.sh integration
