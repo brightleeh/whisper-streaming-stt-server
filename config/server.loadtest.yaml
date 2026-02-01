@@ -17,6 +17,7 @@ server:
   partial_decode_window_sec: 5.0
   max_total_buffer_bytes: null
   decode_queue_timeout_sec: 0.0
+  decode_timeout_sec: 30
 
 health:
   min_events: 1
@@ -25,3 +26,8 @@ health:
 vad:
   silence: 0.4
   threshold: 0.6
+
+logging:
+  level: "DEBUG" # TRACE/DEBUG/INFO/WARN/ERROR
+  log_transcripts: true # Log transcript text in decode logs (PII risk)
+  transcript_file: logs/transcript.log

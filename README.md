@@ -234,6 +234,9 @@ CLI flags always override YAML entries if provided.
 - `torch_whisper`: PyTorch Whisper backend (supports `mps` on macOS).
 - Clients choose among preloaded model variants using `model_id` (e.g., `cpu-small`, `mps-small`).
   Backend/device selection is controlled by the server via model profiles or admin load.
+  On Apple Silicon, `torch_whisper` with `device: mps` can outperform CPU `faster_whisper`
+  in end-to-end throughput; verify on your hardware with the load-test tool.
+  Example: `python -m tools.bench.grpc_load_test --channels 30 --realtime`.
 
 **Observability security**
 

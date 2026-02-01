@@ -149,13 +149,15 @@ class StreamOrchestrator:
     def submit_decode(
         self,
         model_id: str,
+        session_id: str,
         pcm: bytes,
         sample_rate: int,
         decode_options: Optional[Dict[str, Any]],
+        is_final: bool,
     ) -> futures.Future:
         """Submit a decode request to the shared queue."""
         return self._model_registry.submit_decode(
-            model_id, pcm, sample_rate, decode_options
+            model_id, session_id, pcm, sample_rate, decode_options, is_final
         )
 
     @property

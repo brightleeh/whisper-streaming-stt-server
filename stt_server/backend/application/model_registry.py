@@ -3,10 +3,11 @@
 import logging
 import threading
 import time
+from collections import deque
 from concurrent import futures
 from dataclasses import dataclass
 from queue import Queue
-from typing import Any, Dict, List, Optional, Protocol, cast
+from typing import Any, Deque, Dict, List, Optional, Protocol, Set, cast
 
 from stt_server.config.default.model import (
     DEFAULT_COMPUTE_TYPE,
@@ -33,6 +34,8 @@ class _DecodeTask:
     pcm: bytes
     sample_rate: int
     decode_options: Optional[Dict[str, Any]]
+    session_id: str
+    is_final: bool
     submitted_at: float
     future: futures.Future
 
@@ -98,6 +101,12 @@ class ModelRegistry:
         self._model_rr_index = 0
         self._task_queues: Dict[str, Queue] = {}
         self._worker_threads: Dict[str, List[threading.Thread]] = {}
+        self._session_queues: Dict[str, Dict[str, Deque[_DecodeTask]]] = {}
+        self._session_order: Dict[str, Deque[str]] = {}
+        self._session_inflight: Dict[str, Set[str]] = {}
+        self._dispatch_conds: Dict[str, threading.Condition] = {}
+        self._dispatcher_threads: Dict[str, threading.Thread] = {}
+        self._dispatcher_shutdown: Dict[str, bool] = {}
 
     def is_loaded(self, model_id: str) -> bool:
         """Check if a model is currently loaded."""
@@ -210,6 +219,11 @@ class ModelRegistry:
                 self._rr_counters[model_id] = 0
                 queue: Queue = Queue()
                 self._task_queues[model_id] = queue
+                self._session_queues[model_id] = {}
+                self._session_order[model_id] = deque()
+                self._session_inflight[model_id] = set()
+                self._dispatch_conds[model_id] = threading.Condition()
+                self._dispatcher_shutdown[model_id] = False
                 threads: List[threading.Thread] = []
                 for idx, worker in enumerate(workers):
                     thread = threading.Thread(
@@ -221,6 +235,14 @@ class ModelRegistry:
                     thread.start()
                     threads.append(thread)
                 self._worker_threads[model_id] = threads
+                dispatcher = threading.Thread(
+                    target=self._dispatch_loop,
+                    args=(model_id,),
+                    name=f"model-dispatcher-{model_id}",
+                    daemon=True,
+                )
+                dispatcher.start()
+                self._dispatcher_threads[model_id] = dispatcher
                 LOGGER.info(
                     "Successfully loaded model '%s' (pool_size=%d)", model_id, pool_size
                 )
@@ -276,35 +298,69 @@ class ModelRegistry:
     def submit_decode(
         self,
         model_id: str,
+        session_id: str,
         pcm: bytes,
         sample_rate: int,
         decode_options: Optional[Dict[str, Any]],
+        is_final: bool,
     ) -> futures.Future:
         """Submit a decode task to the shared queue for the model."""
         with self._lock:
-            queue = self._task_queues.get(model_id)
-            if not queue:
+            if model_id not in self._task_queues:
                 if model_id != DEFAULT_MODEL_ID:
                     return self.submit_decode(
-                        DEFAULT_MODEL_ID, pcm, sample_rate, decode_options
+                        DEFAULT_MODEL_ID,
+                        session_id,
+                        pcm,
+                        sample_rate,
+                        decode_options,
+                        is_final,
                     )
                 if self._task_queues:
                     fallback_id = next(iter(self._task_queues))
                     return self.submit_decode(
-                        fallback_id, pcm, sample_rate, decode_options
+                        fallback_id,
+                        session_id,
+                        pcm,
+                        sample_rate,
+                        decode_options,
+                        is_final,
                     )
                 future = futures.Future()
                 future.set_exception(RuntimeError("No model workers available"))
+                return future
+            session_queues = self._session_queues.get(model_id)
+            order = self._session_order.get(model_id)
+            condition = self._dispatch_conds.get(model_id)
+            if session_queues is None or order is None or condition is None:
+                future = futures.Future()
+                future.set_exception(RuntimeError("Decode dispatcher unavailable"))
                 return future
         future = futures.Future()
         task = _DecodeTask(
             pcm=pcm,
             sample_rate=sample_rate,
             decode_options=decode_options.copy() if decode_options else None,
+            session_id=session_id or "unknown",
+            is_final=is_final,
             submitted_at=time.perf_counter(),
             future=future,
         )
-        queue.put(task)
+        with condition:
+            queue = session_queues.setdefault(task.session_id, deque())
+            if task.is_final:
+                self._cancel_stale_partials(queue)
+            queue.append(task)
+            if task.session_id not in order:
+                order.append(task.session_id)
+            LOGGER.debug(
+                "Enqueued decode task session_id=%s final=%s model_id=%s queue_len=%d",
+                task.session_id,
+                task.is_final,
+                model_id,
+                len(queue),
+            )
+            condition.notify_all()
         return future
 
     def unload_model(
@@ -325,11 +381,21 @@ class ModelRegistry:
             del self._rr_counters[model_id]
             queue = self._task_queues.pop(model_id, None)
             threads = self._worker_threads.pop(model_id, [])
+            self._session_queues.pop(model_id, None)
+            self._session_order.pop(model_id, None)
+            self._session_inflight.pop(model_id, None)
+            dispatcher = self._dispatcher_threads.pop(model_id, None)
+            condition = self._dispatch_conds.pop(model_id, None)
+            self._dispatcher_shutdown[model_id] = True
             LOGGER.info("Unloaded model '%s'", model_id)
         # Close workers outside the lock to avoid blocking other operations.
         timeout = None
         if drain_timeout_sec is not None:
             timeout = max(0.0, float(drain_timeout_sec))
+        if dispatcher and condition:
+            with condition:
+                condition.notify_all()
+            dispatcher.join(timeout=timeout)
         if queue is not None and threads:
             for _ in threads:
                 queue.put(None)
@@ -357,11 +423,25 @@ class ModelRegistry:
             ]
             self._task_queues.clear()
             self._worker_threads.clear()
+            dispatchers = list(self._dispatcher_threads.values())
+            conditions = list(self._dispatch_conds.values())
+            self._dispatcher_threads.clear()
+            self._dispatch_conds.clear()
+            self._session_queues.clear()
+            self._session_order.clear()
+            self._session_inflight.clear()
+            for model_id in list(self._dispatcher_shutdown.keys()):
+                self._dispatcher_shutdown[model_id] = True
         for queue, threads in queue_threads:
             for _ in threads:
                 queue.put(None)
             for thread in threads:
                 thread.join(timeout=1.0)
+        for condition in conditions:
+            with condition:
+                condition.notify_all()
+        for dispatcher in dispatchers:
+            dispatcher.join(timeout=1.0)
         for pool in pools:
             for worker in pool:
                 try:
@@ -369,29 +449,144 @@ class ModelRegistry:
                 except (RuntimeError, ValueError) as exc:
                     LOGGER.exception("Failed to close model worker: %s", exc)
 
-    @staticmethod
-    def _worker_loop(model_id: str, worker: ModelWorkerProtocol, queue: Queue) -> None:
+    def _worker_loop(
+        self, model_id: str, worker: ModelWorkerProtocol, queue: Queue
+    ) -> None:
         while True:
             task = queue.get()
             if task is None:
                 queue.task_done()
                 break
             if task.future.cancelled():
+                self._release_inflight(model_id, task.session_id)
                 queue.task_done()
                 continue
             try:
+                LOGGER.debug(
+                    "Worker starting decode session_id=%s final=%s model_id=%s bytes=%d",
+                    task.session_id,
+                    task.is_final,
+                    model_id,
+                    len(task.pcm),
+                )
                 result = worker.decode_sync(
                     task.pcm,
                     task.sample_rate,
                     task.decode_options,
                     task.submitted_at,
                 )
-                task.future.set_result(result)
+                if not task.future.cancelled():
+                    task.future.set_result(result)
+                LOGGER.debug(
+                    "Worker finished decode session_id=%s final=%s model_id=%s",
+                    task.session_id,
+                    task.is_final,
+                    model_id,
+                )
             except Exception as exc:  # pragma: no cover - defensive
-                task.future.set_exception(exc)
+                if not task.future.cancelled():
+                    task.future.set_exception(exc)
                 LOGGER.exception("Decode task failed for model '%s'", model_id)
             finally:
+                self._release_inflight(model_id, task.session_id)
                 queue.task_done()
+
+    def _dispatch_loop(self, model_id: str) -> None:
+        condition = self._dispatch_conds[model_id]
+        task_queue = self._task_queues[model_id]
+        while True:
+            try:
+                with condition:
+                    task = self._pop_next_task(model_id)
+                    while task is None:
+                        if self._dispatcher_shutdown.get(model_id, False):
+                            return
+                        condition.wait(timeout=0.1)
+                        task = self._pop_next_task(model_id)
+                LOGGER.debug(
+                    "Dispatching decode task session_id=%s final=%s model_id=%s",
+                    task.session_id,
+                    task.is_final,
+                    model_id,
+                )
+                task_queue.put(task)
+            except Exception:  # pragma: no cover - defensive logging
+                LOGGER.exception("Dispatcher loop failed for model '%s'", model_id)
+                return
+
+    def _pop_next_task(self, model_id: str) -> Optional[_DecodeTask]:
+        session_queues = self._session_queues.get(model_id)
+        order = self._session_order.get(model_id)
+        inflight = self._session_inflight.get(model_id)
+        if session_queues is None or order is None or inflight is None:
+            return None
+        if not order:
+            return None
+        checks = len(order)
+        while checks > 0 and order:
+            session_id = order.popleft()
+            checks -= 1
+            queue = session_queues.get(session_id)
+            if not queue:
+                session_queues.pop(session_id, None)
+                continue
+            if session_id in inflight:
+                order.append(session_id)
+                continue
+            task = self._select_task(queue)
+            if task is None:
+                session_queues.pop(session_id, None)
+                continue
+            inflight.add(session_id)
+            if queue:
+                order.append(session_id)
+            else:
+                session_queues.pop(session_id, None)
+            return task
+        return None
+
+    def _select_task(self, queue: Deque[_DecodeTask]) -> Optional[_DecodeTask]:
+        if not queue:
+            return None
+        if any(task.is_final for task in queue):
+            self._cancel_stale_partials(queue)
+        return queue.popleft() if queue else None
+
+    def _cancel_stale_partials(self, queue: Deque[_DecodeTask]) -> None:
+        if not queue:
+            return
+        kept: Deque[_DecodeTask] = deque()
+        for task in queue:
+            if task.is_final:
+                kept.append(task)
+            else:
+                task.future.cancel()
+        queue.clear()
+        queue.extend(kept)
+
+    def _release_inflight(self, model_id: str, session_id: str) -> None:
+        condition = self._dispatch_conds.get(model_id)
+        inflight = self._session_inflight.get(model_id)
+        if inflight is None:
+            return
+        if condition is None:
+            inflight.discard(session_id)
+            LOGGER.debug(
+                "Decode task completed session_id=%s model_id=%s inflight=%d",
+                session_id,
+                model_id,
+                len(inflight),
+            )
+            return
+        with condition:
+            inflight.discard(session_id)
+            LOGGER.debug(
+                "Decode task completed session_id=%s model_id=%s inflight=%d",
+                session_id,
+                model_id,
+                len(inflight),
+            )
+            condition.notify_all()
 
     @staticmethod
     def _resolve_model_worker() -> ModelWorkerFactory:

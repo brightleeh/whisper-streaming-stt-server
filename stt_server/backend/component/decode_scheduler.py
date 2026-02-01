@@ -246,7 +246,12 @@ class DecodeStream:
             return
 
         future = self.scheduler.stream_orchestrator.submit_decode(
-            self.model_id, pcm, sample_rate, decode_options
+            self.model_id,
+            self.session_id or "unknown",
+            pcm,
+            sample_rate,
+            decode_options,
+            is_final,
         )
         buffer_wait_sec = (
             max(0.0, time.perf_counter() - buffer_started_at)
@@ -527,8 +532,10 @@ class DecodeStream:
                 self.scheduler._record_health_event("error")
                 self._finalize_pending(is_final, holds_slot)
                 raise
+            except futures.CancelledError:
+                self._finalize_pending(is_final, holds_slot)
+                continue
             except (
-                futures.CancelledError,
                 futures.TimeoutError,
                 RuntimeError,
                 ValueError,

@@ -175,6 +175,12 @@ class BenchStats:
     decode_inference: List[float] = field(default_factory=list)
     decode_response_emit: List[float] = field(default_factory=list)
     decode_totals: List[float] = field(default_factory=list)
+    decode_counts: List[int] = field(default_factory=list)
+    decode_inference_avg: List[float] = field(default_factory=list)
+    decode_queue_wait_avg: List[float] = field(default_factory=list)
+    decode_buffer_wait_avg: List[float] = field(default_factory=list)
+    decode_response_emit_avg: List[float] = field(default_factory=list)
+    decode_total_avg: List[float] = field(default_factory=list)
     session_logs: List["SessionLog"] = field(default_factory=list)
     warmup_sessions: int = 0
     warmup_failures: int = 0
@@ -191,6 +197,7 @@ class BenchStats:
         decode_inference_sec: Optional[float],
         decode_response_emit_sec: Optional[float],
         decode_total_sec: Optional[float],
+        decode_count: Optional[int],
     ) -> None:
         """Record a successful session result."""
         self.sessions += 1
@@ -213,6 +220,22 @@ class BenchStats:
             self.decode_response_emit.append(decode_response_emit_sec)
         if decode_total_sec is not None:
             self.decode_totals.append(decode_total_sec)
+        if decode_count is not None and decode_count > 0:
+            self.decode_counts.append(decode_count)
+            if decode_inference_sec is not None:
+                self.decode_inference_avg.append(decode_inference_sec / decode_count)
+            if decode_queue_wait_sec is not None:
+                self.decode_queue_wait_avg.append(decode_queue_wait_sec / decode_count)
+            if decode_buffer_wait_sec is not None:
+                self.decode_buffer_wait_avg.append(
+                    decode_buffer_wait_sec / decode_count
+                )
+            if decode_response_emit_sec is not None:
+                self.decode_response_emit_avg.append(
+                    decode_response_emit_sec / decode_count
+                )
+            if decode_total_sec is not None:
+                self.decode_total_avg.append(decode_total_sec / decode_count)
 
     def record_failure(self, exc: grpc.RpcError, stage: str) -> None:
         """Record a failed session and error code."""
@@ -258,6 +281,7 @@ class SessionLog:
     decode_inference_sec: Optional[float] = None
     decode_response_emit_sec: Optional[float] = None
     decode_total_sec: Optional[float] = None
+    decode_count: Optional[int] = None
     failure_stage: Optional[str] = None
 
 
@@ -278,6 +302,7 @@ SESSION_LOG_HEADERS = [
     "decode_inference_seconds",
     "decode_response_emit_seconds",
     "decode_total_seconds",
+    "decode_count",
 ]
 
 SESSION_LOG_COLUMN_DESCRIPTIONS = [
@@ -312,6 +337,7 @@ SESSION_LOG_COLUMN_DESCRIPTIONS = [
         "decode_total_seconds",
         "Sum of buffer wait, queue wait, inference, and response emit",
     ),
+    ("decode_count", "Number of decode passes in the stream"),
 ]
 
 
@@ -352,6 +378,7 @@ def session_log_payload(entry: SessionLog) -> Dict[str, object]:
             entry.decode_response_emit_sec
         ),
         "decode_total_seconds": format_seconds_value(entry.decode_total_sec),
+        "decode_count": entry.decode_count,
     }
 
 
@@ -374,6 +401,7 @@ def session_log_row(entry: SessionLog) -> List[str]:
         format_seconds_string(entry.decode_inference_sec),
         format_seconds_string(entry.decode_response_emit_sec),
         format_seconds_string(entry.decode_total_sec),
+        str(entry.decode_count or ""),
     ]
 
 
@@ -636,6 +664,11 @@ def run_channel(
                     "stt-decode-response-emit-sec"
                 ),
                 decode_total_sec=decode_metrics.get("stt-decode-total-sec"),
+                decode_count=(
+                    int(decode_metrics["stt-decode-count"])
+                    if "stt-decode-count" in decode_metrics
+                    else None
+                ),
             )
             if i >= config.warmup_iterations and config.session_log_writer:
                 config.session_log_writer.write_entry(session_log_entry)
@@ -654,6 +687,11 @@ def run_channel(
                         decode_metrics.get("stt-decode-inference-sec"),
                         decode_metrics.get("stt-decode-response-emit-sec"),
                         decode_metrics.get("stt-decode-total-sec"),
+                        (
+                            int(decode_metrics["stt-decode-count"])
+                            if "stt-decode-count" in decode_metrics
+                            else None
+                        ),
                     )
                     if config.log_sessions:
                         stats.maybe_log(session_log_entry, config.max_session_logs)
@@ -854,95 +892,111 @@ def main() -> None:
     r99 = pct(response_counts, 99)
 
     print("* Info")
-    print("  Sessions:", total_sessions)
-    print("  Failures:", stats.failures)
-    print("  Responses:", stats.responses)
-    print("  Wall time:", f"{elapsed:.3f}s")
-    print("  Avg session time:", f"{avg_time:.3f}s")
-    print("  Sessions/sec:", f"{throughput:.3f}")
+    print("    Sessions:", total_sessions)
+    print("    Failures:", stats.failures)
+    print("    Responses:", stats.responses)
+    print("    Wall time:", f"{elapsed:.3f}s")
+    print("    Avg session time:", f"{avg_time:.3f}s")
+    print("    Sessions/sec:", f"{throughput:.3f}")
     if stats.total_audio_sec > 0 and elapsed > 0:
-        print("  Audio-sec/sec:", f"{(stats.total_audio_sec / elapsed):.3f}")
+        print("    Audio-sec/sec:", f"{(stats.total_audio_sec / elapsed):.3f}")
     if stats.warmup_sessions:
         print("* Warmup")
-        print("  Warmup sessions:", stats.warmup_sessions)
-        print("  Warmup failures:", stats.warmup_failures)
+        print("    Warmup sessions:", stats.warmup_sessions)
+        print("    Warmup failures:", stats.warmup_failures)
     if stats.responses and elapsed > 0:
         print("* Response Rate")
-        print("  Responses/sec:", f"{(stats.responses / elapsed):.3f}")
+        print("    per_sec:", f"{(stats.responses / elapsed):.3f}")
     if latencies:
         print("* Latency")
-        print("  Latency p50:", f"{p50:.3f}s")
-        print("  Latency p90:", f"{p90:.3f}s")
-        print("  Latency p95:", f"{p95:.3f}s")
-        print("  Latency p99:", f"{p99:.3f}s")
-        print("  Latency min:", f"{latencies[0]:.3f}s")
-        print("  Latency max:", f"{latencies[-1]:.3f}s")
+        print("    p50:", f"{p50:.3f}s")
+        print("    p90:", f"{p90:.3f}s")
+        print("    p95:", f"{p95:.3f}s")
+        print("    p99:", f"{p99:.3f}s")
+        print("    min:", f"{latencies[0]:.3f}s")
+        print("    max:", f"{latencies[-1]:.3f}s")
     if response_counts:
         avg_responses = stats.responses / total_sessions if total_sessions else 0.0
         print("* Responses Per Session")
-        print("  Avg responses/session:", f"{avg_responses:.3f}")
-        print("  Responses p50:", f"{r50:.0f}")
-        print("  Responses p90:", f"{r90:.0f}")
-        print("  Responses p95:", f"{r95:.0f}")
-        print("  Responses p99:", f"{r99:.0f}")
-        print("  Responses min:", f"{response_counts[0]:.0f}")
-        print("  Responses max:", f"{response_counts[-1]:.0f}")
+        print("    avg:", f"{avg_responses:.3f}")
+        print("    p50:", f"{r50:.0f}")
+        print("    p90:", f"{r90:.0f}")
+        print("    p95:", f"{r95:.0f}")
+        print("    p99:", f"{r99:.0f}")
+        print("    min:", f"{response_counts[0]:.0f}")
+        print("    max:", f"{response_counts[-1]:.0f}")
     if stats.rtfs:
         r50 = pct(sorted(stats.rtfs), 50)
         r95 = pct(sorted(stats.rtfs), 95)
         r99 = pct(sorted(stats.rtfs), 99)
         print("* RTF")
-        print("  RTF p50:", f"{r50:.3f}")
-        print("  RTF p95:", f"{r95:.3f}")
-        print("  RTF p99:", f"{r99:.3f}")
+        print("    p50:", f"{r50:.3f}")
+        print("    p95:", f"{r95:.3f}")
+        print("    p99:", f"{r99:.3f}")
     if stats.tail_latencies:
         t50 = pct(sorted(stats.tail_latencies), 50)
         t95 = pct(sorted(stats.tail_latencies), 95)
         t99 = pct(sorted(stats.tail_latencies), 99)
         print("* Tail")
-        print("  Tail p50:", f"{t50:.3f}s")
-        print("  Tail p95:", f"{t95:.3f}s")
-        print("  Tail p99:", f"{t99:.3f}s")
+        print("    p50:", f"{t50:.3f}s")
+        print("    p95:", f"{t95:.3f}s")
+        print("    p99:", f"{t99:.3f}s")
     if stats.decode_buffer_waits:
         b50 = pct(sorted(stats.decode_buffer_waits), 50)
         b95 = pct(sorted(stats.decode_buffer_waits), 95)
         b99 = pct(sorted(stats.decode_buffer_waits), 99)
         print("* Decode Buffer Wait")
-        print("  Decode buffer wait p50:", f"{b50:.3f}s")
-        print("  Decode buffer wait p95:", f"{b95:.3f}s")
-        print("  Decode buffer wait p99:", f"{b99:.3f}s")
+        print("    p50:", f"{b50:.3f}s")
+        print("    p95:", f"{b95:.3f}s")
+        print("    p99:", f"{b99:.3f}s")
     if stats.decode_queue_waits:
         q50 = pct(sorted(stats.decode_queue_waits), 50)
         q95 = pct(sorted(stats.decode_queue_waits), 95)
         q99 = pct(sorted(stats.decode_queue_waits), 99)
         print("* Decode Queue Wait")
-        print("  Decode queue wait p50:", f"{q50:.3f}s")
-        print("  Decode queue wait p95:", f"{q95:.3f}s")
-        print("  Decode queue wait p99:", f"{q99:.3f}s")
+        print("    p50:", f"{q50:.3f}s")
+        print("    p95:", f"{q95:.3f}s")
+        print("    p99:", f"{q99:.3f}s")
     if stats.decode_inference:
         i50 = pct(sorted(stats.decode_inference), 50)
         i95 = pct(sorted(stats.decode_inference), 95)
         i99 = pct(sorted(stats.decode_inference), 99)
         print("* Decode Inference")
-        print("  Decode inference p50:", f"{i50:.3f}s")
-        print("  Decode inference p95:", f"{i95:.3f}s")
-        print("  Decode inference p99:", f"{i99:.3f}s")
+        print("    p50:", f"{i50:.3f}s")
+        print("    p95:", f"{i95:.3f}s")
+        print("    p99:", f"{i99:.3f}s")
     if stats.decode_response_emit:
         e50 = pct(sorted(stats.decode_response_emit), 50)
         e95 = pct(sorted(stats.decode_response_emit), 95)
         e99 = pct(sorted(stats.decode_response_emit), 99)
         print("* Decode Response Emit")
-        print("  Decode response emit p50:", f"{e50:.3f}s")
-        print("  Decode response emit p95:", f"{e95:.3f}s")
-        print("  Decode response emit p99:", f"{e99:.3f}s")
+        print("    p50:", f"{e50:.3f}s")
+        print("    p95:", f"{e95:.3f}s")
+        print("    p99:", f"{e99:.3f}s")
     if stats.decode_totals:
         d50 = pct(sorted(stats.decode_totals), 50)
         d95 = pct(sorted(stats.decode_totals), 95)
         d99 = pct(sorted(stats.decode_totals), 99)
         print("* Decode Total")
-        print("  Decode total p50:", f"{d50:.3f}s")
-        print("  Decode total p95:", f"{d95:.3f}s")
-        print("  Decode total p99:", f"{d99:.3f}s")
+        print("    p50:", f"{d50:.3f}s")
+        print("    p95:", f"{d95:.3f}s")
+        print("    p99:", f"{d99:.3f}s")
+    if stats.decode_counts:
+        c50 = pct(sorted(stats.decode_counts), 50)
+        c95 = pct(sorted(stats.decode_counts), 95)
+        c99 = pct(sorted(stats.decode_counts), 99)
+        print("* Decode Count")
+        print("    p50:", f"{c50:.0f}")
+        print("    p95:", f"{c95:.0f}")
+        print("    p99:", f"{c99:.0f}")
+    if stats.decode_total_avg:
+        a50 = pct(sorted(stats.decode_total_avg), 50)
+        a95 = pct(sorted(stats.decode_total_avg), 95)
+        a99 = pct(sorted(stats.decode_total_avg), 99)
+        print("* Decode Avg (per pass)")
+        print("    p50:", f"{a50:.3f}s")
+        print("    p95:", f"{a95:.3f}s")
+        print("    p99:", f"{a99:.3f}s")
     if stats.error_counts:
         print("* Error Codes")
         for code, count in sorted(stats.error_counts.items()):
