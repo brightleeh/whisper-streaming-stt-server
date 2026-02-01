@@ -44,7 +44,7 @@ sudo apt install pkg-config ffmpeg libavformat-dev libavcodec-dev libavdevice-de
 python -m stt_server.main --log-metrics
 ```
 
-- `--model`, `--device`, `--compute-type`, `--language`, `--model-pool-size`, and `--port` let you customize faster-whisper instances and networking.
+- `--model`, `--model-backend`, `--device`, `--compute-type`, `--language`, `--model-pool-size`, and `--port` let you customize the Whisper backend and networking.
 - `--max-sessions` controls how many client streams the server accepts in parallel.
 - `--log-metrics` prints decode latency + real-time factor for each decode run.
 - `--config <path>` points to the server YAML (default: `config/server.yaml`).
@@ -192,8 +192,9 @@ Example model snippet (`config/model.yaml`):
 ```yaml
 model:
   name: "small" # Whisper model size
-  device: "cpu" # cpu / cuda
-  compute_type: "int8" # faster-whisper compute type
+  backend: "faster_whisper" # faster_whisper | torch_whisper
+  device: "cpu" # cpu / cuda / mps (torch_whisper)
+  compute_type: "int8" # backend compute type
   pool_size: 1 # Number of preloaded model instances
   language_fix: false # Force the configured language when true
   language: "ko" # e.g., de, en, fr, ja, ko, zh ... (auto-detect when unset and language_fix=false)
@@ -226,6 +227,13 @@ decode_profiles: # Named decode options (unknown keys return ERR1010)
 Decode options are validated against a whitelist; unknown keys return `ERR1010`.
 
 CLI flags always override YAML entries if provided.
+
+**Model backend selection**
+
+- `faster_whisper` (default): fastest on CPU/CUDA with CTranslate2.
+- `torch_whisper`: PyTorch Whisper backend (supports `mps` on macOS).
+- Clients choose among preloaded model variants using `model_id` (e.g., `cpu-small`, `mps-small`).
+  Backend/device selection is controlled by the server via model profiles or admin load.
 
 **Observability security**
 
@@ -528,6 +536,7 @@ These endpoints allow operators to manage Whisper models without restarting the 
   Loads a Whisper model into the runtime. This can be used to pre-warm models or dynamically add new model variants.
   Prefer `profile_id` to select a pre-defined load profile from `model_load_profiles` in `config/model.yaml`.
   If no profile is provided and no legacy overrides are sent, the default profile is used.
+  `backend` may be specified to select `faster_whisper` or `torch_whisper`.
 
 - `POST /admin/unload_model`
   Unloads a previously loaded model to free CPU/GPU memory. Active sessions using the model must complete or fail gracefully.
@@ -549,6 +558,7 @@ model:
 model_load_profiles:
   default:
     model_size: "small"
+    backend: "faster_whisper"
     device: "cpu"
     compute_type: "int8"
     pool_size: 1
