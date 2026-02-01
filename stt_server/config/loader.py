@@ -61,6 +61,8 @@ from stt_server.config.default import (
     DEFAULT_TLS_CERT_FILE,
     DEFAULT_TLS_KEY_FILE,
     DEFAULT_TLS_REQUIRED,
+    DEFAULT_TRANSCRIPT_LOG_FILE,
+    DEFAULT_TRANSCRIPT_RETENTION_DAYS,
     DEFAULT_VAD_MODEL_POOL_GROWTH_FACTOR,
     DEFAULT_VAD_MODEL_POOL_SIZE,
     DEFAULT_VAD_MODEL_PREWARM,
@@ -115,6 +117,8 @@ class ServerConfig:
     log_level: str = DEFAULT_LOG_LEVEL
     log_file: Optional[str] = DEFAULT_LOG_FILE
     faster_whisper_log_level: Optional[str] = None
+    transcript_log_file: Optional[str] = DEFAULT_TRANSCRIPT_LOG_FILE
+    transcript_retention_days: Optional[int] = DEFAULT_TRANSCRIPT_RETENTION_DAYS
     sample_rate: int = DEFAULT_SAMPLE_RATE
     session_timeout_sec: float = 60.0
     max_buffer_sec: Optional[float] = DEFAULT_MAX_BUFFER_SEC

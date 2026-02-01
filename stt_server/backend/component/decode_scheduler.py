@@ -15,7 +15,7 @@ from gen.stt.python.v1 import stt_pb2
 from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
 from stt_server.errors import ErrorCode, STTError, status_for
-from stt_server.utils.logger import LOGGER
+from stt_server.utils.logger import LOGGER, TRANSCRIPT_LOGGER
 
 if TYPE_CHECKING:
     from stt_server.backend.application.model_registry import ModelWorkerProtocol
@@ -551,7 +551,7 @@ class DecodeStream:
             for seg in result.segments:
                 text = seg.text or ""
                 if self.scheduler.log_transcripts:
-                    LOGGER.info(
+                    TRANSCRIPT_LOGGER.info(
                         "session_id=%s %s result='%s' [%.2f, %.2f] lang=%s prob=%.2f",
                         self.session_id or "unknown",
                         "final" if is_final else "partial",
@@ -565,21 +565,20 @@ class DecodeStream:
                             else -1.0
                         ),
                     )
-                else:
-                    LOGGER.debug(
-                        "session_id=%s %s result_len=%d [%.2f, %.2f] lang=%s prob=%.2f",
-                        self.session_id or "unknown",
-                        "final" if is_final else "partial",
-                        len(text),
-                        seg.start + offset_sec,
-                        seg.end + offset_sec,
-                        result.language_code or "auto",
-                        (
-                            result.language_probability
-                            if result.language_probability >= 0
-                            else -1.0
-                        ),
-                    )
+                LOGGER.debug(
+                    "session_id=%s %s result_len=%d [%.2f, %.2f] lang=%s prob=%.2f",
+                    self.session_id or "unknown",
+                    "final" if is_final else "partial",
+                    len(text),
+                    seg.start + offset_sec,
+                    seg.end + offset_sec,
+                    result.language_code or "auto",
+                    (
+                        result.language_probability
+                        if result.language_probability >= 0
+                        else -1.0
+                    ),
+                )
                 yield stt_pb2.STTResult(
                     text=seg.text,
                     is_final=is_final,

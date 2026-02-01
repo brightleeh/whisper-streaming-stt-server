@@ -45,7 +45,11 @@ def _resolve_level(value: Optional[str], fallback: int) -> int:
 
 
 def configure_logging(
-    level: str, log_file: Optional[str], faster_whisper_level: Optional[str] = None
+    level: str,
+    log_file: Optional[str],
+    faster_whisper_level: Optional[str] = None,
+    transcript_log_file: Optional[str] = None,
+    transcript_retention_days: Optional[int] = None,
 ) -> None:
     """Configure root logging with queue-based handlers."""
     global QUEUE_LISTENER
@@ -94,6 +98,29 @@ def configure_logging(
         _resolve_level(faster_whisper_level, faster_whisper_default_level)
     )
 
+    transcript_logger = logging.getLogger("stt_server.transcript")
+    transcript_logger.handlers.clear()
+    transcript_logger.propagate = False
+    transcript_logger.setLevel(logging.INFO)
+    transcript_handler: logging.Handler
+    if transcript_log_file:
+        transcript_path = Path(transcript_log_file).expanduser()
+        transcript_path.parent.mkdir(parents=True, exist_ok=True)
+        retention_days = (
+            transcript_retention_days if transcript_retention_days is not None else 7
+        )
+        if retention_days is not None and retention_days > 0:
+            transcript_handler = logging.handlers.TimedRotatingFileHandler(
+                transcript_path, when="D", backupCount=retention_days
+            )
+        else:
+            transcript_handler = logging.FileHandler(transcript_path)
+        transcript_handler.setFormatter(formatter)
+        transcript_handler.addFilter(_SessionIdFilter())
+    else:
+        transcript_handler = logging.NullHandler()
+    transcript_logger.addHandler(transcript_handler)
+
     QUEUE_LISTENER = logging.handlers.QueueListener(
         LOG_QUEUE, *handlers, respect_handler_level=True
     )
@@ -101,11 +128,13 @@ def configure_logging(
 
 
 LOGGER = logging.getLogger("stt_server")
+TRANSCRIPT_LOGGER = logging.getLogger("stt_server.transcript")
 
 __all__ = [
     "clear_session_id",
     "configure_logging",
     "LOGGER",
+    "TRANSCRIPT_LOGGER",
     "set_session_id",
     "TRACE_LEVEL_NUM",
 ]

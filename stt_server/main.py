@@ -356,6 +356,17 @@ def parse_args() -> argparse.Namespace:
         help="Optional log file path; overrides config",
     )
     parser.add_argument(
+        "--transcript-log-file",
+        default=None,
+        help="Optional transcript log sink; enables transcript logging",
+    )
+    parser.add_argument(
+        "--transcript-log-retention-days",
+        type=int,
+        default=None,
+        help="Days to retain transcript logs (default: 7)",
+    )
+    parser.add_argument(
         "--faster-whisper-log-level",
         default=None,
         help="Override faster_whisper logger level (e.g. DEBUG, INFO, WARNING)",
@@ -465,6 +476,10 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.log_level = args.log_level
     if args.log_file is not None:
         config.log_file = args.log_file
+    if args.transcript_log_file is not None:
+        config.transcript_log_file = args.transcript_log_file
+    if args.transcript_log_retention_days is not None:
+        config.transcript_retention_days = args.transcript_log_retention_days
     if args.faster_whisper_log_level is not None:
         config.faster_whisper_log_level = args.faster_whisper_log_level
     if args.tls_cert_file is not None:
@@ -483,8 +498,17 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.require_api_key = args.require_api_key
 
     configure_logging(
-        config.log_level, config.log_file, config.faster_whisper_log_level
+        config.log_level,
+        config.log_file,
+        config.faster_whisper_log_level,
+        config.transcript_log_file,
+        config.transcript_retention_days,
     )
+    if config.log_transcripts and not config.transcript_log_file:
+        LOGGER.warning(
+            "log_transcripts is enabled but transcript_log_file is not set; "
+            "transcript text will not be persisted."
+        )
     if effective_config_path.exists():
         LOGGER.info("Loaded server config from %s", effective_config_path)
     else:

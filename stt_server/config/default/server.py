@@ -50,6 +50,8 @@ DEFAULT_HEALTH_MAX_TIMEOUT_RATIO = 0.5
 DEFAULT_HEALTH_MIN_SUCCESS_RATIO = 0.5
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FILE = None
+DEFAULT_TRANSCRIPT_LOG_FILE = None
+DEFAULT_TRANSCRIPT_RETENTION_DAYS = 7
 DEFAULT_PERSIST_AUDIO = False
 DEFAULT_AUDIO_STORAGE_DIR = "data/audio"
 DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS = 256
@@ -104,6 +106,8 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "file": "log_file",
         "faster_whisper_level": "faster_whisper_log_level",
         "log_transcripts": "log_transcripts",
+        "transcript_file": "transcript_log_file",
+        "transcript_retention_days": "transcript_retention_days",
     },
     "tls": {
         "cert_file": "tls_cert_file",
@@ -176,6 +180,8 @@ __all__ = [
     "DEFAULT_HEALTH_MIN_SUCCESS_RATIO",
     "DEFAULT_LOG_LEVEL",
     "DEFAULT_LOG_FILE",
+    "DEFAULT_TRANSCRIPT_LOG_FILE",
+    "DEFAULT_TRANSCRIPT_RETENTION_DAYS",
     "DEFAULT_PERSIST_AUDIO",
     "DEFAULT_AUDIO_STORAGE_DIR",
     "DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS",

@@ -296,6 +296,15 @@ Suggested production defaults (tune per traffic profile):
 
 Each client first calls `CreateSession`:
 
+## Log/PII policy
+
+- Transcript text is **never** written to the main log stream by default.
+- To log transcripts, you must opt in with **both**:
+  - `logging.log_transcripts: true`
+  - `logging.transcript_file: /path/to/transcripts.log`
+- Transcript logs are written to a dedicated sink with short retention (`logging.transcript_retention_days`, default 7).
+- Protect transcript logs with RBAC and audit controls in your logging pipeline.
+
 - Pass an application-defined `session_id` plus optional `--attr KEY=VALUE` pairs (custom session attributes; `--meta` remains a CLI alias).
 - Choose **VAD Continue** (default) or **VAD Auto-End** via `--vad-mode`; auto-end ends the session on silence, continue keeps it open for multi-utterance workloads.
 - Set `--attr api_key_required=true` to require API keys, and pass `--attr api_key=...` to supply one.

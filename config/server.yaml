@@ -45,6 +45,8 @@ logging:
   file: null # Optional log file path
   faster_whisper_level: null # Optional: override faster_whisper logger level
   log_transcripts: false # Log transcript text in decode logs (PII risk)
+  transcript_file: null # Optional transcript sink; required for PII logging
+  transcript_retention_days: 7 # Retain transcript logs for N days
 
 tls:
   cert_file: null # Path to TLS cert chain (enables gRPC TLS)

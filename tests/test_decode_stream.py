@@ -209,12 +209,15 @@ def test_decode_stream_logs_transcript_only_when_enabled():
     assert debug_calls
     assert debug_calls[0].args[3] == len("secret")
 
-    with patch("stt_server.backend.component.decode_scheduler.LOGGER") as logger:
-        stream = _build_stream_with_result(log_transcripts=True)
-        list(stream.emit_ready(block=False))
+    with patch(
+        "stt_server.backend.component.decode_scheduler.TRANSCRIPT_LOGGER"
+    ) as tlogger:
+        with patch("stt_server.backend.component.decode_scheduler.LOGGER") as logger:
+            stream = _build_stream_with_result(log_transcripts=True)
+            list(stream.emit_ready(block=False))
 
     info_calls = [
-        call for call in logger.info.call_args_list if "result='" in call.args[0]
+        call for call in tlogger.info.call_args_list if "result='" in call.args[0]
     ]
     assert info_calls
     assert info_calls[0].args[3] == "secret"
