@@ -619,6 +619,25 @@ def test_http_rate_limit_blocks_excess_requests(monkeypatch):
     assert response.json() == http_payload_for(ErrorCode.HTTP_RATE_LIMITED)
 
 
+def test_http_rate_limit_respects_forwarded_ip(monkeypatch):
+    """Test HTTP rate limiter uses X-Forwarded-For when trusted."""
+    runtime = _build_runtime()
+    monkeypatch.setenv("STT_HTTP_RATE_LIMIT_RPS", "1")
+    monkeypatch.setenv("STT_HTTP_RATE_LIMIT_BURST", "1")
+    monkeypatch.setenv("STT_HTTP_TRUSTED_PROXIES", "testclient")
+
+    app, _, _ = build_http_app(runtime, {"grpc_running": True})
+    client = TestClient(app)
+
+    response = client.get("/metrics", headers={"X-Forwarded-For": "10.0.0.2"})
+    assert response.status_code == 200
+    response = client.get("/metrics", headers={"X-Forwarded-For": "10.0.0.3"})
+    assert response.status_code == 200
+    response = client.get("/metrics", headers={"X-Forwarded-For": "10.0.0.2"})
+    assert response.status_code == http_status_for(ErrorCode.HTTP_RATE_LIMITED)
+    assert response.json() == http_payload_for(ErrorCode.HTTP_RATE_LIMITED)
+
+
 def test_http_allowlist_blocks_unknown_ip(monkeypatch):
     """Test HTTP allowlist denies non-matching client IPs."""
     runtime = _build_runtime()

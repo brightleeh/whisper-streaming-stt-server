@@ -318,8 +318,7 @@ def build_http_app(
             raise STTError(ErrorCode.HTTP_IP_FORBIDDEN)
 
     def _enforce_rate_limit(request: Request) -> None:
-        client = request.client
-        key = client.host if client else "unknown"
+        key = _extract_client_ip(request) or "unknown"
         if not rate_limiter.allow(key):
             raise STTError(ErrorCode.HTTP_RATE_LIMITED)
 

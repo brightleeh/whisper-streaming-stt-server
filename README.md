@@ -254,6 +254,8 @@ CLI flags always override YAML entries if provided.
 - Optional rate limiting: `server.http_rate_limit_rps` and
   `server.http_rate_limit_burst` (config file). Env overrides are still supported
   via `STT_HTTP_RATE_LIMIT_RPS` / `STT_HTTP_RATE_LIMIT_BURST`.
+  The rate limiter keys off the same client IP used for allowlist checks, so set
+  `STT_HTTP_TRUSTED_PROXIES` when running behind a proxy that terminates HTTP.
 
 **Operations/Capacity**
 
