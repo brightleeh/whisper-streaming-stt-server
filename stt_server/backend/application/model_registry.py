@@ -2,7 +2,10 @@
 
 import logging
 import threading
+import time
 from concurrent import futures
+from dataclasses import dataclass
+from queue import Queue
 from typing import Any, Dict, List, Optional, Protocol, cast
 
 from stt_server.config.default.model import (
@@ -25,6 +28,15 @@ except ImportError:  # pragma: no cover - optional runtime dependency in some co
 LOGGER = logging.getLogger("stt_server.model_registry")
 
 
+@dataclass(frozen=True)
+class _DecodeTask:
+    pcm: bytes
+    sample_rate: int
+    decode_options: Optional[Dict[str, Any]]
+    submitted_at: float
+    future: futures.Future
+
+
 class ModelWorkerProtocol(Protocol):
     """Minimal protocol needed by the model registry."""
 
@@ -41,6 +53,16 @@ class ModelWorkerProtocol(Protocol):
         decode_options: Optional[Dict[str, Any]] = None,
     ) -> futures.Future:
         """Submit PCM bytes for asynchronous decode."""
+        raise NotImplementedError
+
+    def decode_sync(
+        self,
+        pcm_bytes: bytes,
+        src_rate: int,
+        decode_options: Optional[Dict[str, Any]],
+        submitted_at: float,
+    ) -> Any:
+        """Decode bytes synchronously."""
         raise NotImplementedError
 
     def close(self, timeout_sec: Optional[float] = None) -> None:
@@ -74,6 +96,8 @@ class ModelRegistry:
         self._configs: Dict[str, Dict[str, Any]] = {}
         self._rr_counters: Dict[str, int] = {}
         self._model_rr_index = 0
+        self._task_queues: Dict[str, Queue] = {}
+        self._worker_threads: Dict[str, List[threading.Thread]] = {}
 
     def is_loaded(self, model_id: str) -> bool:
         """Check if a model is currently loaded."""
@@ -184,6 +208,19 @@ class ModelRegistry:
                 self._pools[model_id] = workers
                 self._configs[model_id] = config
                 self._rr_counters[model_id] = 0
+                queue: Queue = Queue()
+                self._task_queues[model_id] = queue
+                threads: List[threading.Thread] = []
+                for idx, worker in enumerate(workers):
+                    thread = threading.Thread(
+                        target=self._worker_loop,
+                        args=(model_id, worker, queue),
+                        name=f"model-worker-{model_id}-{idx}",
+                        daemon=True,
+                    )
+                    thread.start()
+                    threads.append(thread)
+                self._worker_threads[model_id] = threads
                 LOGGER.info(
                     "Successfully loaded model '%s' (pool_size=%d)", model_id, pool_size
                 )
@@ -236,6 +273,40 @@ class ModelRegistry:
             self._rr_counters[model_id] = (best_idx + 1) % len(pool)
             return worker
 
+    def submit_decode(
+        self,
+        model_id: str,
+        pcm: bytes,
+        sample_rate: int,
+        decode_options: Optional[Dict[str, Any]],
+    ) -> futures.Future:
+        """Submit a decode task to the shared queue for the model."""
+        with self._lock:
+            queue = self._task_queues.get(model_id)
+            if not queue:
+                if model_id != DEFAULT_MODEL_ID:
+                    return self.submit_decode(
+                        DEFAULT_MODEL_ID, pcm, sample_rate, decode_options
+                    )
+                if self._task_queues:
+                    fallback_id = next(iter(self._task_queues))
+                    return self.submit_decode(
+                        fallback_id, pcm, sample_rate, decode_options
+                    )
+                future = futures.Future()
+                future.set_exception(RuntimeError("No model workers available"))
+                return future
+        future = futures.Future()
+        task = _DecodeTask(
+            pcm=pcm,
+            sample_rate=sample_rate,
+            decode_options=decode_options.copy() if decode_options else None,
+            submitted_at=time.perf_counter(),
+            future=future,
+        )
+        queue.put(task)
+        return future
+
     def unload_model(
         self, model_id: str, drain_timeout_sec: Optional[float] = None
     ) -> bool:
@@ -252,11 +323,18 @@ class ModelRegistry:
             workers = self._pools.pop(model_id)
             del self._configs[model_id]
             del self._rr_counters[model_id]
+            queue = self._task_queues.pop(model_id, None)
+            threads = self._worker_threads.pop(model_id, [])
             LOGGER.info("Unloaded model '%s'", model_id)
         # Close workers outside the lock to avoid blocking other operations.
         timeout = None
         if drain_timeout_sec is not None:
             timeout = max(0.0, float(drain_timeout_sec))
+        if queue is not None and threads:
+            for _ in threads:
+                queue.put(None)
+            for thread in threads:
+                thread.join(timeout=timeout)
         for worker in workers:
             try:
                 worker.close(timeout)
@@ -272,12 +350,48 @@ class ModelRegistry:
             self._pools.clear()
             self._configs.clear()
             self._rr_counters.clear()
+            queue_threads = [
+                (self._task_queues[model_id], threads)
+                for model_id, threads in self._worker_threads.items()
+                if model_id in self._task_queues
+            ]
+            self._task_queues.clear()
+            self._worker_threads.clear()
+        for queue, threads in queue_threads:
+            for _ in threads:
+                queue.put(None)
+            for thread in threads:
+                thread.join(timeout=1.0)
         for pool in pools:
             for worker in pool:
                 try:
                     worker.close()
                 except (RuntimeError, ValueError) as exc:
                     LOGGER.exception("Failed to close model worker: %s", exc)
+
+    @staticmethod
+    def _worker_loop(model_id: str, worker: ModelWorkerProtocol, queue: Queue) -> None:
+        while True:
+            task = queue.get()
+            if task is None:
+                queue.task_done()
+                break
+            if task.future.cancelled():
+                queue.task_done()
+                continue
+            try:
+                result = worker.decode_sync(
+                    task.pcm,
+                    task.sample_rate,
+                    task.decode_options,
+                    task.submitted_at,
+                )
+                task.future.set_result(result)
+            except Exception as exc:  # pragma: no cover - defensive
+                task.future.set_exception(exc)
+                LOGGER.exception("Decode task failed for model '%s'", model_id)
+            finally:
+                queue.task_done()
 
     @staticmethod
     def _resolve_model_worker() -> ModelWorkerFactory:

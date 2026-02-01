@@ -18,7 +18,6 @@ from stt_server.errors import ErrorCode, STTError, status_for
 from stt_server.utils.logger import LOGGER, TRANSCRIPT_LOGGER
 
 if TYPE_CHECKING:
-    from stt_server.backend.application.model_registry import ModelWorkerProtocol
     from stt_server.backend.application.stream_orchestrator import StreamOrchestrator
 
 
@@ -246,10 +245,9 @@ class DecodeStream:
                 self.scheduler.release_pending_slot()
             return
 
-        worker: ModelWorkerProtocol = self.scheduler.stream_orchestrator.acquire_worker(
-            self.model_id
+        future = self.scheduler.stream_orchestrator.submit_decode(
+            self.model_id, pcm, sample_rate, decode_options
         )
-        future = worker.submit(pcm, sample_rate, decode_options)
         buffer_wait_sec = (
             max(0.0, time.perf_counter() - buffer_started_at)
             if buffer_started_at is not None

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent import futures
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterable, Iterator, Optional
 
@@ -144,6 +145,18 @@ class StreamOrchestrator:
         if not worker:
             raise RuntimeError(f"No worker available for model_id='{model_id}'")
         return worker
+
+    def submit_decode(
+        self,
+        model_id: str,
+        pcm: bytes,
+        sample_rate: int,
+        decode_options: Optional[Dict[str, Any]],
+    ) -> futures.Future:
+        """Submit a decode request to the shared queue."""
+        return self._model_registry.submit_decode(
+            model_id, pcm, sample_rate, decode_options
+        )
 
     @property
     def model_registry(self) -> ModelRegistry:

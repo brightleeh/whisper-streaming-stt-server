@@ -12,9 +12,16 @@ server:
   http_rate_limit_burst: 0
   max_pending_decodes_per_stream: 0
   max_pending_decodes_global: 0
+  max_chunk_ms: 1000
+  partial_decode_interval_sec: 1.0
+  partial_decode_window_sec: 5.0
   max_total_buffer_bytes: null
   decode_queue_timeout_sec: 0.0
 
 health:
   min_events: 1
   window_sec: 60
+
+vad:
+  silence: 0.4
+  threshold: 0.6

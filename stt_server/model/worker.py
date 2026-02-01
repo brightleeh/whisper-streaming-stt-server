@@ -49,12 +49,19 @@ class ModelWorker:
             # language parameter controls the input language Whisper should expect.
             self.base_options.setdefault("language", language)
 
-    def _on_future_done(self, _future: futures.Future) -> None:
+    def _finish_task(self) -> None:
         with self._active_cond:
             if self._active_tasks > 0:
                 self._active_tasks -= 1
             if self._active_tasks == 0:
                 self._active_cond.notify_all()
+
+    def _start_task(self) -> None:
+        with self._active_cond:
+            self._active_tasks += 1
+
+    def _on_future_done(self, _future: futures.Future) -> None:
+        self._finish_task()
 
     def submit(
         self,
@@ -66,13 +73,27 @@ class ModelWorker:
         opts = decode_options.copy() if decode_options else None
         submitted_at = time.perf_counter()
         ctx = copy_context()
+        self._start_task()
         future = self.executor.submit(
             ctx.run, self._decode, pcm_bytes, src_rate, opts, submitted_at
         )
-        with self._active_cond:
-            self._active_tasks += 1
         future.add_done_callback(self._on_future_done)
         return future
+
+    def decode_sync(
+        self,
+        pcm_bytes: bytes,
+        src_rate: int,
+        decode_options: Optional[Dict[str, Any]],
+        submitted_at: float,
+    ) -> DecodeResult:
+        """Decode bytes synchronously (used by shared queue workers)."""
+        opts = decode_options.copy() if decode_options else None
+        self._start_task()
+        try:
+            return self._decode(pcm_bytes, src_rate, opts, submitted_at)
+        finally:
+            self._finish_task()
 
     def _decode(
         self,
