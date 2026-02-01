@@ -55,6 +55,7 @@ def serve(config: ServerConfig) -> None:
         server = grpc.server(grpc_executor)
     model_cfg = ModelRuntimeConfig(
         model_size=config.model,
+        model_backend=config.model_backend,
         device=config.device,
         compute_type=config.compute_type,
         log_metrics=config.log_metrics,
@@ -255,11 +256,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--model", default=None, help="Whisper model size to load")
     parser.add_argument(
-        "--device", default=None, help="Target device passed to faster-whisper"
+        "--model-backend",
+        default=None,
+        help="Model backend (faster_whisper | torch_whisper)",
     )
     parser.add_argument(
-        "--compute-type", default=None, help="faster-whisper compute_type"
+        "--device", default=None, help="Target device passed to the model backend"
     )
+    parser.add_argument("--compute-type", default=None, help="Backend compute type")
     parser.add_argument(
         "--language",
         action="append",
@@ -445,6 +449,8 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
 
     if args.model is not None:
         config.model = args.model
+    if args.model_backend is not None:
+        config.model_backend = args.model_backend
     if args.device is not None:
         config.device = args.device
     if args.compute_type is not None:

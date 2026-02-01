@@ -9,6 +9,7 @@ class ModelRuntimeConfig:
     """Model-related runtime configuration."""
 
     model_size: str = "small"
+    model_backend: str = "faster_whisper"
     device: str = "cpu"
     compute_type: str = "int8"
     log_metrics: bool = False

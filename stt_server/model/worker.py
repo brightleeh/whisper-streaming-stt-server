@@ -5,8 +5,7 @@ from concurrent import futures
 from contextvars import copy_context
 from typing import Any, Dict, List, NamedTuple, Optional
 
-from faster_whisper import WhisperModel
-
+from stt_server.model.backends import get_backend
 from stt_server.utils.audio import ensure_16k, pcm16_to_float32
 
 LOGGER = logging.getLogger("stt_server.model_worker")
@@ -33,8 +32,12 @@ class ModelWorker:
         language: Optional[str],
         log_metrics: bool,
         base_options: Optional[Dict[str, Any]] = None,
+        backend: Optional[str] = None,
     ):
-        self.model = WhisperModel(model_size, device=device, compute_type=compute_type)
+        backend_name = backend or "faster_whisper"
+        backend_cls = get_backend(backend_name)
+        self.backend_name = backend_name
+        self.backend = backend_cls(model_size, device, compute_type)
         self.language = language
         self.log_metrics = log_metrics
         self.executor = futures.ThreadPoolExecutor(max_workers=1)
@@ -98,10 +101,7 @@ class ModelWorker:
         if decode_options:
             options.update(decode_options)
 
-        segments, info = self.model.transcribe(
-            audio,
-            **options,
-        )
+        segments, info = self.backend.transcribe(audio, options)
         language_code = info.language if info else ""
         language_probability = info.language_probability if info else -1.0
         elapsed = time.perf_counter() - start

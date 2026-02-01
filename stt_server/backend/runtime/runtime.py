@@ -179,6 +179,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
         default_model_config = {
             "name": model_config.model_size,
             "model_size": model_config.model_size,
+            "backend": model_config.model_backend,
             "device": model_config.device,
             "compute_type": model_config.compute_type,
             "pool_size": max(model_config.model_pool_size, 1),

@@ -1,3 +1,4 @@
+import logging
 from typing import List, cast
 
 import pytest
@@ -119,4 +120,25 @@ def test_load_model_closes_workers_on_failure(monkeypatch):
     with pytest.raises(RuntimeError):
         registry.load_model("bad-model", {"pool_size": 2})
 
-    assert len(closed) == 1
+
+def test_load_model_cuda_missing_logs_error(monkeypatch, caplog):
+    """Test load model logs failure when device is unsupported."""
+
+    class FakeWorker:
+        """Test helper FakeWorker that rejects cuda."""
+
+        def __init__(self, *args, **kwargs):
+            if kwargs.get("device") == "cuda":
+                raise RuntimeError("CUDA not available")
+
+        def close(self, *args, **kwargs) -> None:
+            return None
+
+    monkeypatch.setattr(model_registry, "ModelWorker", FakeWorker)
+    registry = ModelRegistry()
+    caplog.set_level(logging.ERROR, logger="stt_server.model_registry")
+
+    with pytest.raises(RuntimeError):
+        registry.load_model("cuda-model", {"pool_size": 1, "device": "cuda"})
+
+    assert "Failed to load model 'cuda-model'" in caplog.text

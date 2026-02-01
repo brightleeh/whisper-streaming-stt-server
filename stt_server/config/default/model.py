@@ -10,6 +10,7 @@ DEFAULT_TASK = "transcribe"
 DEFAULT_LANGUAGE = "ko"
 DEFAULT_LANGUAGE_FIX = False
 DEFAULT_MODEL_POOL_SIZE = 1
+DEFAULT_MODEL_BACKEND = "faster_whisper"
 DEFAULT_DECODE_PROFILE_NAME = "realtime"
 DEFAULT_MODEL_LOAD_PROFILE_NAME = "default"
 
@@ -65,6 +66,7 @@ ALLOWED_DECODE_OPTION_KEYS = {
 
 
 MODEL_SECTION_MAP = {
+    "backend": "model_backend",
     "name": "model",
     "device": "device",
     "compute_type": "compute_type",
@@ -86,6 +88,7 @@ __all__ = [
     "DEFAULT_LANGUAGE",
     "DEFAULT_LANGUAGE_FIX",
     "DEFAULT_MODEL_POOL_SIZE",
+    "DEFAULT_MODEL_BACKEND",
     "DEFAULT_DECODE_PROFILE_NAME",
     "DEFAULT_MODEL_LOAD_PROFILE_NAME",
     "DEFAULT_DECODE_PROFILE",

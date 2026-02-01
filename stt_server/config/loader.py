@@ -47,6 +47,7 @@ from stt_server.config.default import (
     DEFAULT_MAX_SESSIONS_PER_IP,
     DEFAULT_MAX_TOTAL_BUFFER_BYTES,
     DEFAULT_METRICS_PORT,
+    DEFAULT_MODEL_BACKEND,
     DEFAULT_MODEL_LOAD_PROFILE_NAME,
     DEFAULT_MODEL_NAME,
     DEFAULT_MODEL_POOL_SIZE,
@@ -90,6 +91,7 @@ class ServerConfig:
     default_decode_profile: str = DEFAULT_DECODE_PROFILE_NAME
     model_load_profiles: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     default_model_load_profile: str = DEFAULT_MODEL_LOAD_PROFILE_NAME
+    model_backend: str = DEFAULT_MODEL_BACKEND
     model_pool_size: int = DEFAULT_MODEL_POOL_SIZE
     port: int = DEFAULT_PORT
     max_sessions: int = DEFAULT_MAX_SESSIONS
@@ -255,6 +257,7 @@ def _build_default_model_load_profile(cfg: ServerConfig) -> Dict[str, Any]:
         "language": cfg.language,
         "language_fix": cfg.language_fix,
         "task": cfg.task,
+        "backend": cfg.model_backend,
         "log_metrics": cfg.log_metrics,
     }
 
