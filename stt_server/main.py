@@ -112,6 +112,12 @@ def serve(config: ServerConfig) -> None:
     )
     servicer = STTGrpcServicer(servicer_config)
     stt_pb2_grpc.add_STTBackendServicer_to_server(servicer, server)  # type: ignore[name-defined]
+    def _bind_grpc_port(bind_address: str, secure: bool) -> None:
+        if secure:
+            server.add_secure_port(bind_address, credentials)
+        else:
+            server.add_insecure_port(bind_address)
+
     if config.tls_cert_file or config.tls_key_file:
         if not config.tls_cert_file or not config.tls_key_file:
             raise ValueError(
@@ -126,14 +132,36 @@ def serve(config: ServerConfig) -> None:
         cert_chain = cert_path.read_bytes()
         private_key = key_path.read_bytes()
         credentials = grpc.ssl_server_credentials([(private_key, cert_chain)])
-        server.add_secure_port(f"[::]:{config.port}", credentials)
+        bind_addr = f"[::]:{config.port}"
+        fallback_addr = f"0.0.0.0:{config.port}"
+        try:
+            _bind_grpc_port(bind_addr, secure=True)
+        except RuntimeError as exc:
+            LOGGER.warning(
+                "Failed to bind gRPC on %s (%s); falling back to %s",
+                bind_addr,
+                exc,
+                fallback_addr,
+            )
+            _bind_grpc_port(fallback_addr, secure=True)
         LOGGER.info("gRPC TLS enabled cert=%s key=%s", cert_path, key_path)
     else:
         LOGGER.warning(
             "gRPC is running without TLS. Set tls.cert_file/tls.key_file or "
             "--tls-cert-file/--tls-key-file to enable TLS."
         )
-        server.add_insecure_port(f"[::]:{config.port}")
+        bind_addr = f"[::]:{config.port}"
+        fallback_addr = f"0.0.0.0:{config.port}"
+        try:
+            _bind_grpc_port(bind_addr, secure=False)
+        except RuntimeError as exc:
+            LOGGER.warning(
+                "Failed to bind gRPC on %s (%s); falling back to %s",
+                bind_addr,
+                exc,
+                fallback_addr,
+            )
+            _bind_grpc_port(fallback_addr, secure=False)
     http_handle = start_http_server(
         runtime=servicer.runtime,
         server_state=server_state,

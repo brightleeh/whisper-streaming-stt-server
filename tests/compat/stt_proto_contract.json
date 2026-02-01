@@ -1,0 +1,51 @@
+{
+  "//": [
+    "Golden proto contract: existing field names/numbers/types/labels must not change.",
+    "Additive changes are allowed (new fields/messages).",
+    "If you intentionally change an existing field, update this file and the docs."
+  ],
+  "SessionRequest": [
+    {"name": "session_id", "number": 1, "type": "string", "label": "singular"},
+    {"name": "attributes", "number": 2, "type": "map<string,string>", "label": "map"},
+    {"name": "vad_mode", "number": 3, "type": "VADMode", "label": "singular"},
+    {"name": "vad_silence", "number": 4, "type": "double", "label": "singular"},
+    {"name": "vad_threshold", "number": 5, "type": "double", "label": "singular"},
+    {
+      "name": "vad_threshold_override",
+      "number": 10,
+      "type": "double",
+      "label": "optional"
+    },
+    {"name": "require_token", "number": 6, "type": "bool", "label": "singular"},
+    {"name": "language_code", "number": 7, "type": "string", "label": "singular"},
+    {"name": "task", "number": 8, "type": "Task", "label": "singular"},
+    {"name": "decode_profile", "number": 9, "type": "DecodeProfile", "label": "singular"}
+  ],
+  "SessionResponse": [
+    {"name": "attributes", "number": 1, "type": "map<string,string>", "label": "map"},
+    {"name": "vad_mode", "number": 2, "type": "VADMode", "label": "singular"},
+    {"name": "vad_silence", "number": 3, "type": "double", "label": "singular"},
+    {"name": "vad_threshold", "number": 4, "type": "double", "label": "singular"},
+    {"name": "token", "number": 5, "type": "string", "label": "singular"},
+    {"name": "token_required", "number": 6, "type": "bool", "label": "singular"},
+    {"name": "language_code", "number": 7, "type": "string", "label": "singular"},
+    {"name": "task", "number": 8, "type": "Task", "label": "singular"},
+    {"name": "decode_profile", "number": 9, "type": "DecodeProfile", "label": "singular"}
+  ],
+  "AudioChunk": [
+    {"name": "pcm16", "number": 1, "type": "bytes", "label": "singular"},
+    {"name": "sample_rate", "number": 2, "type": "int32", "label": "singular"},
+    {"name": "is_final", "number": 3, "type": "bool", "label": "singular"},
+    {"name": "session_id", "number": 4, "type": "string", "label": "singular"},
+    {"name": "session_token", "number": 5, "type": "string", "label": "singular"}
+  ],
+  "STTResult": [
+    {"name": "text", "number": 1, "type": "string", "label": "singular"},
+    {"name": "is_final", "number": 2, "type": "bool", "label": "singular"},
+    {"name": "start_sec", "number": 3, "type": "double", "label": "singular"},
+    {"name": "end_sec", "number": 4, "type": "double", "label": "singular"},
+    {"name": "language_code", "number": 5, "type": "string", "label": "singular"},
+    {"name": "language", "number": 6, "type": "string", "label": "singular"},
+    {"name": "probability", "number": 7, "type": "double", "label": "singular"}
+  ]
+}

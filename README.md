@@ -549,6 +549,31 @@ To restrict model loading via `model_path`, set:
 - `STT_ADMIN_MODEL_PATH_ALLOWLIST` (comma-separated prefixes) to whitelist paths/IDs
   - Examples: `/models/`, `openai/`
 
+## API Stability Contract
+
+Changes to public APIs must be **additive**. The rules below are enforced by tests
+(`tests/test_api_contract.py`) and the golden contract files in `tests/compat/`.
+
+### gRPC/proto rules
+
+- **Additive only**: adding new fields/messages is allowed.
+- **No removals/renames**: existing fields/messages must remain.
+- **No type/label changes**: field type and cardinality (`optional`, `repeated`, `map`) are frozen.
+- **No number reuse**: field numbers are immutable; do not reuse removed numbers.
+- **Document meaning/units** for any new field or enum value in `proto/stt.proto`.
+
+### HTTP schema rules
+
+- **Additive only**: response payloads may add new fields, but must not remove or change types.
+- **Stable error format**: HTTP errors always return `{code, message}`.
+- **Stable status mapping**: timeout/overload/auth/permission/invalid-input mappings are fixed
+  (see `tests/compat/error_code_contract.json`).
+
+### Compatibility tests
+
+- `tests/compat/stt_proto_contract.json` captures existing proto fields and numbers.
+- `tests/compat/error_code_contract.json` pins key error/status mappings.
+
 ## Troubleshooting
 
 ### Error codes

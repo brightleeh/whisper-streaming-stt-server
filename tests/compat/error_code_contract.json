@@ -1,0 +1,12 @@
+{
+  "//": [
+    "API stability contract for error/status mappings.",
+    "Keep gRPC StatusCode + HTTP status stable for these error codes.",
+    "If you intentionally change a mapping, update this file and the docs."
+  ],
+  "DECODE_TIMEOUT": {"grpc": "DEADLINE_EXCEEDED", "http": 504},
+  "VAD_POOL_EXHAUSTED": {"grpc": "RESOURCE_EXHAUSTED", "http": 503},
+  "API_KEY_MISSING": {"grpc": "UNAUTHENTICATED", "http": 401},
+  "SESSION_TOKEN_INVALID": {"grpc": "PERMISSION_DENIED", "http": 403},
+  "SESSION_ID_REQUIRED": {"grpc": "INVALID_ARGUMENT", "http": 400}
+}

@@ -1,4 +1,6 @@
 import os
+import random
+import socket
 import subprocess
 import sys
 import tempfile
@@ -16,18 +18,49 @@ from gen.stt.python.v1 import stt_pb2, stt_pb2_grpc
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.2)
+        return sock.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _pick_port(env_name: str, default: int) -> int:
+    env_value = os.getenv(env_name)
+    if env_value:
+        try:
+            return int(env_value)
+        except ValueError:
+            pass
+    for _ in range(40):
+        candidate = random.randint(20000, 40000)
+        if not _port_in_use(candidate):
+            return candidate
+    return default
+
+
 @pytest.fixture(scope="module")
 def grpc_server():
     """Ensure the gRPC server is running for tests. Starts a temporary one if needed."""
-    health_url = "http://localhost:8000/health"
+    if os.getenv("STT_SKIP_INTEGRATION", "").strip().lower() in {"1", "true", "yes"}:
+        pytest.skip("Integration tests skipped via STT_SKIP_INTEGRATION.")
+    grpc_port = _pick_port("STT_TEST_GRPC_PORT", 50051)
+    http_port = _pick_port("STT_TEST_HTTP_PORT", 8000)
+    if http_port == grpc_port:
+        http_port = _pick_port("STT_TEST_HTTP_PORT", 8000)
+    health_url = f"http://localhost:{http_port}/health"
 
-    # 1. Check if a server is already running
+    # 1. Use existing server if healthy
     try:
         if requests.get(health_url, timeout=1).status_code == 200:
-            yield  # Use existing server
+            yield {
+                "proc": None,
+                "grpc_target": f"localhost:{grpc_port}",
+                "http_base_url": f"http://localhost:{http_port}",
+            }
             return
     except requests.exceptions.RequestException:
-        pass  # Server not running, proceed to start
+        if os.getenv("STT_REQUIRE_EXISTING", "").strip().lower() in {"1", "true", "yes"}:
+            pytest.skip("Existing server not reachable; STT_REQUIRE_EXISTING set.")
 
     # 2. Start a temporary server
     print("\nStarting temporary gRPC server (tiny model)...")
@@ -39,6 +72,10 @@ def grpc_server():
         "tiny",  # Use tiny model for faster load times in tests
         "--device",
         "cpu",
+        "--port",
+        str(grpc_port),
+        "--metrics-port",
+        str(http_port),
     ]
     # Ensure PYTHONPATH includes the project root
     env = os.environ.copy()
@@ -57,12 +94,17 @@ def grpc_server():
         proc.terminate()
         raise RuntimeError("Server failed to start within 60 seconds.")
 
-    yield proc
+    yield {
+        "proc": proc,
+        "grpc_target": f"localhost:{grpc_port}",
+        "http_base_url": f"http://localhost:{http_port}",
+    }
 
     # 4. Cleanup
-    print("\nStopping temporary gRPC server...")
-    proc.terminate()
-    proc.wait()
+    if proc is not None:
+        print("\nStopping temporary gRPC server...")
+        proc.terminate()
+        proc.wait()
 
 
 def test_audio_asset_exists():
@@ -124,7 +166,7 @@ def test_grpc_stubs_generated():
 
 def test_server_health_check(grpc_server):
     """Call /health endpoint to check response when server is running."""
-    url = "http://localhost:8000/health"
+    url = f"{grpc_server['http_base_url']}/health"
     response = requests.get(url, timeout=2)
     assert response.status_code == 200, f"Server is unhealthy: {response.status_code}"
     print(f"\n[PASS] Server /health check returned status {response.status_code}.")
@@ -132,7 +174,7 @@ def test_server_health_check(grpc_server):
 
 def test_server_metrics_json_check(grpc_server):
     """Call /metrics.json endpoint to check response is valid JSON."""
-    url = "http://localhost:8000/metrics.json"
+    url = f"{grpc_server['http_base_url']}/metrics.json"
     response = requests.get(url, timeout=2)
     assert (
         response.status_code == 200
@@ -143,7 +185,7 @@ def test_server_metrics_json_check(grpc_server):
 
 def test_server_metrics_text_check(grpc_server):
     """Call /metrics endpoint to check response is Prometheus text."""
-    url = "http://localhost:8000/metrics"
+    url = f"{grpc_server['http_base_url']}/metrics"
     response = requests.get(url, timeout=2)
     assert (
         response.status_code == 200
@@ -166,6 +208,8 @@ def test_client_integration(grpc_server):
         "stt_client.realtime.file",
         "-c",
         "stt_client/config/file.yaml",
+        "--server",
+        grpc_server["grpc_target"],
         "--no-realtime",  # Process as fast as possible
     ]
 
@@ -182,7 +226,7 @@ def test_client_integration(grpc_server):
 
 def test_error_missing_session_id(grpc_server):
     """Test for ERR1001: CreateSession with a missing session_id."""
-    with grpc.insecure_channel("localhost:50051") as channel:
+    with grpc.insecure_channel(grpc_server["grpc_target"]) as channel:
         stub = stt_pb2_grpc.STTBackendStub(channel)
         request = stt_pb2.SessionRequest(session_id="")
 
@@ -197,7 +241,7 @@ def test_error_missing_session_id(grpc_server):
 def test_error_duplicate_session_id(grpc_server):
     """Test for ERR1002: CreateSession with a duplicate session_id."""
     session_id = f"test-duplicate-{time.time()}"
-    with grpc.insecure_channel("localhost:50051") as channel:
+    with grpc.insecure_channel(grpc_server["grpc_target"]) as channel:
         stub = stt_pb2_grpc.STTBackendStub(channel)
 
         # First call should succeed
@@ -216,7 +260,7 @@ def test_error_duplicate_session_id(grpc_server):
 
 def test_error_negative_vad_threshold(grpc_server):
     """Test for ERR1003: CreateSession with a negative vad_threshold."""
-    with grpc.insecure_channel("localhost:50051") as channel:
+    with grpc.insecure_channel(grpc_server["grpc_target"]) as channel:
         stub = stt_pb2_grpc.STTBackendStub(channel)
         request = stt_pb2.SessionRequest(
             session_id=f"test-vad-threshold-{time.time()}", vad_threshold=-0.1
@@ -232,7 +276,7 @@ def test_error_negative_vad_threshold(grpc_server):
 
 def test_error_unknown_session_id_in_stream(grpc_server):
     """Test for ERR1004: StreamingRecognize with an unknown session_id."""
-    with grpc.insecure_channel("localhost:50051") as channel:
+    with grpc.insecure_channel(grpc_server["grpc_target"]) as channel:
         stub = stt_pb2_grpc.STTBackendStub(channel)
 
         def audio_chunks():
@@ -253,7 +297,7 @@ def test_error_unknown_session_id_in_stream(grpc_server):
 def test_error_invalid_session_token(grpc_server):
     """Test for ERR1005: StreamingRecognize with an invalid session token."""
     session_id = f"test-token-{time.time()}"
-    with grpc.insecure_channel("localhost:50051") as channel:
+    with grpc.insecure_channel(grpc_server["grpc_target"]) as channel:
         stub = stt_pb2_grpc.STTBackendStub(channel)
 
         # Create a session that requires a token
@@ -282,8 +326,13 @@ def test_error_invalid_session_token(grpc_server):
 @pytest.fixture(scope="function")
 def short_timeout_grpc_server():
     """Starts a gRPC server with a 2-second session timeout for testing."""
-    health_url = "http://localhost:8001/health"
-    grpc_port = 50052
+    if os.getenv("STT_SKIP_INTEGRATION", "").strip().lower() in {"1", "true", "yes"}:
+        pytest.skip("Integration tests skipped via STT_SKIP_INTEGRATION.")
+    grpc_port = _pick_port("STT_TEST_GRPC_PORT", 50052)
+    http_port = _pick_port("STT_TEST_HTTP_PORT", 8001)
+    if http_port == grpc_port:
+        http_port = _pick_port("STT_TEST_HTTP_PORT", 8001)
+    health_url = f"http://localhost:{http_port}/health"
     proc = None
     config_path = None
 
@@ -311,7 +360,7 @@ def short_timeout_grpc_server():
             "--port",
             str(grpc_port),
             "--metrics-port",
-            "8001",
+            str(http_port),
         ]
         env = os.environ.copy()
         env["PYTHONPATH"] = PROJECT_ROOT
@@ -350,13 +399,15 @@ def test_error_session_timeout(short_timeout_grpc_server):
         # Create a session
         stub.CreateSession(stt_pb2.SessionRequest(session_id=session_id))
 
-        def audio_chunks_generator():
-            # Send one empty chunk to start the stream and the inactivity timer
-            yield stt_pb2.AudioChunk(session_id=session_id)
-            # Wait longer than the 2-second timeout
-            time.sleep(3)
-            # The server should have closed the stream. This next yield will fail.
-            yield stt_pb2.AudioChunk(session_id=session_id, pcm16=b"\x00\x01")
+    def audio_chunks_generator():
+        # Send one real chunk to start the stream and the inactivity timer
+        yield stt_pb2.AudioChunk(
+            session_id=session_id, pcm16=b"\x00\x01", sample_rate=16000
+        )
+        # Wait longer than the 2-second timeout
+        time.sleep(3)
+        # The server should have closed the stream. This next yield will fail.
+        yield stt_pb2.AudioChunk(session_id=session_id, pcm16=b"\x00\x01")
 
         with pytest.raises(grpc.RpcError) as e:
             # Consume the generator to trigger the RPC calls and see the error
