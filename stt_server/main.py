@@ -181,6 +181,7 @@ def serve(config: ServerConfig) -> None:
         port=config.metrics_port,
         http_rate_limit_rps=config.http_rate_limit_rps,
         http_rate_limit_burst=config.http_rate_limit_burst,
+        http_trusted_proxies=config.http_trusted_proxies,
     )
     LOGGER.info(
         "STT Server started on port %s (model=%s, device=%s)",

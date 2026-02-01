@@ -226,6 +226,7 @@ def build_http_app(
     server_state: Dict[str, bool],
     http_rate_limit_rps: float | None = None,
     http_rate_limit_burst: float | None = None,
+    http_trusted_proxies: Optional[List[str]] = None,
 ) -> Tuple[FastAPI, List[threading.Thread], threading.Lock]:
     """Create the FastAPI app and load-model thread tracking state."""
     app = FastAPI()
@@ -254,12 +255,16 @@ def build_http_app(
             allowlist.append(ipaddress.ip_network(entry, strict=False))
         except ValueError:
             LOGGER.warning("Invalid HTTP allowlist entry ignored: %s", entry)
-    trusted_proxies_raw = os.getenv(_HTTP_TRUSTED_PROXIES_ENV, "")
+    if http_trusted_proxies is None:
+        trusted_proxies_raw = os.getenv(_HTTP_TRUSTED_PROXIES_ENV, "")
+        trusted_proxy_entries = [
+            item.strip() for item in trusted_proxies_raw.split(",") if item.strip()
+        ]
+    else:
+        trusted_proxy_entries = [item.strip() for item in http_trusted_proxies if item]
     trusted_proxies: List[ipaddress._BaseNetwork] = []
     trusted_proxy_hosts: List[str] = []
-    for entry in [
-        item.strip() for item in trusted_proxies_raw.split(",") if item.strip()
-    ]:
+    for entry in trusted_proxy_entries:
         try:
             trusted_proxies.append(ipaddress.ip_network(entry, strict=False))
         except ValueError:
@@ -304,7 +309,7 @@ def build_http_app(
         forwarded_for = request.headers.get("x-forwarded-for", "").strip()
         if not forwarded_for:
             return client_ip
-        return forwarded_for.split(",")[0].strip()
+        return forwarded_for.split(",")[-1].strip()
 
     def _enforce_ip_allowlist(request: Request) -> None:
         if not allowlist:
@@ -594,6 +599,7 @@ def start_http_server(
     port: int,
     http_rate_limit_rps: float | None = None,
     http_rate_limit_burst: float | None = None,
+    http_trusted_proxies: Optional[List[str]] = None,
 ) -> HttpServerHandle:
     """Start FastAPI app for /metrics and /health in a background thread."""
     app, load_threads, load_threads_lock = build_http_app(
@@ -601,6 +607,7 @@ def start_http_server(
         server_state,
         http_rate_limit_rps=http_rate_limit_rps,
         http_rate_limit_burst=http_rate_limit_burst,
+        http_trusted_proxies=http_trusted_proxies,
     )
     config = uvicorn.Config(
         app,

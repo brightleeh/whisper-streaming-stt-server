@@ -29,6 +29,7 @@ from stt_server.config.default import (
     DEFAULT_HTTP_HOST,
     DEFAULT_HTTP_RATE_LIMIT_BURST,
     DEFAULT_HTTP_RATE_LIMIT_RPS,
+    DEFAULT_HTTP_TRUSTED_PROXIES,
     DEFAULT_LANGUAGE,
     DEFAULT_LANGUAGE_FIX,
     DEFAULT_LOG_FILE,
@@ -99,6 +100,9 @@ class ServerConfig:
     http_host: str = DEFAULT_HTTP_HOST
     http_rate_limit_rps: float = DEFAULT_HTTP_RATE_LIMIT_RPS
     http_rate_limit_burst: float = DEFAULT_HTTP_RATE_LIMIT_BURST
+    http_trusted_proxies: list[str] = field(
+        default_factory=lambda: list(DEFAULT_HTTP_TRUSTED_PROXIES)
+    )
     create_session_rps: float = DEFAULT_CREATE_SESSION_RPS
     create_session_burst: float = DEFAULT_CREATE_SESSION_BURST
     max_sessions_per_ip: int = DEFAULT_MAX_SESSIONS_PER_IP

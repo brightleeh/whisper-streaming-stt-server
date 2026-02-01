@@ -13,6 +13,7 @@ server:
   max_audio_bytes_per_sec_burst: 64000 # Burst allowance for audio byte rate limit (0 uses bytes/sec)
   http_rate_limit_rps: 5.0 # HTTP requests/sec (0 disables)
   http_rate_limit_burst: 10.0 # HTTP burst tokens (0 uses rps)
+  http_trusted_proxies: [] # Trusted proxy CIDR/hostnames for X-Forwarded-For
   decode_timeout_sec: 30 # Seconds to wait for decode tasks when draining
   log_metrics: false # Emit decode metrics logs
   session_timeout_sec: 60 # Seconds of inactivity before aborting a session

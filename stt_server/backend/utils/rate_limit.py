@@ -27,6 +27,7 @@ class KeyedRateLimiter:
         max_keys: int | None = 10000,
         ttl_sec: float | None = 300.0,
         prune_interval_sec: float = 60.0,
+        prune_every: int = 1000,
     ) -> None:
         self._rate_per_sec = max(0.0, float(rate_per_sec))
         self._burst = (
@@ -40,7 +41,9 @@ class KeyedRateLimiter:
         self._max_keys = max_keys if max_keys and max_keys > 0 else None
         self._ttl_sec = ttl_sec if ttl_sec and ttl_sec > 0 else None
         self._prune_interval_sec = max(0.0, float(prune_interval_sec))
+        self._prune_every = max(0, int(prune_every))
         self._last_prune = self._time_fn()
+        self._call_count = 0
 
     def allow(self, key: str, amount: float = 1.0) -> bool:
         """Consume tokens for key; returns True if allowed."""
@@ -50,6 +53,7 @@ class KeyedRateLimiter:
             return True
         now = self._time_fn()
         with self._lock:
+            self._call_count += 1
             self._prune_if_needed(now)
             state = self._states.get(key)
             if state is None:
@@ -67,6 +71,9 @@ class KeyedRateLimiter:
             return True
 
     def _prune_if_needed(self, now: float) -> None:
+        if self._prune_every > 0 and self._call_count % self._prune_every == 0:
+            self._prune(now)
+            return
         if self._prune_interval_sec <= 0:
             self._prune(now)
             return

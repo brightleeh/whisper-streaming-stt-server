@@ -40,6 +40,7 @@ DEFAULT_MAX_AUDIO_BYTES_PER_SEC = 32000
 DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST = 64000
 DEFAULT_HTTP_RATE_LIMIT_RPS = 5.0
 DEFAULT_HTTP_RATE_LIMIT_BURST = 10.0
+DEFAULT_HTTP_TRUSTED_PROXIES = []
 DEFAULT_TLS_CERT_FILE = None
 DEFAULT_TLS_KEY_FILE = None
 DEFAULT_TLS_REQUIRED = False
@@ -72,6 +73,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_audio_bytes_per_sec_burst": "max_audio_bytes_per_sec_burst",
         "http_rate_limit_rps": "http_rate_limit_rps",
         "http_rate_limit_burst": "http_rate_limit_burst",
+        "http_trusted_proxies": "http_trusted_proxies",
         "decode_timeout_sec": "decode_timeout_sec",
         "max_buffer_sec": "max_buffer_sec",
         "max_buffer_bytes": "max_buffer_bytes",
@@ -169,6 +171,7 @@ __all__ = [
     "DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST",
     "DEFAULT_HTTP_RATE_LIMIT_RPS",
     "DEFAULT_HTTP_RATE_LIMIT_BURST",
+    "DEFAULT_HTTP_TRUSTED_PROXIES",
     "DEFAULT_TLS_CERT_FILE",
     "DEFAULT_TLS_KEY_FILE",
     "DEFAULT_TLS_REQUIRED",
