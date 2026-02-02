@@ -587,6 +587,22 @@ curl -X POST "http://localhost:8000/admin/load_model" \
   -d '{"model_id":"small-rt","profile_id":"default"}'
 ```
 
+Pick an environment-specific profile explicitly (examples):
+
+```bash
+# macOS (Apple Silicon)
+curl -X POST "http://localhost:8000/admin/load_model" \
+  -H "Authorization: Bearer $STT_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model_id":"small-mps","profile_id":"apple_silicon_mps"}'
+
+# Linux + NVIDIA CUDA
+curl -X POST "http://localhost:8000/admin/load_model" \
+  -H "Authorization: Bearer $STT_ADMIN_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model_id":"small-cuda","profile_id":"nvidia_cuda"}'
+```
+
 **Note:** Admin endpoints are intended for operator use only and should be protected or restricted in production environments.
 
 ### Admin API security (recommended)

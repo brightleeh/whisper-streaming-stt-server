@@ -7,7 +7,7 @@ model:
 
   # Language configuration
   language_fix: false
-  language: "ko" # e.g., de, en, fr, ja, ko, zh ...
+  language: "" # empty = auto; set when language_fix is true (e.g., de/en/ja/ko/zh)
   task: "transcribe" # "transcribe" | "translate" (keep "transcribe" to avoid translation)
 
   # Default profile when clients do not request one
@@ -17,15 +17,21 @@ model:
 # Optional admin load profiles for /admin/load_model (profile_id)
 # If omitted, a default profile is derived from the "model" section above.
 model_load_profiles:
-  default:
+  default: &profile_default
     model_size: "small"
     backend: "faster_whisper"
     device: "cpu"
     compute_type: "int8"
     pool_size: 1
-    language_fix: false
-    language: "ko"
-    task: "transcribe"
+  nvidia_cuda:
+    <<: *profile_default
+    device: "cuda"
+    compute_type: "float16"
+  apple_silicon_mps:
+    <<: *profile_default
+    backend: "torch_whisper"
+    device: "mps"
+    compute_type: "float16"
 
 # Decode profiles picked per client request
 decode_profiles:
