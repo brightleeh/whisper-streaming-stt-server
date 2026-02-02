@@ -37,7 +37,11 @@ from stt_server.config.default import (
     DEFAULT_LOG_METRICS,
     DEFAULT_LOG_TRANSCRIPTS,
     DEFAULT_MAX_AUDIO_BYTES_PER_SEC,
+    DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BATCH,
     DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST,
+    DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST_BATCH,
+    DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST_REALTIME,
+    DEFAULT_MAX_AUDIO_BYTES_PER_SEC_REALTIME,
     DEFAULT_MAX_AUDIO_SECONDS_PER_SESSION,
     DEFAULT_MAX_BUFFER_SEC,
     DEFAULT_MAX_CHUNK_MS,
@@ -110,6 +114,16 @@ class ServerConfig:
     max_audio_seconds_per_session: float = DEFAULT_MAX_AUDIO_SECONDS_PER_SESSION
     max_audio_bytes_per_sec: int = DEFAULT_MAX_AUDIO_BYTES_PER_SEC
     max_audio_bytes_per_sec_burst: int = DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST
+    max_audio_bytes_per_sec_realtime: Optional[int] = (
+        DEFAULT_MAX_AUDIO_BYTES_PER_SEC_REALTIME
+    )
+    max_audio_bytes_per_sec_burst_realtime: Optional[int] = (
+        DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST_REALTIME
+    )
+    max_audio_bytes_per_sec_batch: Optional[int] = DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BATCH
+    max_audio_bytes_per_sec_burst_batch: Optional[int] = (
+        DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST_BATCH
+    )
     decode_timeout_sec: float = DEFAULT_DECODE_TIMEOUT
     log_metrics: bool = DEFAULT_LOG_METRICS
     log_transcripts: bool = DEFAULT_LOG_TRANSCRIPTS

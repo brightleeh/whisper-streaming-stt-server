@@ -55,6 +55,10 @@ class StreamingRuntimeConfig:
     max_audio_seconds_per_session: float = 0.0
     max_audio_bytes_per_sec: int = 0
     max_audio_bytes_per_sec_burst: int = 0
+    max_audio_bytes_per_sec_realtime: Optional[int] = None
+    max_audio_bytes_per_sec_burst_realtime: Optional[int] = None
+    max_audio_bytes_per_sec_batch: Optional[int] = None
+    max_audio_bytes_per_sec_burst_batch: Optional[int] = None
     health_window_sec: float = 60.0
     health_min_events: int = 5
     health_max_timeout_ratio: float = 0.5

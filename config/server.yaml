@@ -11,6 +11,12 @@ server:
   max_audio_seconds_per_session: 300.0 # Hard cap on total audio seconds per session (0 disables)
   max_audio_bytes_per_sec: 32000 # Inbound audio byte rate limit per key (0 disables)
   max_audio_bytes_per_sec_burst: 64000 # Burst allowance for audio byte rate limit (0 uses bytes/sec)
+  # Optional per-session-mode overrides (set upload_mode=batch on CreateSession).
+  # When unset, the base max_audio_bytes_per_sec values above are used.
+  max_audio_bytes_per_sec_realtime: null
+  max_audio_bytes_per_sec_burst_realtime: null
+  max_audio_bytes_per_sec_batch: 0
+  max_audio_bytes_per_sec_burst_batch: 0
   http_rate_limit_rps: 5.0 # HTTP requests/sec (0 disables)
   http_rate_limit_burst: 10.0 # HTTP burst tokens (0 uses rps)
   http_trusted_proxies: [] # Trusted proxy CIDR/hostnames for X-Forwarded-For

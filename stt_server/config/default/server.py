@@ -38,6 +38,10 @@ DEFAULT_MAX_SESSIONS_PER_API_KEY = 8
 DEFAULT_MAX_AUDIO_SECONDS_PER_SESSION = 300.0
 DEFAULT_MAX_AUDIO_BYTES_PER_SEC = 32000
 DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST = 64000
+DEFAULT_MAX_AUDIO_BYTES_PER_SEC_REALTIME = None
+DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST_REALTIME = None
+DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BATCH = None
+DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST_BATCH = None
 DEFAULT_HTTP_RATE_LIMIT_RPS = 5.0
 DEFAULT_HTTP_RATE_LIMIT_BURST = 10.0
 DEFAULT_HTTP_TRUSTED_PROXIES = []
@@ -71,6 +75,10 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_audio_seconds_per_session": "max_audio_seconds_per_session",
         "max_audio_bytes_per_sec": "max_audio_bytes_per_sec",
         "max_audio_bytes_per_sec_burst": "max_audio_bytes_per_sec_burst",
+        "max_audio_bytes_per_sec_realtime": "max_audio_bytes_per_sec_realtime",
+        "max_audio_bytes_per_sec_burst_realtime": "max_audio_bytes_per_sec_burst_realtime",
+        "max_audio_bytes_per_sec_batch": "max_audio_bytes_per_sec_batch",
+        "max_audio_bytes_per_sec_burst_batch": "max_audio_bytes_per_sec_burst_batch",
         "http_rate_limit_rps": "http_rate_limit_rps",
         "http_rate_limit_burst": "http_rate_limit_burst",
         "http_trusted_proxies": "http_trusted_proxies",
@@ -169,6 +177,10 @@ __all__ = [
     "DEFAULT_MAX_AUDIO_SECONDS_PER_SESSION",
     "DEFAULT_MAX_AUDIO_BYTES_PER_SEC",
     "DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST",
+    "DEFAULT_MAX_AUDIO_BYTES_PER_SEC_REALTIME",
+    "DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST_REALTIME",
+    "DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BATCH",
+    "DEFAULT_MAX_AUDIO_BYTES_PER_SEC_BURST_BATCH",
     "DEFAULT_HTTP_RATE_LIMIT_RPS",
     "DEFAULT_HTTP_RATE_LIMIT_BURST",
     "DEFAULT_HTTP_TRUSTED_PROXIES",

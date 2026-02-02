@@ -61,6 +61,7 @@ from .types import (
     StreamOrchestratorConfig,
     StreamOrchestratorHooks,
     StreamPhase,
+    StreamSettings,
     _AudioBufferManager,
     _StreamState,
 )
@@ -91,12 +92,8 @@ class StreamOrchestrator:
         self._decode_scheduler = self._create_decode_scheduler(config)
         self._audio_storage: Optional[AudioStorageManager] = None
         self._buffer_manager = _AudioBufferManager(config)
-        self._stream_rate_limiter: Optional[KeyedRateLimiter] = None
-        if config.stream.max_audio_bytes_per_sec > 0:
-            self._stream_rate_limiter = KeyedRateLimiter(
-                config.stream.max_audio_bytes_per_sec,
-                config.stream.max_audio_bytes_per_sec_burst or None,
-            )
+        self._stream_rate_limiters: Dict[str, Optional[KeyedRateLimiter]] = {}
+        self._configure_stream_rate_limiters(config.stream)
         configure_vad_model_pool(
             config.vad_pool.size,
             config.vad_pool.prewarm,
@@ -236,6 +233,46 @@ class StreamOrchestrator:
             return f"ip:{info.client_ip}"
         return f"session:{session_state.session_id}"
 
+    def _configure_stream_rate_limiters(self, stream_config: StreamSettings) -> None:
+        realtime_limit = stream_config.max_audio_bytes_per_sec_realtime
+        realtime_burst = stream_config.max_audio_bytes_per_sec_burst_realtime
+        if realtime_limit is None:
+            realtime_limit = stream_config.max_audio_bytes_per_sec
+        if realtime_burst is None:
+            realtime_burst = stream_config.max_audio_bytes_per_sec_burst
+
+        batch_limit = stream_config.max_audio_bytes_per_sec_batch
+        batch_burst = stream_config.max_audio_bytes_per_sec_burst_batch
+        if batch_limit is None:
+            batch_limit = stream_config.max_audio_bytes_per_sec
+        if batch_burst is None:
+            batch_burst = stream_config.max_audio_bytes_per_sec_burst
+
+        self._stream_rate_limiters["realtime"] = (
+            KeyedRateLimiter(realtime_limit, realtime_burst or None)
+            if realtime_limit and realtime_limit > 0
+            else None
+        )
+        self._stream_rate_limiters["batch"] = (
+            KeyedRateLimiter(batch_limit, batch_burst or None)
+            if batch_limit and batch_limit > 0
+            else None
+        )
+
+    def _session_stream_mode(self, session_state: SessionState) -> str:
+        mode = (
+            session_state.session_info.attributes.get("upload_mode", "").strip().lower()
+        )
+        if mode in {"batch", "realtime"}:
+            return mode
+        return "realtime"
+
+    def _stream_rate_limiter_for(
+        self, session_state: SessionState
+    ) -> Optional[KeyedRateLimiter]:
+        mode = self._session_stream_mode(session_state)
+        return self._stream_rate_limiters.get(mode)
+
     def _enforce_stream_limits(
         self,
         state: _StreamState,
@@ -247,9 +284,10 @@ class StreamOrchestrator:
         chunk_bytes = len(chunk.pcm16)
         if chunk_bytes <= 0:
             return
-        if self._stream_rate_limiter:
+        limiter = self._stream_rate_limiter_for(state.session.session_state)
+        if limiter:
             key = self._stream_rate_key(state.session.session_state)
-            if not self._stream_rate_limiter.allow(key, amount=chunk_bytes):
+            if not limiter.allow(key, amount=chunk_bytes):
                 LOGGER.warning(
                     "Stream rate limit exceeded (key=%s session_id=%s)",
                     key,

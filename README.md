@@ -269,6 +269,9 @@ CLI flags always override YAML entries if provided.
 - `server.max_sessions_per_ip` / `server.max_sessions_per_api_key`: per-identity concurrent session caps.
 - `server.max_audio_seconds_per_session`: hard cap on total streamed audio seconds per session.
 - `server.max_audio_bytes_per_sec` / `server.max_audio_bytes_per_sec_burst`: inbound audio byte rate limiter (per api_key or client IP).
+- Optional mode overrides: `server.max_audio_bytes_per_sec_realtime|_batch` and
+  `server.max_audio_bytes_per_sec_burst_realtime|_batch`. Tag the session with
+  `upload_mode=batch` (e.g. `--attr upload_mode=batch`) to use batch limits.
 - `vad.model_pool_size` / `vad.model_prewarm`: VAD pool size/prewarm (`model_pool_size=0` uses `server.max_sessions`).
 - `vad.model_pool_growth_factor`: pool growth factor on VAD demand spikes (up to `server.max_sessions`), beyond that rejects with `ERR1008`.
 

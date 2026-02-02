@@ -49,6 +49,10 @@ class StreamSettings:
     max_audio_seconds_per_session: float = 0.0
     max_audio_bytes_per_sec: int = 0
     max_audio_bytes_per_sec_burst: int = 0
+    max_audio_bytes_per_sec_realtime: Optional[int] = None
+    max_audio_bytes_per_sec_burst_realtime: Optional[int] = None
+    max_audio_bytes_per_sec_batch: Optional[int] = None
+    max_audio_bytes_per_sec_burst_batch: Optional[int] = None
 
 
 @dataclass(frozen=True)

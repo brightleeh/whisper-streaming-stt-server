@@ -503,6 +503,72 @@ def test_stream_rate_limit_aborts(monkeypatch):
     assert "ERR2003" in details
 
 
+def test_stream_rate_limit_allows_batch_mode(monkeypatch):
+    """Test batch mode can bypass realtime stream rate limits."""
+    session_registry = SessionRegistry()
+    session_id = "session-batch-rate-limit"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={"upload_mode": "batch"},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=0.0,
+            token="",
+            token_required=False,
+            client_ip="",
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    stream_settings = StreamSettings(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        max_audio_bytes_per_sec=2,
+        max_audio_bytes_per_sec_burst=2,
+        max_audio_bytes_per_sec_batch=0,
+        max_audio_bytes_per_sec_burst_batch=0,
+    )
+    storage_settings = StorageSettings(
+        enabled=False,
+        directory=".",
+        max_bytes=None,
+        max_files=None,
+        max_age_days=None,
+    )
+    config = StreamOrchestratorConfig(
+        stream=stream_settings,
+        storage=storage_settings,
+    )
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream((0.0, 0.0, 0.0, 0.0, 0))
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+
+    chunk = b"\x00\x00"
+    chunks = [
+        stt_pb2.AudioChunk(pcm16=chunk, sample_rate=16000, session_id=session_id),
+        stt_pb2.AudioChunk(pcm16=chunk, sample_rate=16000, session_id=session_id),
+    ]
+
+    context = FakeContext()
+    results = list(orchestrator.run(iter(chunks), context))  # type: ignore[arg-type]
+
+    assert not results
+    assert not context.abort_calls
+
+
 def test_stream_audio_limit_aborts(monkeypatch):
     """Test stream audio length limit aborts the stream."""
     session_registry = SessionRegistry()
