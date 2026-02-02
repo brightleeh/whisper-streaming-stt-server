@@ -981,6 +981,40 @@ def main() -> None:
         print("    p50:", f"{d50:.3f}s")
         print("    p95:", f"{d95:.3f}s")
         print("    p99:", f"{d99:.3f}s")
+        if (
+            stats.decode_buffer_waits
+            and stats.decode_queue_waits
+            and stats.decode_inference
+        ):
+            b50 = pct(sorted(stats.decode_buffer_waits), 50)
+            q50 = pct(sorted(stats.decode_queue_waits), 50)
+            i50 = pct(sorted(stats.decode_inference), 50)
+            e50 = (
+                pct(sorted(stats.decode_response_emit), 50)
+                if stats.decode_response_emit
+                else 0.0
+            )
+            total = d50 if d50 > 0 else 0.0
+            if total > 0:
+                shares = {
+                    "queue_wait": q50 / total,
+                    "inference": i50 / total,
+                    "buffer_wait": b50 / total,
+                    "response_emit": e50 / total,
+                }
+                dominant = max(shares.items(), key=lambda item: item[1])[0]
+                print("* Decode Bottleneck")
+                print(
+                    "    p50 share:",
+                    f"queue_wait={shares['queue_wait']:.0%}",
+                    f"inference={shares['inference']:.0%}",
+                    f"buffer_wait={shares['buffer_wait']:.0%}",
+                    f"emit={shares['response_emit']:.0%}",
+                )
+                print(
+                    "    dominant:",
+                    f"{dominant} ({shares[dominant]:.0%} of total)",
+                )
     if stats.decode_counts:
         c50 = pct(sorted(stats.decode_counts), 50)
         c95 = pct(sorted(stats.decode_counts), 95)
