@@ -1,16 +1,16 @@
 server:
   port: 50051 # gRPC listen port
   http_host: "127.0.0.1" # HTTP metrics/health bind host
-  max_sessions: 4 # Concurrent gRPC sessions
+  max_sessions: 50 # Concurrent gRPC sessions
   metrics_port: 8000 # HTTP metrics/health port
   grpc_worker_threads: 0 # gRPC thread pool size (0 = auto; keep >max_sessions to avoid starving short RPCs)
-  create_session_rps: 5.0 # CreateSession requests/sec (0 disables)
-  create_session_burst: 10.0 # CreateSession burst tokens (0 uses rps)
-  max_sessions_per_ip: 4 # Concurrent sessions per client IP (0 disables)
-  max_sessions_per_api_key: 8 # Concurrent sessions per api_key (0 disables)
-  max_audio_seconds_per_session: 300.0 # Hard cap on total audio seconds per session (0 disables)
-  max_audio_bytes_per_sec: 32000 # Inbound audio byte rate limit per key (0 disables)
-  max_audio_bytes_per_sec_burst: 64000 # Burst allowance for audio byte rate limit (0 uses bytes/sec)
+  create_session_rps: 50.0 # CreateSession requests/sec (0 disables)
+  create_session_burst: 100.0 # CreateSession burst tokens (0 uses rps)
+  max_sessions_per_ip: 100 # Concurrent sessions per client IP (0 disables)
+  max_sessions_per_api_key: 100 # Concurrent sessions per api_key (0 disables)
+  max_audio_seconds_per_session: 3600.0 # Hard cap on total audio seconds per session (0 disables)
+  max_audio_bytes_per_sec: 3200000 # Inbound audio byte rate limit per key (0 disables)
+  max_audio_bytes_per_sec_burst: 6400000 # Burst allowance for audio byte rate limit (0 uses bytes/sec)
   # Optional per-session-mode overrides (set upload_mode=batch on CreateSession).
   # When unset, the base max_audio_bytes_per_sec values above are used.
   max_audio_bytes_per_sec_realtime: null
@@ -29,8 +29,8 @@ server:
   partial_decode_interval_sec: 1.5 # Partial decode interval during speech (null disables)
   partial_decode_window_sec: 10.0 # Window size for partial decode audio (seconds)
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
-  max_pending_decodes_global: 64 # Global max queued decodes before backpressure/drop
-  max_total_buffer_bytes: 67108864 # Global buffered audio cap (bytes)
+  max_pending_decodes_global: 512 # Global max queued decodes before backpressure/drop
+  max_total_buffer_bytes: 268435456 # Global buffered audio cap (bytes)
   decode_queue_timeout_sec: 1.0 # Seconds to wait for a global decode slot (final only)
   buffer_overlap_sec: 0.5 # Overlap window retained after partial decode (seconds)
   grpc_max_receive_message_bytes: 8388608 # Max gRPC inbound message size

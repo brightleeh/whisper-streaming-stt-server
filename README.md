@@ -114,7 +114,7 @@ python -m stt_server.main \
 Runtime defaults live in two files:
 
 - `config/server.yaml`: networking, session limits, logging, and VAD controls.
-- `config/model.yaml`: Whisper model/device settings plus the named decode profiles.
+- `config/model.yaml`: Whisper model/device settings, model load profiles, and named decode profiles.
 
 Sample client configs live in:
 
@@ -127,8 +127,25 @@ Copy/edit the server YAMLs (or point `--config` / `--model-config` at your own Y
 server:
   port: 50051 # gRPC listen port
   http_host: "127.0.0.1" # HTTP metrics/health bind host
-  max_sessions: 4 # Concurrent gRPC sessions
+  max_sessions: 50 # Concurrent gRPC sessions
   metrics_port: 8000 # HTTP metrics/health port
+  grpc_worker_threads: 0 # gRPC thread pool size (0 = auto; keep >max_sessions to avoid starving short RPCs)
+  create_session_rps: 50.0 # CreateSession requests/sec (0 disables)
+  create_session_burst: 100.0 # CreateSession burst tokens (0 uses rps)
+  max_sessions_per_ip: 100 # Concurrent sessions per client IP (0 disables)
+  max_sessions_per_api_key: 100 # Concurrent sessions per api_key (0 disables)
+  max_audio_seconds_per_session: 3600.0 # Hard cap on total audio seconds per session (0 disables)
+  max_audio_bytes_per_sec: 3200000 # Inbound audio byte rate limit per key (0 disables)
+  max_audio_bytes_per_sec_burst: 6400000 # Burst allowance for audio byte rate limit (0 uses bytes/sec)
+  # Optional per-session-mode overrides (set upload_mode=batch on CreateSession).
+  # When unset, the base max_audio_bytes_per_sec values above are used.
+  max_audio_bytes_per_sec_realtime: null
+  max_audio_bytes_per_sec_burst_realtime: null
+  max_audio_bytes_per_sec_batch: 0
+  max_audio_bytes_per_sec_burst_batch: 0
+  http_rate_limit_rps: 5.0 # HTTP requests/sec (0 disables)
+  http_rate_limit_burst: 10.0 # HTTP burst tokens (0 uses rps)
+  http_trusted_proxies: [] # Trusted proxy CIDR/hostnames for X-Forwarded-For
   decode_timeout_sec: 30 # Wait time for pending decodes during drain
   log_metrics: false # Emit decode metrics logs
   session_timeout_sec: 60 # Seconds of inactivity before aborting a session
@@ -138,8 +155,8 @@ server:
   partial_decode_interval_sec: 1.5 # Partial decode interval during speech (null disables)
   partial_decode_window_sec: 10.0 # Window size for partial decode audio (seconds)
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
-  max_pending_decodes_global: 64 # Global max queued decodes before backpressure/drop
-  max_total_buffer_bytes: 67108864 # Global buffered audio cap (bytes)
+  max_pending_decodes_global: 512 # Global max queued decodes before backpressure/drop
+  max_total_buffer_bytes: 268435456 # Global buffered audio cap (bytes)
   decode_queue_timeout_sec: 1.0 # Seconds to wait for a global decode slot (final only)
   buffer_overlap_sec: 0.5 # Overlap window retained after partial decode (seconds)
   grpc_max_receive_message_bytes: 8388608 # Max gRPC inbound message size
@@ -192,15 +209,35 @@ Example model snippet (`config/model.yaml`):
 
 ```yaml
 model:
-  name: "small" # Whisper model size
+  name: "small" # Whisper model size: tiny | base | small | medium | large | large-v1 | large-v2 | large-v3
   backend: "faster_whisper" # faster_whisper | torch_whisper
   device: "cpu" # cpu / cuda / mps (torch_whisper)
-  compute_type: "int8" # backend compute type
+  compute_type: "int8" # int8 | int8_float16 | float16 | float32 (recommend: int8)
   pool_size: 1 # Number of preloaded model instances
-  language_fix: false # Force the configured language when true
-  language: "ko" # e.g., de, en, fr, ja, ko, zh ... (auto-detect when unset and language_fix=false)
+  language_fix: false
+  language: "" # empty = auto; set when language_fix is true (e.g., de/en/ja/ko/zh)
   task: "transcribe" # "transcribe" | "translate"
-  default_decode_profile: "realtime" # Name from decode_profiles
+  default_decode_profile: "realtime"
+  default_model_load_profile: "default" # Default profile for /admin/load_model
+
+# Optional admin load profiles for /admin/load_model (profile_id)
+# If omitted, a default profile is derived from the "model" section above.
+model_load_profiles:
+  default: &profile_default
+    model_size: "small"
+    backend: "faster_whisper"
+    device: "cpu"
+    compute_type: "int8"
+    pool_size: 1
+  nvidia_cuda:
+    <<: *profile_default
+    device: "cuda"
+    compute_type: "float16"
+  apple_silicon_mps:
+    <<: *profile_default
+    backend: "torch_whisper"
+    device: "mps"
+    compute_type: "float16"
 
 decode_profiles: # Named decode options (unknown keys return ERR1010)
   realtime:
