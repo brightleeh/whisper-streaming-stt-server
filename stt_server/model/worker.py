@@ -38,6 +38,7 @@ class ModelWorker:
         backend_cls = get_backend(backend_name)
         self.backend_name = backend_name
         self.backend = backend_cls(model_size, device, compute_type)
+        self.supports_batch = False
         self.language = language
         self.log_metrics = log_metrics
         self.executor = futures.ThreadPoolExecutor(max_workers=1)
@@ -94,6 +95,21 @@ class ModelWorker:
             return self._decode(pcm_bytes, src_rate, opts, submitted_at)
         finally:
             self._finish_task()
+
+    def decode_batch_sync(
+        self,
+        batch: List[tuple[bytes, int, Optional[Dict[str, Any]], float]],
+    ) -> List[DecodeResult]:
+        """Decode a batch of audio payloads synchronously."""
+        results: List[DecodeResult] = []
+        for pcm_bytes, src_rate, decode_options, submitted_at in batch:
+            opts = decode_options.copy() if decode_options else None
+            self._start_task()
+            try:
+                results.append(self._decode(pcm_bytes, src_rate, opts, submitted_at))
+            finally:
+                self._finish_task()
+        return results
 
     def _decode(
         self,

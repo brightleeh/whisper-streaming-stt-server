@@ -7,7 +7,7 @@ import time
 from collections import deque
 from concurrent import futures
 from dataclasses import dataclass
-from queue import Queue
+from queue import Empty, Queue
 from typing import Any, Deque, Dict, List, Optional, Protocol, Set, cast
 
 from stt_server.config.default.model import (
@@ -45,6 +45,7 @@ class ModelWorkerProtocol(Protocol):
     """Minimal protocol needed by the model registry."""
 
     executor: Any
+    supports_batch: bool
 
     def pending_tasks(self) -> int:
         """Return count of pending decode tasks."""
@@ -67,6 +68,13 @@ class ModelWorkerProtocol(Protocol):
         submitted_at: float,
     ) -> Any:
         """Decode bytes synchronously."""
+        raise NotImplementedError
+
+    def decode_batch_sync(
+        self,
+        batch: List[tuple[bytes, int, Optional[Dict[str, Any]], float]],
+    ) -> List[Any]:
+        """Decode a batch of audio payloads synchronously."""
         raise NotImplementedError
 
     def close(self, timeout_sec: Optional[float] = None) -> None:
@@ -94,7 +102,11 @@ class ModelWorkerFactory(Protocol):
 class ModelRegistry:
     """Manages pools of ModelWorkers keyed by model_id."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        batch_window_ms: int = 0,
+        max_batch_size: int = 1,
+    ) -> None:
         self._lock = threading.RLock()
         self._pools: Dict[str, List[ModelWorkerProtocol]] = {}
         self._configs: Dict[str, Dict[str, Any]] = {}
@@ -108,6 +120,8 @@ class ModelRegistry:
         self._dispatch_conds: Dict[str, threading.Condition] = {}
         self._dispatcher_threads: Dict[str, threading.Thread] = {}
         self._dispatcher_shutdown: Dict[str, bool] = {}
+        self._batch_window_sec = max(0.0, float(batch_window_ms) / 1000.0)
+        self._max_batch_size = max(1, int(max_batch_size))
 
     def is_loaded(self, model_id: str) -> bool:
         """Check if a model is currently loaded."""
@@ -494,35 +508,89 @@ class ModelRegistry:
                 self._release_inflight(model_id, task.session_id)
                 queue.task_done()
                 continue
+            tasks = [task]
+            stop_after = False
+            if (
+                getattr(worker, "supports_batch", False)
+                and self._batch_window_sec > 0.0
+                and self._max_batch_size > 1
+            ):
+                deadline = time.perf_counter() + self._batch_window_sec
+                while len(tasks) < self._max_batch_size:
+                    timeout = deadline - time.perf_counter()
+                    if timeout <= 0:
+                        break
+                    try:
+                        next_task = queue.get(timeout=timeout)
+                    except Empty:
+                        break
+                    if next_task is None:
+                        queue.task_done()
+                        stop_after = True
+                        break
+                    if next_task.future.cancelled():
+                        self._release_inflight(model_id, next_task.session_id)
+                        queue.task_done()
+                        continue
+                    tasks.append(next_task)
             try:
-                LOGGER.debug(
-                    "Worker starting decode session_id=%s final=%s model_id=%s bytes=%d",
-                    task.session_id,
-                    task.is_final,
-                    model_id,
-                    len(task.pcm),
-                )
-                result = worker.decode_sync(
-                    task.pcm,
-                    task.sample_rate,
-                    task.decode_options,
-                    task.submitted_at,
-                )
-                if not task.future.cancelled():
-                    task.future.set_result(result)
-                LOGGER.debug(
-                    "Worker finished decode session_id=%s final=%s model_id=%s",
-                    task.session_id,
-                    task.is_final,
-                    model_id,
-                )
+                if len(tasks) == 1:
+                    LOGGER.debug(
+                        "Worker starting decode session_id=%s final=%s model_id=%s bytes=%d",
+                        task.session_id,
+                        task.is_final,
+                        model_id,
+                        len(task.pcm),
+                    )
+                    result = worker.decode_sync(
+                        task.pcm,
+                        task.sample_rate,
+                        task.decode_options,
+                        task.submitted_at,
+                    )
+                    if not task.future.cancelled():
+                        task.future.set_result(result)
+                    LOGGER.debug(
+                        "Worker finished decode session_id=%s final=%s model_id=%s",
+                        task.session_id,
+                        task.is_final,
+                        model_id,
+                    )
+                else:
+                    batch = [
+                        (
+                            item.pcm,
+                            item.sample_rate,
+                            item.decode_options,
+                            item.submitted_at,
+                        )
+                        for item in tasks
+                    ]
+                    LOGGER.debug(
+                        "Worker starting batch decode size=%d model_id=%s",
+                        len(tasks),
+                        model_id,
+                    )
+                    results = worker.decode_batch_sync(batch)
+                    for item, result in zip(tasks, results):
+                        if not item.future.cancelled():
+                            item.future.set_result(result)
+                    LOGGER.debug(
+                        "Worker finished batch decode size=%d model_id=%s",
+                        len(tasks),
+                        model_id,
+                    )
             except Exception as exc:  # pragma: no cover - defensive
-                if not task.future.cancelled():
-                    task.future.set_exception(exc)
+                for item in tasks:
+                    if not item.future.cancelled():
+                        item.future.set_exception(exc)
                 LOGGER.exception("Decode task failed for model '%s'", model_id)
             finally:
-                self._release_inflight(model_id, task.session_id)
-                queue.task_done()
+                for item in tasks:
+                    self._release_inflight(model_id, item.session_id)
+                    queue.task_done()
+                if stop_after:
+                    break
 
     def _dispatch_loop(self, model_id: str) -> None:
         condition = self._dispatch_conds[model_id]

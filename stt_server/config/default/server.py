@@ -25,6 +25,8 @@ DEFAULT_MAX_PENDING_DECODES_PER_STREAM = 8
 DEFAULT_MAX_PENDING_DECODES_GLOBAL = 64
 DEFAULT_MAX_TOTAL_BUFFER_BYTES = 64 * 1024 * 1024
 DEFAULT_DECODE_QUEUE_TIMEOUT_SEC = 1.0
+DEFAULT_DECODE_BATCH_WINDOW_MS = 0
+DEFAULT_MAX_DECODE_BATCH_SIZE = 1
 DEFAULT_BUFFER_OVERLAP_SEC = 0.5
 DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES = 8 * 1024 * 1024
 DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES = 4 * 1024 * 1024
@@ -90,6 +92,8 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_pending_decodes_global": "max_pending_decodes_global",
         "max_total_buffer_bytes": "max_total_buffer_bytes",
         "decode_queue_timeout_sec": "decode_queue_timeout_sec",
+        "decode_batch_window_ms": "decode_batch_window_ms",
+        "max_decode_batch_size": "max_decode_batch_size",
         "buffer_overlap_sec": "buffer_overlap_sec",
         "partial_decode_interval_sec": "partial_decode_interval_sec",
         "partial_decode_window_sec": "partial_decode_window_sec",
@@ -166,6 +170,8 @@ __all__ = [
     "DEFAULT_MAX_PENDING_DECODES_GLOBAL",
     "DEFAULT_MAX_TOTAL_BUFFER_BYTES",
     "DEFAULT_DECODE_QUEUE_TIMEOUT_SEC",
+    "DEFAULT_DECODE_BATCH_WINDOW_MS",
+    "DEFAULT_MAX_DECODE_BATCH_SIZE",
     "DEFAULT_BUFFER_OVERLAP_SEC",
     "DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES",
     "DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES",

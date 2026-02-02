@@ -47,6 +47,8 @@ class StreamingRuntimeConfig:
     max_pending_decodes_global: int = 64
     max_total_buffer_bytes: Optional[int] = 64 * 1024 * 1024
     decode_queue_timeout_sec: float = 1.0
+    decode_batch_window_ms: int = 0
+    max_decode_batch_size: int = 1
     buffer_overlap_sec: float = 0.5
     create_session_rps: float = 0.0
     create_session_burst: float = 0.0

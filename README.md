@@ -158,6 +158,8 @@ server:
   max_pending_decodes_global: 512 # Global max queued decodes before backpressure/drop
   max_total_buffer_bytes: 268435456 # Global buffered audio cap (bytes)
   decode_queue_timeout_sec: 1.0 # Seconds to wait for a global decode slot (final only)
+  decode_batch_window_ms: 0 # Batch window for shared decode queue (0 disables)
+  max_decode_batch_size: 1 # Max tasks per batch (1 disables)
   buffer_overlap_sec: 0.5 # Overlap window retained after partial decode (seconds)
   grpc_max_receive_message_bytes: 8388608 # Max gRPC inbound message size
   grpc_max_send_message_bytes: 4194304 # Max gRPC outbound message size
@@ -322,16 +324,18 @@ Suggested production defaults (tune per traffic profile):
 
 **Buffer**
 
-- `server.max_buffer_sec` / `server.max_buffer_bytes`: per-session buffer cap. When reached, Continue schedules a partial decode and keeps `server.buffer_overlap_sec`, while Auto-End keeps only the newest window.
+- `server.max_buffer_sec` / `server.max_buffer_bytes`: per-session buffer cap. When reached, Continue schedules a partial decode (only if partials are enabled) and keeps `server.buffer_overlap_sec`, while Auto-End keeps only the newest window.
 - `server.partial_decode_interval_sec`: partial decode cadence during speech.
 - `server.partial_decode_window_sec`: audio window length sent to partial decode.
 - `server.max_total_buffer_bytes`: total buffered bytes across all sessions.
+- Partial results are opt-in per session: set `--attr partial=true` (default is off).
 
 **Decode/Backpressure**
 
 - `server.decode_timeout_sec`: max wait while draining decodes (<= 0 means wait forever).
 - `server.max_pending_decodes_per_stream`: per-stream pending cap.
 - `server.max_pending_decodes_global`: global pending cap (finals apply backpressure, partials drop).
+- `server.decode_batch_window_ms` / `server.max_decode_batch_size`: optional decode batching window/size for shared queue (0/1 disables; requires backend batch support).
 - `server.decode_queue_timeout_sec`: time to wait for a global slot (final results).
 - `server.max_chunk_ms`: max single audio chunk duration.
 - `server.grpc_max_receive_message_bytes` / `server.grpc_max_send_message_bytes`: gRPC message size caps.

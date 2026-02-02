@@ -93,6 +93,8 @@ def serve(config: ServerConfig) -> None:
         max_pending_decodes_global=config.max_pending_decodes_global,
         max_total_buffer_bytes=config.max_total_buffer_bytes,
         decode_queue_timeout_sec=config.decode_queue_timeout_sec,
+        decode_batch_window_ms=config.decode_batch_window_ms,
+        max_decode_batch_size=config.max_decode_batch_size,
         buffer_overlap_sec=config.buffer_overlap_sec,
         create_session_rps=config.create_session_rps,
         create_session_burst=config.create_session_burst,
@@ -120,9 +122,7 @@ def serve(config: ServerConfig) -> None:
         max_files=config.audio_storage_max_files,
         max_age_days=config.audio_storage_max_age_days,
     )
-    servicer_config = ServicerConfig(
-        model=model_cfg, streaming=streaming_cfg, storage=storage_cfg
-    )
+    servicer_config = ServicerConfig(model_cfg, streaming_cfg, storage_cfg)
     servicer = STTGrpcServicer(servicer_config)
     stt_pb2_grpc.add_STTBackendServicer_to_server(servicer, server)  # type: ignore[name-defined]
 

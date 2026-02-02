@@ -248,7 +248,7 @@ def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypat
     session_registry.create_session(
         session_id,
         SessionInfo(
-            attributes={},
+            attributes={"partial": "true"},
             vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
@@ -322,7 +322,7 @@ def test_stream_orchestrator_buffer_limit_uses_window_bytes(monkeypatch):
     session_registry.create_session(
         session_id,
         SessionInfo(
-            attributes={},
+            attributes={"partial": "true"},
             vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=1.0,
@@ -397,7 +397,7 @@ def test_stream_orchestrator_rejects_oversized_chunk(monkeypatch):
     session_registry.create_session(
         session_id,
         SessionInfo(
-            attributes={},
+            attributes={"partial": "true"},
             vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
@@ -443,7 +443,7 @@ def test_stream_rate_limit_aborts(monkeypatch):
     session_registry.create_session(
         session_id,
         SessionInfo(
-            attributes={},
+            attributes={"partial": "true"},
             vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
@@ -576,7 +576,7 @@ def test_stream_audio_limit_aborts(monkeypatch):
     session_registry.create_session(
         session_id,
         SessionInfo(
-            attributes={},
+            attributes={"partial": "true"},
             vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,
@@ -641,7 +641,7 @@ def test_stream_orchestrator_keeps_activity_while_decode_inflight(monkeypatch):
     session_registry.create_session(
         session_id,
         SessionInfo(
-            attributes={},
+            attributes={"partial": "true"},
             vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=1.0,
@@ -730,7 +730,7 @@ def test_stream_orchestrator_drops_partial_when_stream_pending_limit_reached(
     session_registry.create_session(
         session_id,
         SessionInfo(
-            attributes={},
+            attributes={"partial": "true"},
             vad_mode=stt_pb2.VAD_CONTINUE,
             vad_silence=0.2,
             vad_threshold=0.0,

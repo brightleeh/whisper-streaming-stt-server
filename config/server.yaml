@@ -32,6 +32,8 @@ server:
   max_pending_decodes_global: 512 # Global max queued decodes before backpressure/drop
   max_total_buffer_bytes: 268435456 # Global buffered audio cap (bytes)
   decode_queue_timeout_sec: 1.0 # Seconds to wait for a global decode slot (final only)
+  decode_batch_window_ms: 0 # Batch window for shared decode queue (0 disables)
+  max_decode_batch_size: 1 # Max tasks per batch (1 disables)
   buffer_overlap_sec: 0.5 # Overlap window retained after partial decode (seconds)
   grpc_max_receive_message_bytes: 8388608 # Max gRPC inbound message size
   grpc_max_send_message_bytes: 4194304 # Max gRPC outbound message size

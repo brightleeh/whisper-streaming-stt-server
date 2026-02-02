@@ -67,7 +67,10 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             default_profile = "realtime"
         self.default_decode_profile = default_profile
 
-        self.model_registry = ModelRegistry()
+        self.model_registry = ModelRegistry(
+            batch_window_ms=streaming_config.decode_batch_window_ms,
+            max_batch_size=streaming_config.max_decode_batch_size,
+        )
 
         session_hooks = SessionRegistryHooks(
             on_create=self._on_session_created,

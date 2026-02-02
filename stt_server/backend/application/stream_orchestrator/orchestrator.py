@@ -781,12 +781,27 @@ class StreamOrchestrator:
     def _partial_decode_window_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
         return self._buffer_manager.partial_decode_window_bytes(sample_rate)
 
+    def _partial_enabled(self, state: _StreamState) -> bool:
+        session_state = state.session.session_state
+        if not session_state:
+            return False
+        attrs = session_state.session_info.attributes
+        raw = attrs.get("partial") or attrs.get("partial_mode") or ""
+        value = str(raw).strip().lower()
+        if value in {"1", "true", "yes", "on", "enable", "enabled"}:
+            return True
+        if value in {"0", "false", "no", "off", "disable", "disabled"}:
+            return False
+        return False
+
     def _maybe_schedule_periodic_partial(
         self,
         state: _StreamState,
         vad_update: Any,
         context: grpc.ServicerContext,
     ) -> None:
+        if not self._partial_enabled(state):
+            return
         interval = self._config.partial_decode.interval_sec
         if interval is None:
             return
@@ -852,6 +867,7 @@ class StreamOrchestrator:
             state.session.session_state
             and state.decode.decode_stream
             and state.session.session_state.session_info.vad_mode == VAD_CONTINUE
+            and self._partial_enabled(state)
         ):
             if not buffer_is_speech(buffer, self._config.stream.speech_rms_threshold):
                 LOGGER.info(
