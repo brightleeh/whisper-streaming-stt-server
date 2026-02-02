@@ -1,6 +1,7 @@
 """Model registry for dynamic model loading and switching."""
 
 import logging
+import sys
 import threading
 import time
 from collections import deque
@@ -195,6 +196,7 @@ class ModelRegistry:
                 base_options["task"] = config.get("task", DEFAULT_TASK)
 
             try:
+                self._validate_device_backend(backend, device)
                 for i in range(pool_size):
                     LOGGER.debug(
                         "Initializing worker %d/%d for model '%s'",
@@ -255,6 +257,37 @@ class ModelRegistry:
                         LOGGER.exception("Failed to close model worker: %s", exc)
                 workers.clear()
                 raise
+
+    def _validate_device_backend(self, backend: str, device: str) -> None:
+        device_norm = (device or "").lower()
+        backend_norm = (backend or "").lower()
+        if not device_norm or device_norm == "cpu" or device_norm == "auto":
+            return
+        if device_norm.startswith("cuda"):
+            if sys.platform == "darwin":
+                raise ValueError("CUDA device requested on macOS")
+            if backend_norm == "torch_whisper":
+                try:
+                    import torch
+                except ImportError as exc:  # pragma: no cover - torch optional
+                    raise ValueError(
+                        "CUDA requested but torch is not available"
+                    ) from exc
+                if not torch.cuda.is_available():
+                    raise ValueError("CUDA requested but torch reports no CUDA devices")
+            return
+        if device_norm == "mps":
+            if backend_norm != "torch_whisper":
+                raise ValueError("MPS device requires torch_whisper backend")
+            if sys.platform != "darwin":
+                raise ValueError("MPS device requested on non-macOS platform")
+            try:
+                import torch
+            except ImportError as exc:  # pragma: no cover - torch optional
+                raise ValueError("MPS requested but torch is not available") from exc
+            mps_backend = getattr(torch.backends, "mps", None)
+            if not (mps_backend and mps_backend.is_available()):
+                raise ValueError("MPS requested but torch reports no MPS device")
 
     def get_worker(self, model_id: str) -> Optional[ModelWorkerProtocol]:
         """Acquire a worker for the given model_id (Round-Robin)."""

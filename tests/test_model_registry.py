@@ -138,7 +138,7 @@ def test_load_model_cuda_missing_logs_error(monkeypatch, caplog):
     registry = ModelRegistry()
     caplog.set_level(logging.ERROR, logger="stt_server.model_registry")
 
-    with pytest.raises(RuntimeError):
+    with pytest.raises((RuntimeError, ValueError)):
         registry.load_model("cuda-model", {"pool_size": 1, "device": "cuda"})
 
     assert "Failed to load model 'cuda-model'" in caplog.text
