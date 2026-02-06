@@ -1,4 +1,6 @@
-from unittest.mock import MagicMock
+import hashlib
+import hmac
+from unittest.mock import MagicMock, patch
 
 import grpc
 import pytest
@@ -238,6 +240,179 @@ def test_create_session_uses_override_threshold_even_when_zero(
     args, _kwargs = mock_session_registry.create_session.call_args
     session_info = args[1]
     assert session_info.vad_threshold == 0.0
+
+
+def _signed_metadata(
+    session_id: str, secret: str, timestamp: str, bearer_with_timestamp: bool = False
+):
+    payload = f"{session_id}:{timestamp}".encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    if bearer_with_timestamp:
+        return [("authorization", f"Bearer {timestamp}:{signature}")]
+    return [("authorization", f"Bearer {signature}"), ("x-stt-auth-ts", timestamp)]
+
+
+def test_create_session_signed_token_metadata_valid(
+    mock_session_registry, mock_servicer_context
+):
+    """Accept signed_token metadata when authorization + timestamp provided."""
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    supported_languages = MagicMock()
+    supported_languages.is_supported.return_value = True
+    config = CreateSessionConfig(
+        decode_profiles={"default": {}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+        require_api_key=False,
+        create_session_auth_profile="signed_token",
+        create_session_auth_secret="secret",
+        create_session_auth_ttl_sec=0.0,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
+    )
+    handler = CreateSessionHandler(
+        session_registry=mock_session_registry,
+        model_registry=mock_model_registry,
+        config=config,
+    )
+    mock_servicer_context.invocation_metadata.return_value = _signed_metadata(
+        "ok", "secret", "12345"
+    )
+    request = stt_pb2.SessionRequest(session_id="ok")
+    handler.handle(request, mock_servicer_context)
+    mock_session_registry.create_session.assert_called_once()
+
+
+def test_create_session_signed_token_metadata_accepts_bearer_with_timestamp(
+    mock_session_registry, mock_servicer_context
+):
+    """Accept signed_token metadata when timestamp is embedded in authorization."""
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    supported_languages = MagicMock()
+    supported_languages.is_supported.return_value = True
+    config = CreateSessionConfig(
+        decode_profiles={"default": {}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+        require_api_key=False,
+        create_session_auth_profile="signed_token",
+        create_session_auth_secret="secret",
+        create_session_auth_ttl_sec=0.0,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
+    )
+    handler = CreateSessionHandler(
+        session_registry=mock_session_registry,
+        model_registry=mock_model_registry,
+        config=config,
+    )
+    mock_servicer_context.invocation_metadata.return_value = _signed_metadata(
+        "ok", "secret", "12345", bearer_with_timestamp=True
+    )
+    request = stt_pb2.SessionRequest(session_id="ok")
+    handler.handle(request, mock_servicer_context)
+    mock_session_registry.create_session.assert_called_once()
+
+
+def test_create_session_signed_token_metadata_invalid(
+    mock_session_registry, mock_servicer_context
+):
+    """Reject invalid signed_token metadata."""
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    supported_languages = MagicMock()
+    supported_languages.is_supported.return_value = True
+    config = CreateSessionConfig(
+        decode_profiles={"default": {}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+        require_api_key=False,
+        create_session_auth_profile="signed_token",
+        create_session_auth_secret="secret",
+        create_session_auth_ttl_sec=0.0,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
+    )
+    handler = CreateSessionHandler(
+        session_registry=mock_session_registry,
+        model_registry=mock_model_registry,
+        config=config,
+    )
+    mock_servicer_context.invocation_metadata.return_value = [
+        ("authorization", "Bearer deadbeef"),
+        ("x-stt-auth-ts", "12345"),
+    ]
+    request = stt_pb2.SessionRequest(session_id="ok")
+    with pytest.raises(grpc.RpcError):
+        handler.handle(request, mock_servicer_context)
+    mock_servicer_context.abort.assert_called_with(
+        grpc.StatusCode.UNAUTHENTICATED,
+        "ERR1014 CreateSession authentication failed",
+    )
+
+
+def test_create_session_skips_vad_reserve_when_token_required(
+    mock_session_registry, mock_servicer_context
+):
+    """Token-required sessions should defer VAD reservation until streaming."""
+    mock_model_registry = MagicMock()
+    mock_model_registry.get_next_model_id.return_value = "default"
+    supported_languages = MagicMock()
+    supported_languages.is_supported.return_value = True
+    config = CreateSessionConfig(
+        decode_profiles={"default": {}},
+        default_decode_profile="default",
+        default_language="en",
+        language_fix=False,
+        default_task="transcribe",
+        supported_languages=supported_languages,
+        default_vad_silence=0.5,
+        default_vad_threshold=0.5,
+        require_api_key=False,
+        create_session_rps=0.0,
+        create_session_burst=0.0,
+        max_sessions_per_ip=0,
+        max_sessions_per_api_key=0,
+    )
+    handler = CreateSessionHandler(
+        session_registry=mock_session_registry,
+        model_registry=mock_model_registry,
+        config=config,
+    )
+    request = stt_pb2.SessionRequest(
+        session_id="ok", require_token=True, vad_threshold=0.5
+    )
+    with patch(
+        "stt_server.backend.application.session_manager.reserve_vad_slot"
+    ) as reserve_mock:
+        handler.handle(request, mock_servicer_context)
+    reserve_mock.assert_not_called()
+    args, _kwargs = mock_session_registry.create_session.call_args
+    session_info = args[1]
+    assert session_info.vad_reserved is False
 
 
 def test_create_session_falls_back_to_default_when_override_unset(

@@ -221,3 +221,49 @@ def test_decode_stream_logs_transcript_only_when_enabled():
     ]
     assert info_calls
     assert info_calls[0].args[3] == "secret"
+
+
+def test_decode_stream_commit_state_progression():
+    """Committed/unstable text should progress on stable word boundaries."""
+    scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock())
+    stream = DecodeStream(scheduler)
+
+    committed, unstable = stream._update_commit_state("hello wor", False)
+    assert committed == ""
+    assert unstable == "hello wor"
+
+    committed, unstable = stream._update_commit_state("hello world again", False)
+    assert committed == "hello"
+    assert unstable == "world again"
+
+    committed, unstable = stream._update_commit_state("hello world again please", False)
+    assert committed == "hello world"
+    assert unstable == "again please"
+
+    committed, unstable = stream._update_commit_state("hello world again please", True)
+    assert committed == "hello world again please"
+    assert unstable == ""
+
+
+def test_orphaned_decode_marks_scheduler_unhealthy():
+    """Orphaned decodes should count as health errors."""
+    model_registry = MagicMock()
+    model_registry.health_summary.return_value = {
+        "models_loaded": True,
+        "total_workers": 1,
+        "empty_pools": 0,
+        "shutdown_workers": 0,
+    }
+    stream_orchestrator = MagicMock()
+    stream_orchestrator.model_registry = model_registry
+    scheduler = DecodeScheduler(
+        stream_orchestrator,
+        0.0,
+        MagicMock(),
+        health_window_sec=60.0,
+        health_min_events=1,
+        health_max_timeout_ratio=0.5,
+        health_min_success_ratio=0.5,
+    )
+    scheduler._on_decode_orphaned(1)
+    assert scheduler.workers_healthy() is False

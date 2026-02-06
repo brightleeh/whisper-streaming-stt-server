@@ -372,7 +372,7 @@ class CreateSessionHandler:
                 maybe_ts, maybe_sig = raw_auth.split(":", 1)
                 if not ts_raw:
                     ts_raw = maybe_ts.strip()
-                if not sig_raw:
+                if not sig_raw or sig_raw == raw_auth or ":" in sig_raw:
                     sig_raw = maybe_sig.strip()
 
         if not ts_raw or not sig_raw:

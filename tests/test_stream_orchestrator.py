@@ -2,8 +2,10 @@
 
 import threading
 import time
+from typing import cast
 from unittest.mock import MagicMock
 
+import grpc
 import pytest
 
 from gen.stt.python.v1 import stt_pb2
@@ -11,6 +13,7 @@ from stt_server.backend.application.session_manager import (
     SessionFacade,
     SessionInfo,
     SessionRegistry,
+    SessionState,
 )
 from stt_server.backend.application.stream_orchestrator import (
     StreamOrchestrator,
@@ -214,6 +217,73 @@ def test_stream_orchestrator_timeout_aborts_in_main_loop(monkeypatch):
     assert code == status_for(ErrorCode.SESSION_TIMEOUT)
     assert "ERR1006" in details
     assert abort_thread is main_thread
+
+
+def test_stream_orchestrator_reserves_vad_slot_for_token_required(monkeypatch):
+    """Token-required sessions should reserve VAD slots on first chunk."""
+    session_facade = SessionFacade(SessionRegistry())
+    model_registry = MagicMock()
+    stream_settings = StreamSettings(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+    )
+    storage_settings = StorageSettings(
+        enabled=False,
+        directory=".",
+        max_bytes=None,
+        max_files=None,
+        max_age_days=None,
+    )
+    config = StreamOrchestratorConfig(
+        stream=stream_settings,
+        storage=storage_settings,
+    )
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    reserve_mock = MagicMock(return_value=True)
+    monkeypatch.setattr(
+        "stt_server.backend.application.stream_orchestrator.orchestrator.reserve_vad_slot",
+        reserve_mock,
+    )
+
+    class DummyVADGate:
+        """Test helper for VADGate without model dependencies."""
+
+        def __init__(self, _threshold, _silence) -> None:
+            return None
+
+    monkeypatch.setattr(
+        "stt_server.backend.application.stream_orchestrator.orchestrator.VADGate",
+        DummyVADGate,
+    )
+
+    info = SessionInfo(
+        attributes={},
+        vad_mode=stt_pb2.VAD_CONTINUE,
+        vad_silence=0.2,
+        vad_threshold=0.5,
+        token="",
+        token_required=True,
+        client_ip="",
+        api_key="",
+        decode_profile="default",
+        decode_options={},
+        language_code="",
+        task="transcribe",
+        model_id="default",
+        vad_reserved=False,
+    )
+    state = SessionState(session_id="session-1", session_info=info, decode_options={})
+    context = FakeContext()
+
+    orchestrator._create_vad_state(state, cast(grpc.ServicerContext, context))
+
+    reserve_mock.assert_called_once()
+    assert info.vad_reserved is True
 
 
 def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypatch):
