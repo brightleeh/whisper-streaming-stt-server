@@ -70,6 +70,7 @@ auth:
   create_session_auth_profile: "none" # none|api_key|signed_token
   create_session_auth_secret: "" # HMAC secret for signed_token profile
   create_session_auth_ttl_sec: 0.0 # Auth token TTL seconds (0 disables)
+  # signed_token expects gRPC metadata: authorization (Bearer <sig> or <ts>:<sig>) and x-stt-auth-ts
 
 storage:
   persist_audio: false # Enable server-side audio capture

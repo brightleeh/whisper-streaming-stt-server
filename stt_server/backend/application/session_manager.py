@@ -48,6 +48,17 @@ _AUTH_PROFILE_ALIASES = {
 }
 _AUTH_SIG_KEYS = ("auth_sig", "auth_signature", "signature")
 _AUTH_TS_KEYS = ("auth_ts", "auth_timestamp", "timestamp")
+_AUTH_METADATA_SIG_KEYS = (
+    "authorization",
+    "x-stt-auth",
+    "x-auth-sig",
+    "x-auth-signature",
+)
+_AUTH_METADATA_TS_KEYS = (
+    "x-stt-auth-ts",
+    "x-auth-ts",
+    "x-auth-timestamp",
+)
 _AUTH_ATTRIBUTE_KEYS = set(_AUTH_SIG_KEYS + _AUTH_TS_KEYS)
 
 
@@ -288,12 +299,44 @@ class CreateSessionHandler:
         return _AUTH_PROFILE_ALIASES.get(raw, raw)
 
     @staticmethod
-    def _get_attribute(attributes: Dict[str, str], keys: tuple[str, ...]) -> str:
+    def _build_metadata(context: grpc.ServicerContext) -> Dict[str, str]:
+        metadata: Dict[str, str] = {}
+        if context is None:
+            return metadata
+        for key, value in context.invocation_metadata():
+            if not key:
+                continue
+            norm_key = str(key).lower()
+            if isinstance(value, bytes):
+                try:
+                    value = value.decode("utf-8", errors="ignore")
+                except UnicodeDecodeError:
+                    value = ""
+            metadata[norm_key] = str(value).strip()
+        return metadata
+
+    def _get_metadata_value(
+        self, metadata: Dict[str, str], keys: tuple[str, ...]
+    ) -> str:
         for key in keys:
-            value = attributes.get(key)
+            value = metadata.get(key)
             if value:
                 return str(value).strip()
         return ""
+
+    def _extract_signature(self, metadata: Dict[str, str]) -> str:
+        auth = self._get_metadata_value(metadata, ("authorization",))
+        if auth:
+            parts = auth.split(None, 1)
+            if len(parts) == 2 and parts[0].lower() in {
+                "bearer",
+                "token",
+                "signature",
+                "hmac",
+            }:
+                return parts[1].strip()
+            return auth.strip()
+        return self._get_metadata_value(metadata, _AUTH_METADATA_SIG_KEYS)
 
     def _sanitize_attributes(self, attributes: Dict[str, str]) -> Dict[str, str]:
         if not attributes:
@@ -306,15 +349,32 @@ class CreateSessionHandler:
     def _validate_signed_token(
         self,
         session_id: str,
-        attributes: Dict[str, str],
+        metadata: Dict[str, str],
         context: grpc.ServicerContext,
     ) -> None:
         secret = (self._config.create_session_auth_secret or "").strip()
         if not secret:
             LOGGER.error("CreateSession auth profile requires secret")
             abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
-        ts_raw = self._get_attribute(attributes, _AUTH_TS_KEYS)
-        sig_raw = self._get_attribute(attributes, _AUTH_SIG_KEYS)
+        ts_raw = self._get_metadata_value(metadata, _AUTH_METADATA_TS_KEYS)
+        sig_raw = self._extract_signature(metadata)
+        if (not ts_raw or not sig_raw) and metadata.get("authorization"):
+            raw_auth = metadata.get("authorization", "").strip()
+            parts = raw_auth.split(None, 1)
+            if len(parts) == 2 and parts[0].lower() in {
+                "bearer",
+                "token",
+                "signature",
+                "hmac",
+            }:
+                raw_auth = parts[1].strip()
+            if ":" in raw_auth:
+                maybe_ts, maybe_sig = raw_auth.split(":", 1)
+                if not ts_raw:
+                    ts_raw = maybe_ts.strip()
+                if not sig_raw:
+                    sig_raw = maybe_sig.strip()
+
         if not ts_raw or not sig_raw:
             LOGGER.warning("CreateSession auth token missing timestamp/signature")
             abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
@@ -339,7 +399,7 @@ class CreateSessionHandler:
         self,
         profile: str,
         session_id: str,
-        attributes: Dict[str, str],
+        metadata: Dict[str, str],
         context: grpc.ServicerContext,
     ) -> None:
         if profile in ("", _AUTH_PROFILE_NONE):
@@ -347,7 +407,7 @@ class CreateSessionHandler:
         if profile == _AUTH_PROFILE_API_KEY:
             return
         if profile == _AUTH_PROFILE_SIGNED_TOKEN:
-            self._validate_signed_token(session_id, attributes, context)
+            self._validate_signed_token(session_id, metadata, context)
             return
         LOGGER.error("Unknown CreateSession auth profile: %s", profile)
         abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
@@ -367,6 +427,7 @@ class CreateSessionHandler:
         set_session_id(session_id)
         client_ip = _extract_client_ip(context)
         attributes = dict(request.attributes)
+        metadata = self._build_metadata(context)
         vad_mode = (
             request.vad_mode
             if request.vad_mode in (stt_pb2.VAD_CONTINUE, stt_pb2.VAD_AUTO_END)
@@ -392,7 +453,7 @@ class CreateSessionHandler:
             LOGGER.error(format_error(ErrorCode.API_KEY_MISSING))
             abort_with_error(context, ErrorCode.API_KEY_MISSING)
 
-        self._enforce_create_session_auth(auth_profile, session_id, attributes, context)
+        self._enforce_create_session_auth(auth_profile, session_id, metadata, context)
 
         self._enforce_session_limits(session_id, api_key, client_ip, context)
 
