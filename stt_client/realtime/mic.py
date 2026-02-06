@@ -1,6 +1,8 @@
 """Realtime microphone client for the STT server."""
 
 import argparse
+import hashlib
+import hmac
 import queue
 import sys
 import threading
@@ -34,6 +36,7 @@ CONFIG_KEYS = {
     "decode_profile",
     "vad_silence",
     "vad_threshold",
+    "signed_token_secret",
 }
 
 
@@ -62,6 +65,18 @@ def profile_to_enum(value: str) -> stt_pb2.DecodeProfile.ValueType:
         if value.lower() == "accurate"
         else stt_pb2.DECODE_PROFILE_REALTIME
     )
+
+
+def _build_signed_token_metadata(
+    session_id: str, signed_token_secret: Optional[str]
+) -> list[tuple[str, str]]:
+    secret = (signed_token_secret or "").strip()
+    if not secret:
+        return []
+    timestamp = str(int(time.time()))
+    payload = f"{session_id}:{timestamp}".encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return [("authorization", f"Bearer {signature}"), ("x-stt-auth-ts", timestamp)]
 
 
 def _create_channel(
@@ -192,6 +207,7 @@ def run(
     tls_ca_file: Optional[str],
     vad_mode: str,
     require_token: bool,
+    signed_token_secret: Optional[str],
     language: str,
     task: str,
     decode_profile: str,
@@ -262,7 +278,11 @@ def run(
     )
     if vad_threshold is not None:
         request.vad_threshold_override = vad_threshold
-    session_resp = stub.CreateSession(request)
+    metadata = _build_signed_token_metadata(session_id, signed_token_secret)
+    if metadata:
+        session_resp = stub.CreateSession(request, metadata=metadata)
+    else:
+        session_resp = stub.CreateSession(request)
     session_token = session_resp.token if session_resp.token_required else ""
     print(
         f"[SESSION] session_id={session_id} created "
@@ -453,6 +473,11 @@ def main() -> None:
         help="Request a session token and include it with every chunk",
     )
     parser.add_argument(
+        "--signed-token-secret",
+        default=None,
+        help="HMAC secret for CreateSession signed_token metadata",
+    )
+    parser.add_argument(
         "--language",
         default="",
         help="Desired input language (BCP-47 code, leave blank for auto)",
@@ -497,6 +522,7 @@ def main() -> None:
         tls_ca_file=args.tls_ca_file,
         vad_mode=args.vad_mode,
         require_token=args.require_token,
+        signed_token_secret=args.signed_token_secret,
         language=args.language,
         task=args.task,
         decode_profile=args.decode_profile,

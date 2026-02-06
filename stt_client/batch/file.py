@@ -1,6 +1,8 @@
 """Batch client for submitting a single audio file to the STT server."""
 
 import argparse
+import hashlib
+import hmac
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -35,6 +37,7 @@ CONFIG_KEYS = {
     "task",
     "decode_profile",
     "attributes",
+    "signed_token_secret",
 }
 
 
@@ -68,6 +71,7 @@ class SessionConfig:
 
     attributes: Dict[str, str]
     require_token: bool
+    signed_token_secret: Optional[str]
     language: str
     task: str
     decode_profile: str
@@ -204,6 +208,18 @@ def _ensure_session_id(attributes: Dict[str, str]) -> str:
     return session_id
 
 
+def _build_signed_token_metadata(
+    session_id: str, signed_token_secret: Optional[str]
+) -> list[tuple[str, str]]:
+    secret = (signed_token_secret or "").strip()
+    if not secret:
+        return []
+    timestamp = str(int(time.time()))
+    payload = f"{session_id}:{timestamp}".encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return [("authorization", f"Bearer {signature}"), ("x-stt-auth-ts", timestamp)]
+
+
 def _build_session_request(
     session: SessionConfig, session_id: str
 ) -> stt_pb2.SessionRequest:
@@ -314,7 +330,13 @@ def run(config: RunConfig) -> None:
         stub = stt_pb2_grpc.STTBackendStub(channel)
         session_id = _ensure_session_id(config.session.attributes)
         request = _build_session_request(config.session, session_id)
-        session_resp = stub.CreateSession(request)
+        metadata = _build_signed_token_metadata(
+            session_id, config.session.signed_token_secret
+        )
+        if metadata:
+            session_resp = stub.CreateSession(request, metadata=metadata)
+        else:
+            session_resp = stub.CreateSession(request)
         session_token = session_resp.token if session_resp.token_required else ""
         print(
             f"[SESSION] session_id={session_id} created "
@@ -446,6 +468,11 @@ def _build_arg_parser(config_values: Dict[str, Any]) -> argparse.ArgumentParser:
         help="Request a session token and include it with every chunk",
     )
     parser.add_argument(
+        "--signed-token-secret",
+        default=None,
+        help="HMAC secret for CreateSession signed_token metadata",
+    )
+    parser.add_argument(
         "--language",
         default="",
         help="Desired input language (BCP-47 code, leave blank for auto)",
@@ -559,6 +586,7 @@ def main() -> None:
             session=SessionConfig(
                 attributes=attr_dict,
                 require_token=args.require_token,
+                signed_token_secret=args.signed_token_secret,
                 language=args.language,
                 task=args.task,
                 decode_profile=args.decode_profile,

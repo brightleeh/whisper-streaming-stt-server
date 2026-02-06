@@ -9,6 +9,7 @@ tls: false # bool, enable TLS for the gRPC channel
 tls_ca_file: null # string, path to CA cert (self-signed); null uses system trust
 vad_mode: "continue" # string: "continue" | "auto"
 require_token: false # bool, request a session token for chunk validation
+signed_token_secret: "" # string, HMAC secret for CreateSession signed_token metadata
 language: "" # string, BCP-47 code; empty for auto-detect
 task: "transcribe" # string: "transcribe" | "translate"
 decode_profile: "realtime" # string: "realtime" | "accurate"

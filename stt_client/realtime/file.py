@@ -1,6 +1,8 @@
 """Realtime file-streaming client for the STT server."""
 
 import argparse
+import hashlib
+import hmac
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -38,6 +40,7 @@ CONFIG_KEYS = {
     "task",
     "decode_profile",
     "attributes",
+    "signed_token_secret",
 }
 
 
@@ -122,6 +125,18 @@ def merge_transcript(prefix: str, next_text: str) -> str:
     if next_text.startswith(prefix):
         return next_text
     return f"{prefix} {next_text}"
+
+
+def _build_signed_token_metadata(
+    session_id: str, signed_token_secret: Optional[str]
+) -> list[tuple[str, str]]:
+    secret = (signed_token_secret or "").strip()
+    if not secret:
+        return []
+    timestamp = str(int(time.time()))
+    payload = f"{session_id}:{timestamp}".encode("utf-8")
+    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+    return [("authorization", f"Bearer {signature}"), ("x-stt-auth-ts", timestamp)]
 
 
 def _create_channel(
@@ -265,6 +280,7 @@ def run(
     vad_mode: str,
     attributes: Dict[str, str],
     require_token: bool,
+    signed_token_secret: Optional[str],
     language: str,
     task: str,
     decode_profile: str,
@@ -296,7 +312,11 @@ def run(
     )
     if vad_threshold is not None:
         request.vad_threshold_override = vad_threshold
-    session_resp = stub.CreateSession(request)
+    metadata = _build_signed_token_metadata(session_id, signed_token_secret)
+    if metadata:
+        session_resp = stub.CreateSession(request, metadata=metadata)
+    else:
+        session_resp = stub.CreateSession(request)
     session_token = session_resp.token if session_resp.token_required else ""
     print(
         f"[SESSION] session_id={session_id} created "
@@ -527,6 +547,11 @@ def main() -> None:
         help="Request a session token and include it with every chunk",
     )
     parser.add_argument(
+        "--signed-token-secret",
+        default=None,
+        help="HMAC secret for CreateSession signed_token metadata",
+    )
+    parser.add_argument(
         "--attr",
         "--meta",
         dest="attributes",
@@ -579,6 +604,7 @@ def main() -> None:
         vad_mode=args.vad_mode,
         attributes=attr_dict,
         require_token=args.require_token,
+        signed_token_secret=args.signed_token_secret,
         language=args.language,
         task=args.task,
         decode_profile=args.decode_profile,
