@@ -236,6 +236,9 @@ class DecodeScheduler:
 
     def _on_decode_orphaned(self, count: int) -> None:
         self._hooks.on_decode_orphaned(count)
+        if count > 0:
+            # Treat orphaned decodes as health errors to surface resource pressure.
+            self._record_health_event("error", count)
 
 
 class DecodeStream:
