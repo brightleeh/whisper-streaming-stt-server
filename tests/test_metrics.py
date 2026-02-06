@@ -33,3 +33,35 @@ def test_record_decode_tracks_buffer_wait_and_response_emit():
     snapshot = metrics.snapshot()
     assert snapshot["decode_buffer_wait_avg"] == pytest.approx(0.2)
     assert snapshot["decode_response_emit_avg"] == pytest.approx(0.15)
+
+
+def test_metrics_track_stream_buffers_and_total_bytes():
+    """Test stream buffer bytes and global buffer total metrics."""
+    metrics = Metrics()
+
+    metrics.set_buffer_total(1024)
+    metrics.set_stream_buffer_bytes("session-1", 256)
+    metrics.set_stream_buffer_bytes("session-2", 512)
+    metrics.clear_stream_buffer("session-1")
+
+    payload = metrics.render()
+    assert payload["buffer_bytes_total"] == 1024
+    stream_buffers = payload["stream_buffer_bytes"]
+    expected_key = metrics._hash_key("session:session-2")
+    assert stream_buffers[expected_key] == 512
+    assert metrics._hash_key("session:session-1") not in stream_buffers
+
+
+def test_metrics_rate_limit_blocks_hash_keys():
+    """Test rate limit block metrics track hashed keys."""
+    metrics = Metrics()
+
+    metrics.record_rate_limit_block("stream", "api:secret")
+    metrics.record_rate_limit_block("stream", "api:secret")
+    metrics.record_rate_limit_block("http", "1.2.3.4")
+
+    payload = metrics.render()
+    assert payload["rate_limit_blocks"]["stream"] == 2
+    assert payload["rate_limit_blocks"]["http"] == 1
+    hashed = metrics._hash_key("api:secret")
+    assert payload["rate_limit_blocks_by_key"][f"stream_{hashed}"] == 2

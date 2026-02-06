@@ -1,5 +1,6 @@
 """Runtime metrics for streaming STT sessions."""
 
+import hashlib
 import threading
 from collections import defaultdict
 from typing import Any, Dict
@@ -15,6 +16,11 @@ class Metrics:
         self._active_sessions = 0
         self._api_key_sessions: Dict[str, int] = defaultdict(int)
         self._expose_api_key_metrics = False
+        self._buffer_bytes_total = 0
+        self._stream_buffer_bytes: Dict[str, int] = {}
+        self._partial_drop_count = 0
+        self._rate_limit_blocks: Dict[str, int] = defaultdict(int)
+        self._rate_limit_blocks_by_key: Dict[str, int] = defaultdict(int)
         self._decode_count = 0
         self._decode_total = 0.0
         self._decode_max = 0.0
@@ -36,6 +42,12 @@ class Metrics:
         self._active_vad_utterances = 0
         self._error_counts: Dict[str, int] = defaultdict(int)
 
+    def _hash_key(self, value: str) -> str:
+        if not value:
+            return ""
+        digest = hashlib.sha256(value.encode("utf-8")).hexdigest()
+        return digest[:16]
+
     def increase_active_sessions(self, api_key: str) -> None:
         """Increment the active session counters."""
         with self._lock:
@@ -52,6 +64,27 @@ class Metrics:
                 self._api_key_sessions[api_key] -= 1
                 if self._api_key_sessions[api_key] <= 0:
                     self._api_key_sessions.pop(api_key, None)
+
+    def set_buffer_total(self, total_bytes: int) -> None:
+        """Set the global buffered audio byte total."""
+        with self._lock:
+            self._buffer_bytes_total = max(0, int(total_bytes))
+
+    def set_stream_buffer_bytes(self, session_id: str, buffer_bytes: int) -> None:
+        """Set per-stream buffer bytes (tracked by hashed session id)."""
+        if not session_id:
+            return
+        key = self._hash_key(f"session:{session_id}")
+        with self._lock:
+            self._stream_buffer_bytes[key] = max(0, int(buffer_bytes))
+
+    def clear_stream_buffer(self, session_id: str) -> None:
+        """Remove per-stream buffer bytes entry for a session."""
+        if not session_id:
+            return
+        key = self._hash_key(f"session:{session_id}")
+        with self._lock:
+            self._stream_buffer_bytes.pop(key, None)
 
     def record_decode(
         self,
@@ -99,6 +132,11 @@ class Metrics:
         with self._lock:
             self._decode_orphaned += max(count, 0)
 
+    def record_partial_drop(self, count: int) -> None:
+        """Record dropped partial decode count."""
+        with self._lock:
+            self._partial_drop_count += max(count, 0)
+
     def record_vad_trigger(self) -> None:
         """Record a completed VAD trigger."""
         with self._lock:
@@ -125,6 +163,17 @@ class Metrics:
         with self._lock:
             self._error_counts[status_code.name] += 1
 
+    def record_rate_limit_block(self, scope: str, key: str | None = None) -> None:
+        """Record a rate limit block for a scope and optional key."""
+        if not scope:
+            scope = "unknown"
+        with self._lock:
+            self._rate_limit_blocks[scope] += 1
+            if key:
+                hashed = self._hash_key(key)
+                if hashed:
+                    self._rate_limit_blocks_by_key[f"{scope}_{hashed}"] += 1
+
     def set_expose_api_key_metrics(self, enabled: bool) -> None:
         """Enable or disable per-api-key metrics exposure."""
         with self._lock:
@@ -135,6 +184,7 @@ class Metrics:
         with self._lock:
             payload = {
                 "active_sessions": self._active_sessions,
+                "buffer_bytes_total": self._buffer_bytes_total,
                 "decode_latency_total": self._decode_total,
                 "decode_latency_count": self._decode_count,
                 "decode_latency_max": self._decode_max,
@@ -149,15 +199,23 @@ class Metrics:
                 "decode_response_emit_max": self._decode_response_emit_max,
                 "decode_cancelled": self._decode_cancelled,
                 "decode_orphaned": self._decode_orphaned,
+                "partial_drop_count": self._partial_drop_count,
                 "rtf_total": self._rtf_total,
                 "rtf_count": self._rtf_count,
                 "rtf_max": self._rtf_max,
                 "vad_triggers_total": self._vad_triggers,
                 "active_vad_utterances": self._active_vad_utterances,
                 "error_counts": dict(self._error_counts),
+                "rate_limit_blocks": dict(self._rate_limit_blocks),
             }
             if self._expose_api_key_metrics:
                 payload["active_sessions_by_api"] = dict(self._api_key_sessions)
+            if self._stream_buffer_bytes:
+                payload["stream_buffer_bytes"] = dict(self._stream_buffer_bytes)
+            if self._rate_limit_blocks_by_key:
+                payload["rate_limit_blocks_by_key"] = dict(
+                    self._rate_limit_blocks_by_key
+                )
             return payload
 
     def snapshot(self) -> Dict[str, float]:

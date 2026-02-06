@@ -325,6 +325,7 @@ def build_http_app(
     def _enforce_rate_limit(request: Request) -> None:
         key = _extract_client_ip(request) or "unknown"
         if not rate_limiter.allow(key):
+            metrics.record_rate_limit_block("http", key)
             raise STTError(ErrorCode.HTTP_RATE_LIMITED)
 
     def _get_load_status(model_id: str) -> Optional[LoadJobState]:

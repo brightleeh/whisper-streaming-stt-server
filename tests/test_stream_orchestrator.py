@@ -23,6 +23,7 @@ from stt_server.backend.application.stream_orchestrator.types import (
     BufferLimits,
     DecodeQueueSettings,
     StorageSettings,
+    StreamOrchestratorHooks,
     StreamSettings,
 )
 from stt_server.config.languages import SupportedLanguages
@@ -284,6 +285,67 @@ def test_stream_orchestrator_reserves_vad_slot_for_token_required(monkeypatch):
 
     reserve_mock.assert_called_once()
     assert info.vad_reserved is True
+
+
+def test_stream_orchestrator_partial_drop_records_hook():
+    """Partial decode drops should trigger the hook."""
+    session_facade = SessionFacade(SessionRegistry())
+    model_registry = MagicMock()
+    stream_settings = StreamSettings(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+    )
+    storage_settings = StorageSettings(
+        enabled=False,
+        directory=".",
+        max_bytes=None,
+        max_files=None,
+        max_age_days=None,
+    )
+    decode_queue = DecodeQueueSettings(
+        max_pending_decodes_per_stream=1,
+        max_pending_decodes_global=0,
+        decode_queue_timeout_sec=1.0,
+    )
+    hooks = StreamOrchestratorHooks(on_partial_drop=MagicMock())
+    config = StreamOrchestratorConfig(
+        stream=stream_settings,
+        storage=storage_settings,
+        decode_queue=decode_queue,
+    )
+    orchestrator = StreamOrchestrator(
+        session_facade, model_registry, config, hooks=hooks
+    )
+    decode_stream = MagicMock()
+    decode_stream.pending_count.return_value = 1
+    decode_stream.drop_pending_partials.return_value = (1, 0)
+    info = SessionInfo(
+        attributes={},
+        vad_mode=stt_pb2.VAD_CONTINUE,
+        vad_silence=0.2,
+        vad_threshold=0.5,
+        token="",
+        token_required=False,
+        client_ip="",
+        api_key="",
+        decode_profile="default",
+        decode_options={},
+        language_code="",
+        task="transcribe",
+        model_id="default",
+        vad_reserved=False,
+    )
+    state = SessionState(session_id="session-1", session_info=info, decode_options={})
+
+    allowed = orchestrator._ensure_decode_capacity(decode_stream, True, state)
+
+    assert allowed is True
+    hooks.on_partial_drop.assert_called_once_with(1)
 
 
 def test_stream_orchestrator_enforces_buffer_limit_with_partial_decode(monkeypatch):

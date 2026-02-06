@@ -352,6 +352,7 @@ Suggested production defaults (tune per traffic profile):
 **Security/Visibility**
 
 - `metrics.expose_api_key_sessions`: whether `/metrics` includes `active_sessions_by_api` (may be sensitive).
+- Rate-limit block keys and per-stream buffer metrics are hashed in `/metrics`/`/metrics.json`.
 - `auth.create_session_auth_profile`: set to `signed_token` to require HMAC auth for CreateSession.
   Clients send `authorization: Bearer <sig>` plus `x-stt-auth-ts`, or `authorization: Bearer <ts>:<sig>`.
   The secret is `auth.create_session_auth_secret`, and `auth.create_session_auth_ttl_sec` bounds clock skew.
@@ -491,7 +492,7 @@ linkStyle 11,12,13,14,15,16,17,18,19,20,21 stroke:#e74c3c,stroke-width:1px;
 The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 
 - `GET /metrics`: Prometheus text exposition (flattened counters/gauges).
-- `GET /metrics.json`: JSON counters/gauges (active sessions, API-key session counts, decode timing aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts).
+- `GET /metrics.json`: JSON counters/gauges (active sessions, API-key session counts, decode timing aggregates, RTF stats, VAD trigger totals, active VAD utterances, error counts, buffer bytes, partial drop counts, rate-limit blocks).
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models are loaded, and worker pools are healthy; otherwise `500`.
 - `GET /system`: JSON process/system metrics (CPU, RAM, thread counts). Uses `psutil` when available; otherwise falls back to basic RSS info. Optional GPU metrics can be enabled with `STT_ENABLE_GPU_METRICS=1` when `pynvml` is installed.
 

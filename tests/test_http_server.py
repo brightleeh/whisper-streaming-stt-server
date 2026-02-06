@@ -617,6 +617,10 @@ def test_http_rate_limit_blocks_excess_requests(monkeypatch):
     response = client.get("/metrics")
     assert response.status_code == http_status_for(ErrorCode.HTTP_RATE_LIMITED)
     assert response.json() == http_payload_for(ErrorCode.HTTP_RATE_LIMITED)
+    runtime.metrics.record_rate_limit_block.assert_called_once()
+    scope, key = runtime.metrics.record_rate_limit_block.call_args.args[:2]
+    assert scope == "http"
+    assert key
 
 
 def test_http_rate_limit_respects_forwarded_ip(monkeypatch):

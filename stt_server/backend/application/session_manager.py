@@ -8,7 +8,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional
+from typing import TYPE_CHECKING, Any, Callable, Dict, Optional
 
 import grpc
 
@@ -29,6 +29,9 @@ from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
 from stt_server.errors import ErrorCode, abort_with_error, format_error
 from stt_server.utils.logger import LOGGER, clear_session_id, set_session_id
+
+if TYPE_CHECKING:
+    from stt_server.backend.runtime.metrics import Metrics
 
 _AUTH_PROFILE_NONE = "none"
 _AUTH_PROFILE_API_KEY = "api_key"
@@ -283,10 +286,12 @@ class CreateSessionHandler:
         session_registry: SessionRegistry,
         model_registry: ModelRegistry,
         config: CreateSessionConfig,
+        metrics: "Metrics | None" = None,
     ) -> None:
         self._session_registry = session_registry
         self._model_registry = model_registry
         self._config = config
+        self._metrics = metrics
         self._create_session_limiter = None
         if config.create_session_rps > 0:
             self._create_session_limiter = KeyedRateLimiter(
@@ -583,6 +588,8 @@ class CreateSessionHandler:
         if limiter:
             key = api_key or client_ip or "anonymous"
             if not limiter.allow(key):
+                if self._metrics is not None:
+                    self._metrics.record_rate_limit_block("create_session", key)
                 LOGGER.warning(
                     "CreateSession rate limited (key=%s, session_id=%s)",
                     key,

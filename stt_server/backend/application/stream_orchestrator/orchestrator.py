@@ -289,6 +289,7 @@ class StreamOrchestrator:
         if limiter:
             key = self._stream_rate_key(state.session.session_state)
             if not limiter.allow(key, amount=chunk_bytes):
+                self._hooks.on_rate_limit_block("stream", key)
                 LOGGER.warning(
                     "Stream rate limit exceeded (key=%s session_id=%s)",
                     key,
@@ -329,16 +330,21 @@ class StreamOrchestrator:
         if is_final:
             if pending >= limit:
                 cancelled, orphaned = decode_stream.drop_pending_partials()
-                if cancelled or orphaned:
+                dropped = cancelled + orphaned
+                if dropped:
+                    self._hooks.on_partial_drop(dropped)
                     LOGGER.warning(
                         "Dropped %d pending partial decodes for final decode (session_id=%s)",
-                        cancelled + orphaned,
+                        dropped,
                         current_session_id,
                     )
             return True
         if pending < limit:
             return True
-        decode_stream.drop_pending_partials(1)
+        cancelled, orphaned = decode_stream.drop_pending_partials(1)
+        dropped = cancelled + orphaned
+        if dropped:
+            self._hooks.on_partial_drop(dropped)
         if decode_stream.pending_count() >= limit:
             LOGGER.warning(
                 "Pending decode limit reached; dropping partial decode "
@@ -371,6 +377,7 @@ class StreamOrchestrator:
 
     def _update_buffer_total(self, delta: int) -> None:
         self._buffer_manager.update_total(delta)
+        self._hooks.on_buffer_total_bytes(self._buffer_manager.total_bytes())
 
     def _apply_global_buffer_limit(self, state: _StreamState, incoming_len: int) -> int:
         return self._buffer_manager.apply_global_limit(state, incoming_len)
@@ -581,7 +588,14 @@ class StreamOrchestrator:
         context: grpc.ServicerContext,
     ) -> bool:
         flow = self._flow()
-        return step_streaming_buffer(flow, state, chunk, context)
+        ok = step_streaming_buffer(flow, state, chunk, context)
+        session_state = state.session.session_state
+        if session_state is not None:
+            self._hooks.on_stream_buffer_bytes(
+                session_state.session_id, len(state.buffer.buffer)
+            )
+        self._hooks.on_buffer_total_bytes(self._buffer_manager.total_bytes())
+        return ok
 
     def _step_streaming_emit(
         self,
@@ -683,7 +697,12 @@ class StreamOrchestrator:
         if state.buffer.buffer:
             self._update_buffer_total(-len(state.buffer.buffer))
             state.buffer.buffer = bytearray()
+            if state.session.session_state:
+                self._hooks.on_stream_buffer_bytes(
+                    state.session.session_state.session_id, 0
+                )
         if state.session.session_state:
+            self._hooks.on_stream_end(state.session.session_state.session_id)
             duration = time.monotonic() - state.session.session_start
             LOGGER.info(
                 "Streaming finished for session_id=%s reason=%s vad_count=%d duration=%.2fs",

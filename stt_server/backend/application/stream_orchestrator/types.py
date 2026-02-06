@@ -30,6 +30,26 @@ def _zero() -> int:
     return 0
 
 
+def _noop_int(_: int) -> None:
+    """Default no-op hook for int arg."""
+    return None
+
+
+def _noop_str_int(_: str, __: int) -> None:
+    """Default no-op hook for (str, int) args."""
+    return None
+
+
+def _noop_str(_: str) -> None:
+    """Default no-op hook for string arg."""
+    return None
+
+
+def _noop_two_str(_: str, __: str) -> None:
+    """Default no-op hook for (str, str) args."""
+    return None
+
+
 ScheduleDecodeFn: TypeAlias = Callable[..., bool]
 EmitWithActivityFn: TypeAlias = Callable[..., Iterator[Any]]
 
@@ -135,6 +155,11 @@ class StreamOrchestratorHooks:
     on_vad_trigger: Callable[[], None] = _noop
     on_vad_utterance_start: Callable[[], None] = _noop
     active_vad_utterances: Callable[[], int] = _zero
+    on_buffer_total_bytes: Callable[[int], None] = _noop_int
+    on_stream_buffer_bytes: Callable[[str, int], None] = _noop_str_int
+    on_stream_end: Callable[[str], None] = _noop_str
+    on_partial_drop: Callable[[int], None] = _noop_int
+    on_rate_limit_block: Callable[[str, str], None] = _noop_two_str
     decode_hooks: DecodeSchedulerHooks = field(default_factory=DecodeSchedulerHooks)
 
 
@@ -319,6 +344,11 @@ class _AudioBufferManager:
             return
         with self._lock:
             self._total_bytes = max(0, self._total_bytes + delta)
+
+    def total_bytes(self) -> int:
+        """Return the global buffered audio byte total."""
+        with self._lock:
+            return int(self._total_bytes)
 
     def apply_global_limit(self, state: _StreamState, incoming_len: int) -> int:
         """Apply global buffer limits and return bytes allowed to keep."""

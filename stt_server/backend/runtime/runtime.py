@@ -101,6 +101,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             session_registry=self.session_registry,
             model_registry=self.model_registry,
             config=session_config,
+            metrics=self.metrics,
         )
         storage_config = self.config.storage
         stream_settings = StreamSettings(
@@ -176,6 +177,11 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             on_vad_trigger=self.metrics.record_vad_trigger,
             on_vad_utterance_start=self.metrics.increase_active_vad_utterances,
             active_vad_utterances=self.metrics.active_vad_utterances,
+            on_buffer_total_bytes=self.metrics.set_buffer_total,
+            on_stream_buffer_bytes=self.metrics.set_stream_buffer_bytes,
+            on_stream_end=self.metrics.clear_stream_buffer,
+            on_partial_drop=self.metrics.record_partial_drop,
+            on_rate_limit_block=self.metrics.record_rate_limit_block,
             decode_hooks=decode_hooks,
         )
         self.stream_orchestrator = StreamOrchestrator(
