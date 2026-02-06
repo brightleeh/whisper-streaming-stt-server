@@ -85,6 +85,7 @@ python -m stt_server.main \
    - `--attr key=value` (repeatable) attaches arbitrary attributes, and
      `--require-token` asks the server to issue/validate per-session tokens.
    - Use `--tls` for system-trusted certs, or `--tls-ca-file /path/to/cert.pem` for self-signed.
+   - Use `--signed-token-secret` to auto-generate CreateSession signed-token metadata when the server requires it.
 
 4. To stream live audio from a macOS microphone (requires microphone permission):
 
@@ -95,6 +96,7 @@ python -m stt_server.main \
    - Defaults to `--vad-mode continue`; use `auto` to end sessions once speech stops.
    - Per-session overrides: `--vad-silence` (seconds) and `--vad-threshold` (VAD probability) mirror the server flags.
    - Same `--language`, `--task`, `--decode-profile`, `--require-token`, and attributes semantics apply.
+   - Same `--signed-token-secret` support for CreateSession signed-token metadata.
    - Optional flags: `--device` (CoreAudio name/index), `--sample-rate`, `--chunk-ms`.
    - TLS: add `--tls` or `--tls-ca-file /path/to/cert.pem`.
 
@@ -106,6 +108,7 @@ python -m stt_server.main \
 
    - Defaults to the `accurate` profile; override with `--decode-profile realtime`.
    - Accepts the same `--language`, `--task`, attributes, token, and `--vad-*` flags as the realtime clients.
+   - Same `--signed-token-secret` support for CreateSession signed-token metadata.
    - Batch ignores `chunk_ms`/`realtime` fields in the config; it always sends a single chunk.
    - TLS: add `--tls` or `--tls-ca-file /path/to/cert.pem`.
 
@@ -120,6 +123,8 @@ Sample client configs live in:
 
 - `stt_client/config/file.yaml`: file + batch client defaults (audio path, session options).
 - `stt_client/config/mic.yaml`: mic client defaults (device, sample rate, session options).
+
+Client configs also accept `signed_token_secret` for CreateSession signed-token metadata.
 
 Copy/edit the server YAMLs (or point `--config` / `--model-config` at your own YAML) to change server behavior. Client YAMLs are loaded via `-c/--config`. Example server snippet (`config/server.yaml`):
 
@@ -191,6 +196,10 @@ metrics:
 
 auth:
   require_api_key: false # Require api_key attribute on CreateSession
+  create_session_auth_profile: "none" # none|api_key|signed_token
+  create_session_auth_secret: "" # HMAC secret for signed_token profile
+  create_session_auth_ttl_sec: 0.0 # Auth token TTL seconds (0 disables)
+  # signed_token expects gRPC metadata: authorization (Bearer <sig> or <ts>:<sig>) and x-stt-auth-ts
 
 storage:
   persist_audio: false
@@ -343,6 +352,9 @@ Suggested production defaults (tune per traffic profile):
 **Security/Visibility**
 
 - `metrics.expose_api_key_sessions`: whether `/metrics` includes `active_sessions_by_api` (may be sensitive).
+- `auth.create_session_auth_profile`: set to `signed_token` to require HMAC auth for CreateSession.
+  Clients send `authorization: Bearer <sig>` plus `x-stt-auth-ts`, or `authorization: Bearer <ts>:<sig>`.
+  The secret is `auth.create_session_auth_secret`, and `auth.create_session_auth_ttl_sec` bounds clock skew.
 
 **Storage**
 
@@ -379,6 +391,8 @@ Each client first calls `CreateSession`:
 
 - Open a gRPC channel and call `CreateSession` to resolve session settings.
 - Use bidirectional `StreamingRecognize` to send PCM chunks and receive partial/final transcripts.
+- When available, `STTResult.committed_text` + `STTResult.unstable_text` provide a stable/unstable split.
+  `committed_text` only grows; `unstable_text` may change between partials.
 - The server resolves the session, gates audio with VAD, schedules decodes, and optionally persists audio.
 - Session teardown handles cleanup and retention.
 
@@ -713,6 +727,7 @@ Errors are tagged in logs and gRPC error messages with `ERR####`. HTTP endpoints
 - `ERR1011` (RESOURCE_EXHAUSTED): session limit exceeded
 - `ERR1012` (RESOURCE_EXHAUSTED): CreateSession rate limited
 - `ERR1013` (UNAVAILABLE): server shutting down
+- `ERR1014` (UNAUTHENTICATED): CreateSession authentication failed
 
 #### `ERR2xxx`: decode pipeline/runtime failures
 
