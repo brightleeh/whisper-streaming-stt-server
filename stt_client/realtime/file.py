@@ -359,9 +359,20 @@ def run(
             if progress_state["dirty"]:
                 print()
                 progress_state["dirty"] = False
-            if r.is_final:
+            server_committed = (getattr(r, "committed_text", "") or "").strip()
+            server_unstable = (getattr(r, "unstable_text", "") or "").strip()
+            if server_committed or server_unstable:
+                display_text = f"{server_committed} {server_unstable}".strip()
+                if server_committed:
+                    committed_text = server_committed
+                elif r.is_final:
+                    committed_text = display_text
+            elif r.is_final:
                 committed_text = merge_transcript(committed_text, r.text)
                 display_text = committed_text
+            else:
+                display_text = merge_transcript(committed_text, r.text)
+            if r.is_final:
                 print(
                     format_output(
                         "FINAL",
@@ -376,7 +387,6 @@ def run(
                     )
                 )
             else:
-                display_text = merge_transcript(committed_text, r.text)
                 print(
                     format_output(
                         "PARTIAL",

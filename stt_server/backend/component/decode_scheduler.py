@@ -37,6 +37,43 @@ def _noop_count(_: int) -> None:
     return None
 
 
+def _merge_transcript(prefix: str, next_text: str) -> str:
+    prefix = (prefix or "").strip()
+    next_text = (next_text or "").strip()
+    if not prefix:
+        return next_text
+    if not next_text:
+        return prefix
+    if next_text.startswith(prefix):
+        return next_text
+    return f"{prefix} {next_text}"
+
+
+def _longest_common_prefix(left: str, right: str) -> int:
+    max_len = min(len(left), len(right))
+    idx = 0
+    while idx < max_len and left[idx] == right[idx]:
+        idx += 1
+    return idx
+
+
+def _commit_from_partials(committed: str, previous: str, current: str) -> str:
+    if not previous or not current:
+        return committed
+    lcp_len = _longest_common_prefix(previous, current)
+    if lcp_len <= len(committed):
+        return committed
+    candidate = current[:lcp_len]
+    boundary = max(
+        candidate.rfind(" "),
+        candidate.rfind("\t"),
+        candidate.rfind("\n"),
+    )
+    if boundary <= len(committed):
+        return committed
+    return candidate[:boundary].strip()
+
+
 @dataclass(frozen=True)
 class DecodeSchedulerHooks:
     """Callback hooks invoked by the decode scheduler."""
@@ -218,6 +255,32 @@ class DecodeStream:
         self._buffer_wait_total = 0.0
         self._response_emit_total = 0.0
         self._decode_count = 0
+        self._committed_text = ""
+        self._last_partial_text = ""
+
+    def _update_commit_state(
+        self, decoded_text: str, is_final: bool
+    ) -> tuple[str, str]:
+        decoded_text = (decoded_text or "").strip()
+        if not decoded_text:
+            if is_final:
+                self._last_partial_text = self._committed_text
+            return self._committed_text, ""
+        merged = _merge_transcript(self._committed_text, decoded_text)
+        if is_final:
+            self._committed_text = merged
+            self._last_partial_text = merged
+            return self._committed_text, ""
+        next_committed = _commit_from_partials(
+            self._committed_text, self._last_partial_text, merged
+        )
+        if len(next_committed) > len(self._committed_text):
+            self._committed_text = next_committed
+        self._last_partial_text = merged
+        if not self._committed_text:
+            return self._committed_text, merged
+        unstable = merged[len(self._committed_text) :].lstrip()
+        return self._committed_text, unstable
 
     def set_session_id(self, session_id: Optional[str]) -> None:
         """Associate this decode stream with a session identifier."""
@@ -553,6 +616,15 @@ class DecodeStream:
                 result.language_code
             )
             emit_start = time.perf_counter()
+            joined_segments = [
+                seg.text.strip()
+                for seg in result.segments
+                if seg.text and seg.text.strip()
+            ]
+            decoded_text = " ".join(joined_segments)
+            committed_text, unstable_text = self._update_commit_state(
+                decoded_text, is_final
+            )
             for seg in result.segments:
                 text = seg.text or ""
                 if self.scheduler.log_transcripts:
@@ -584,7 +656,7 @@ class DecodeStream:
                         else -1.0
                     ),
                 )
-                yield stt_pb2.STTResult(
+                msg = stt_pb2.STTResult(
                     text=seg.text,
                     is_final=is_final,
                     start_sec=seg.start + offset_sec,
@@ -597,6 +669,11 @@ class DecodeStream:
                         else 0.0
                     ),
                 )
+                if hasattr(msg, "committed_text"):
+                    msg.committed_text = committed_text
+                if hasattr(msg, "unstable_text"):
+                    msg.unstable_text = unstable_text
+                yield msg
             response_emit_sec = max(0.0, time.perf_counter() - emit_start)
             if count_vad:
                 self.scheduler._on_vad_utterance_end()

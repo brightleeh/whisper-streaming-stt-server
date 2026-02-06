@@ -108,4 +108,6 @@ message STTResult {
   string language_code = 5; // Detected BCP-47 language (e.g., "en")
   string language = 6;      // Human-readable language name (optional)
   double probability = 7;   // Confidence score for language detection (0.0–1.0)
+  string committed_text = 10; // Stable prefix for UI display
+  string unstable_text = 11;  // Unstable suffix for UI display
 }

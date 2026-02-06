@@ -323,9 +323,20 @@ def run(
             recognized_at = time.perf_counter() - stream_start
             language = (resp.language or resp.language_code or "unknown").strip()
             score = resp.probability
-            if resp.is_final:
+            server_committed = (getattr(resp, "committed_text", "") or "").strip()
+            server_unstable = (getattr(resp, "unstable_text", "") or "").strip()
+            if server_committed or server_unstable:
+                display_text = f"{server_committed} {server_unstable}".strip()
+                if server_committed:
+                    committed_text = server_committed
+                elif resp.is_final:
+                    committed_text = display_text
+            elif resp.is_final:
                 committed_text = merge_transcript(committed_text, resp.text)
                 display_text = committed_text
+            else:
+                display_text = merge_transcript(committed_text, resp.text)
+            if resp.is_final:
                 print(
                     format_output(
                         "✅",
@@ -338,7 +349,6 @@ def run(
                     )
                 )
             else:
-                display_text = merge_transcript(committed_text, resp.text)
                 print(
                     format_output(
                         "⏳",

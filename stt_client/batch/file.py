@@ -258,12 +258,22 @@ def _print_stream_results(
         language_name = (resp.language or resp.language_code or "unknown").strip()
         language_code = (resp.language_code or "").strip()
         score = resp.probability
-        if resp.is_final:
+        server_committed = (getattr(resp, "committed_text", "") or "").strip()
+        server_unstable = (getattr(resp, "unstable_text", "") or "").strip()
+        if server_committed or server_unstable:
+            display_text = f"{server_committed} {server_unstable}".strip()
+            if server_committed:
+                committed_text = server_committed
+            elif resp.is_final:
+                committed_text = display_text
+        elif resp.is_final:
             committed_text = merge_transcript(committed_text, resp.text)
             display_text = committed_text
-            kind = "FINAL"
         else:
             display_text = merge_transcript(committed_text, resp.text)
+        if resp.is_final:
+            kind = "FINAL"
+        else:
             kind = "PARTIAL"
         display = ResultDisplay(
             session_id=session_id,
