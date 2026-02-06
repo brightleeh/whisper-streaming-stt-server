@@ -11,6 +11,9 @@ from stt_server.config.default import (
     DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS,
     DEFAULT_BUFFER_OVERLAP_SEC,
     DEFAULT_COMPUTE_TYPE,
+    DEFAULT_CREATE_SESSION_AUTH_PROFILE,
+    DEFAULT_CREATE_SESSION_AUTH_SECRET,
+    DEFAULT_CREATE_SESSION_AUTH_TTL_SEC,
     DEFAULT_CREATE_SESSION_BURST,
     DEFAULT_CREATE_SESSION_RPS,
     DEFAULT_DECODE_BATCH_WINDOW_MS,
@@ -164,6 +167,9 @@ class ServerConfig:
     tls_key_file: Optional[str] = DEFAULT_TLS_KEY_FILE
     tls_required: bool = DEFAULT_TLS_REQUIRED
     require_api_key: bool = DEFAULT_REQUIRE_API_KEY
+    create_session_auth_profile: str = DEFAULT_CREATE_SESSION_AUTH_PROFILE
+    create_session_auth_secret: str = DEFAULT_CREATE_SESSION_AUTH_SECRET
+    create_session_auth_ttl_sec: float = DEFAULT_CREATE_SESSION_AUTH_TTL_SEC
     health_window_sec: float = DEFAULT_HEALTH_WINDOW_SEC
     health_min_events: int = DEFAULT_HEALTH_MIN_EVENTS
     health_max_timeout_ratio: float = DEFAULT_HEALTH_MAX_TIMEOUT_RATIO

@@ -26,6 +26,7 @@ class ErrorCode(str, Enum):
     SESSION_LIMIT_EXCEEDED = "ERR1011"
     CREATE_SESSION_RATE_LIMITED = "ERR1012"
     SERVER_SHUTTING_DOWN = "ERR1013"
+    CREATE_SESSION_AUTH_INVALID = "ERR1014"
 
     # decode (ERR200x)
     DECODE_TIMEOUT = "ERR2001"
@@ -137,6 +138,12 @@ ERROR_SPECS: Final[dict[ErrorCode, ErrorSpec]] = {
         grpc.StatusCode.UNAVAILABLE,
         503,
         "server shutting down",
+    ),
+    ErrorCode.CREATE_SESSION_AUTH_INVALID: ErrorSpec(
+        ErrorCode.CREATE_SESSION_AUTH_INVALID,
+        grpc.StatusCode.UNAUTHENTICATED,
+        401,
+        "CreateSession authentication failed",
     ),
     ErrorCode.DECODE_TIMEOUT: ErrorSpec(
         ErrorCode.DECODE_TIMEOUT,

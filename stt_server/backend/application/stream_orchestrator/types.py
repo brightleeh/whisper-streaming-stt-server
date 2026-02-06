@@ -168,7 +168,7 @@ class FlowSessionOps:
         [Optional["SessionState"], Any, Any], "SessionState"
     ]
     validate_token: Callable[[Optional["SessionState"], Any, Any], None]
-    create_vad_state: Callable[["SessionState"], "VADGate"]
+    create_vad_state: Callable[["SessionState", Any], "VADGate"]
     step_init: Callable[["_StreamState"], None]
 
 

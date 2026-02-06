@@ -68,6 +68,9 @@ def serve(config: ServerConfig) -> None:
         model_load_profiles=config.model_load_profiles,
         default_model_load_profile=config.default_model_load_profile,
         require_api_key=config.require_api_key,
+        create_session_auth_profile=config.create_session_auth_profile,
+        create_session_auth_secret=config.create_session_auth_secret,
+        create_session_auth_ttl_sec=config.create_session_auth_ttl_sec,
     )
     vad_pool_size = config.vad_model_pool_size
     if vad_pool_size <= 0:

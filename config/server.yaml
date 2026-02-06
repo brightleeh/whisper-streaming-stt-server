@@ -67,6 +67,9 @@ metrics:
 
 auth:
   require_api_key: false # Require api_key attribute on CreateSession
+  create_session_auth_profile: "none" # none|api_key|signed_token
+  create_session_auth_secret: "" # HMAC secret for signed_token profile
+  create_session_auth_ttl_sec: 0.0 # Auth token TTL seconds (0 disables)
 
 storage:
   persist_audio: false # Enable server-side audio capture

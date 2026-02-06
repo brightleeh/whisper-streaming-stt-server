@@ -20,6 +20,9 @@ class ModelRuntimeConfig:
     decode_profiles: Optional[Dict[str, Dict[str, Any]]] = None
     default_decode_profile: str = "realtime"
     require_api_key: bool = False
+    create_session_auth_profile: str = "none"
+    create_session_auth_secret: str = ""
+    create_session_auth_ttl_sec: float = 0.0
     model_load_profiles: Optional[Dict[str, Dict[str, Any]]] = None
     default_model_load_profile: str = "default"
 

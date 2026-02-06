@@ -301,18 +301,18 @@ def step_streaming(
             state.session.session_state.session_id
         )
         set_session_id(state.session.session_state.session_id)
+
+    flow.session.validate_token(state.session.session_state, chunk, context)
+
     if state.session.session_state and not state.session.session_logged:
         state.session.session_logged = log_session_start(
             state.session.session_state, vad_auto_end
         )
-    if state.vad.vad_state is None:
-        state.vad.vad_state = flow.session.create_vad_state(state.session.session_state)
-
-    flow.session.validate_token(state.session.session_state, chunk, context)
-
-    if state.vad.vad_state is None:
-        # Should not happen, but guard against update before initialization.
-        state.vad.vad_state = flow.session.create_vad_state(state.session.session_state)
+    if state.vad.vad_state is None and state.session.session_state:
+        # Initialize VAD state before processing audio.
+        state.vad.vad_state = flow.session.create_vad_state(
+            state.session.session_state, context
+        )
 
     state.session.sample_rate = (
         chunk.sample_rate

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
@@ -26,6 +29,26 @@ from stt_server.config.default.model import DEFAULT_MODEL_ID
 from stt_server.config.languages import SupportedLanguages
 from stt_server.errors import ErrorCode, abort_with_error, format_error
 from stt_server.utils.logger import LOGGER, clear_session_id, set_session_id
+
+_AUTH_PROFILE_NONE = "none"
+_AUTH_PROFILE_API_KEY = "api_key"
+_AUTH_PROFILE_SIGNED_TOKEN = "signed_token"
+_AUTH_PROFILE_ALIASES = {
+    "none": _AUTH_PROFILE_NONE,
+    "off": _AUTH_PROFILE_NONE,
+    "false": _AUTH_PROFILE_NONE,
+    "0": _AUTH_PROFILE_NONE,
+    "api_key": _AUTH_PROFILE_API_KEY,
+    "api-key": _AUTH_PROFILE_API_KEY,
+    "apikey": _AUTH_PROFILE_API_KEY,
+    "signed_token": _AUTH_PROFILE_SIGNED_TOKEN,
+    "signed": _AUTH_PROFILE_SIGNED_TOKEN,
+    "signature": _AUTH_PROFILE_SIGNED_TOKEN,
+    "hmac": _AUTH_PROFILE_SIGNED_TOKEN,
+}
+_AUTH_SIG_KEYS = ("auth_sig", "auth_signature", "signature")
+_AUTH_TS_KEYS = ("auth_ts", "auth_timestamp", "timestamp")
+_AUTH_ATTRIBUTE_KEYS = set(_AUTH_SIG_KEYS + _AUTH_TS_KEYS)
 
 
 @dataclass
@@ -223,6 +246,9 @@ class CreateSessionConfig:
     default_vad_silence: float
     default_vad_threshold: float
     require_api_key: bool = False
+    create_session_auth_profile: str = _AUTH_PROFILE_NONE
+    create_session_auth_secret: str = ""
+    create_session_auth_ttl_sec: float = 0.0
     create_session_rps: float = 0.0
     create_session_burst: float = 0.0
     max_sessions_per_ip: int = 0
@@ -257,6 +283,75 @@ class CreateSessionHandler:
                 config.create_session_burst or None,
             )
 
+    def _normalize_auth_profile(self) -> str:
+        raw = (self._config.create_session_auth_profile or "").strip().lower()
+        return _AUTH_PROFILE_ALIASES.get(raw, raw)
+
+    @staticmethod
+    def _get_attribute(attributes: Dict[str, str], keys: tuple[str, ...]) -> str:
+        for key in keys:
+            value = attributes.get(key)
+            if value:
+                return str(value).strip()
+        return ""
+
+    def _sanitize_attributes(self, attributes: Dict[str, str]) -> Dict[str, str]:
+        if not attributes:
+            return {}
+        sanitized = dict(attributes)
+        for key in _AUTH_ATTRIBUTE_KEYS:
+            sanitized.pop(key, None)
+        return sanitized
+
+    def _validate_signed_token(
+        self,
+        session_id: str,
+        attributes: Dict[str, str],
+        context: grpc.ServicerContext,
+    ) -> None:
+        secret = (self._config.create_session_auth_secret or "").strip()
+        if not secret:
+            LOGGER.error("CreateSession auth profile requires secret")
+            abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
+        ts_raw = self._get_attribute(attributes, _AUTH_TS_KEYS)
+        sig_raw = self._get_attribute(attributes, _AUTH_SIG_KEYS)
+        if not ts_raw or not sig_raw:
+            LOGGER.warning("CreateSession auth token missing timestamp/signature")
+            abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
+        try:
+            timestamp = int(float(ts_raw))
+        except (TypeError, ValueError):
+            LOGGER.warning("CreateSession auth timestamp invalid: %s", ts_raw)
+            abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
+        ttl = float(self._config.create_session_auth_ttl_sec or 0.0)
+        if ttl > 0:
+            now = time.time()
+            if abs(now - timestamp) > ttl:
+                LOGGER.warning("CreateSession auth token expired (ts=%s)", timestamp)
+                abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
+        payload = f"{session_id}:{timestamp}".encode("utf-8")
+        expected = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig_raw):
+            LOGGER.warning("CreateSession auth signature mismatch")
+            abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
+
+    def _enforce_create_session_auth(
+        self,
+        profile: str,
+        session_id: str,
+        attributes: Dict[str, str],
+        context: grpc.ServicerContext,
+    ) -> None:
+        if profile in ("", _AUTH_PROFILE_NONE):
+            return
+        if profile == _AUTH_PROFILE_API_KEY:
+            return
+        if profile == _AUTH_PROFILE_SIGNED_TOKEN:
+            self._validate_signed_token(session_id, attributes, context)
+            return
+        LOGGER.error("Unknown CreateSession auth profile: %s", profile)
+        abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
+
     def handle(
         self, request: stt_pb2.SessionRequest, context: grpc.ServicerContext
     ) -> stt_pb2.SessionResponse:
@@ -271,6 +366,7 @@ class CreateSessionHandler:
         session_id = request.session_id
         set_session_id(session_id)
         client_ip = _extract_client_ip(context)
+        attributes = dict(request.attributes)
         vad_mode = (
             request.vad_mode
             if request.vad_mode in (stt_pb2.VAD_CONTINUE, stt_pb2.VAD_AUTO_END)
@@ -278,12 +374,10 @@ class CreateSessionHandler:
         )
         token_required = bool(request.require_token)
         token = secrets.token_hex(16) if token_required else ""
-        api_key = (
-            request.attributes.get("api_key") or request.attributes.get("api-key") or ""
-        ).strip()
+        api_key = (attributes.get("api_key") or attributes.get("api-key") or "").strip()
         api_key_required = (
-            request.attributes.get("api_key_required")
-            or request.attributes.get("api-key-required")
+            attributes.get("api_key_required")
+            or attributes.get("api-key-required")
             or ""
         )
         api_key_required = str(api_key_required).lower() in (
@@ -292,17 +386,21 @@ class CreateSessionHandler:
             "yes",
             "on",
         )
+        auth_profile = self._normalize_auth_profile()
+        api_key_required = api_key_required or auth_profile == _AUTH_PROFILE_API_KEY
         if (self._config.require_api_key or api_key_required) and not api_key:
             LOGGER.error(format_error(ErrorCode.API_KEY_MISSING))
             abort_with_error(context, ErrorCode.API_KEY_MISSING)
+
+        self._enforce_create_session_auth(auth_profile, session_id, attributes, context)
 
         self._enforce_session_limits(session_id, api_key, client_ip, context)
 
         requested_profile = profile_name_from_enum(request.decode_profile)
         if not requested_profile:
-            requested_profile = request.attributes.get(
-                "decode_profiles"
-            ) or request.attributes.get("decode_profile")
+            requested_profile = attributes.get("decode_profiles") or attributes.get(
+                "decode_profile"
+            )
         profile_name, profile_options = resolve_decode_profile(
             requested_profile,
             self._config.decode_profiles,
@@ -317,8 +415,8 @@ class CreateSessionHandler:
         session_task = resolve_task(request.task, self._config.default_task)
 
         model_id = (
-            request.attributes.get("model_id")
-            or request.attributes.get("model")
+            attributes.get("model_id")
+            or attributes.get("model")
             or self._model_registry.get_next_model_id()
             or DEFAULT_MODEL_ID
         )
@@ -342,13 +440,14 @@ class CreateSessionHandler:
         else:
             vad_threshold = self._resolve_vad_threshold(request.vad_threshold, context)
         vad_reserved = False
-        if vad_threshold > 0:
+        if vad_threshold > 0 and not token_required:
             if not reserve_vad_slot():
                 LOGGER.error("VAD pool exhausted; rejecting session_id=%s", session_id)
                 abort_with_error(context, ErrorCode.VAD_POOL_EXHAUSTED)
             vad_reserved = True
+        sanitized_attributes = self._sanitize_attributes(attributes)
         session_info = SessionInfo(
-            attributes=dict(request.attributes),
+            attributes=sanitized_attributes,
             vad_mode=vad_mode,
             vad_silence=vad_silence,
             vad_threshold=vad_threshold,
@@ -372,7 +471,7 @@ class CreateSessionHandler:
                 LOGGER.error(format_error(ErrorCode.SESSION_ID_ALREADY_ACTIVE))
                 abort_with_error(context, ErrorCode.SESSION_ID_ALREADY_ACTIVE)
 
-            response_attributes = dict(request.attributes)
+            response_attributes = dict(sanitized_attributes)
             response_attributes["decode_profile"] = profile_name
             if language_code:
                 response_attributes["language_code"] = language_code
@@ -389,7 +488,7 @@ class CreateSessionHandler:
                 session_task,
                 vad_silence,
                 vad_threshold,
-                dict(request.attributes),
+                dict(sanitized_attributes),
                 model_id,
             )
 
