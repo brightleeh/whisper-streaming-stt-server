@@ -361,7 +361,18 @@ def step_streaming(
     state.activity.audio_received_sec += audio.chunk_duration_seconds(
         len(chunk.pcm16), state.session.sample_rate
     )
-    vad_update = state.vad.vad_state.update(chunk.pcm16, state.session.sample_rate)
+    vad_state = state.vad.vad_state
+    if vad_state is None:
+        LOGGER.error(
+            "VAD state missing for session_id=%s",
+            (
+                state.session.session_state.session_id
+                if state.session.session_state
+                else "unknown"
+            ),
+        )
+        abort_with_error(context, ErrorCode.STREAM_UNEXPECTED)
+    vad_update = vad_state.update(chunk.pcm16, state.session.sample_rate)
 
     for result in step_streaming_vad(flow, state, vad_update, context, vad_auto_end):
         yield result
