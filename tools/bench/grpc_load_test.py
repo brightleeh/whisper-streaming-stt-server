@@ -131,6 +131,22 @@ def parse_vad_mode(value: str) -> stt_pb2.VADMode.ValueType:
     return stt_pb2.VAD_CONTINUE
 
 
+def parse_attrs(values: Sequence[str]) -> Dict[str, str]:
+    """Parse repeatable key=value attribute flags."""
+    attrs: Dict[str, str] = {}
+    for raw in values:
+        if not raw:
+            continue
+        if "=" not in raw:
+            raise ValueError(f"Invalid --attr '{raw}', expected key=value")
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"Invalid --attr '{raw}', key is empty")
+        attrs[key] = value.strip()
+    return attrs
+
+
 def _extract_decode_metrics(
     metadata: Optional[Iterable[Tuple[str, str]]],
 ) -> Dict[str, float]:
@@ -512,6 +528,7 @@ class BenchConfig:
     task: str
     profile: str
     vad_mode: str
+    attributes: Dict[str, str]
     log_sessions: bool
     max_session_logs: int
     ramp_steps: int
@@ -565,6 +582,7 @@ def run_channel(
                         task=task_enum,
                         decode_profile=profile_enum,
                         vad_mode=vad_mode_enum,
+                        attributes=config.attributes,
                     ),
                     timeout=config.rpc_timeout_sec,
                     metadata=config.metadata,
@@ -775,6 +793,12 @@ def main() -> None:
     )
     parser.add_argument("--vad-mode", choices=("continue", "auto"), default="continue")
     parser.add_argument(
+        "--attr",
+        action="append",
+        default=[],
+        help="Session attributes key=value (repeatable)",
+    )
+    parser.add_argument(
         "--ramp-steps",
         type=int,
         default=5,
@@ -812,6 +836,10 @@ def main() -> None:
     if args.deadline_sec is not None:
         args.rpc_timeout_sec = args.deadline_sec
         args.stream_timeout_sec = args.deadline_sec
+    try:
+        attributes = parse_attrs(args.attr)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     test_started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     session_log_writer: Optional[SessionLogWriter] = None
@@ -843,6 +871,7 @@ def main() -> None:
         task=args.task,
         profile=args.decode_profile,
         vad_mode=args.vad_mode,
+        attributes=attributes,
         log_sessions=args.log_sessions,
         max_session_logs=max(args.max_session_logs, 0),
         ramp_steps=max(args.ramp_steps, 1),
