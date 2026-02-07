@@ -1,0 +1,17 @@
+server:
+  # Step 3: global pending cap 확인용 (decode_pending plateau 기대)
+  max_sessions: 200
+  create_session_rps: 0
+  create_session_burst: 0
+  max_sessions_per_ip: 0
+  max_sessions_per_api_key: 0
+  max_audio_bytes_per_sec: 0
+  max_audio_bytes_per_sec_burst: 0
+  max_buffer_sec: 2.0
+  max_total_buffer_bytes: 1048576
+  max_pending_decodes_per_stream: 2
+  max_pending_decodes_global: 16
+  partial_decode_interval_sec: 0.2
+  partial_decode_window_sec: 1.0
+  buffer_overlap_sec: 0.0
+  max_chunk_ms: 500
