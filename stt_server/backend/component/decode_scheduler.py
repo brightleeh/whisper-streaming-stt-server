@@ -57,6 +57,16 @@ def _longest_common_prefix(left: str, right: str) -> int:
     return idx
 
 
+_PUNCT_BOUNDARIES = ".,?!\u3001\u3002\uff0c\uff01\uff1f\u2026"
+
+
+def _punctuation_boundary(text: str) -> int:
+    boundary = -1
+    for ch in _PUNCT_BOUNDARIES:
+        boundary = max(boundary, text.rfind(ch))
+    return boundary
+
+
 def _commit_from_partials(committed: str, previous: str, current: str) -> str:
     if not previous or not current:
         return committed
@@ -64,14 +74,20 @@ def _commit_from_partials(committed: str, previous: str, current: str) -> str:
     if lcp_len <= len(committed):
         return committed
     candidate = current[:lcp_len]
-    boundary = max(
+    whitespace_boundary = max(
         candidate.rfind(" "),
         candidate.rfind("\t"),
         candidate.rfind("\n"),
     )
-    if boundary <= len(committed):
-        return committed
-    return candidate[:boundary].strip()
+    if whitespace_boundary > len(committed):
+        return candidate[:whitespace_boundary].strip()
+
+    punct_boundary = _punctuation_boundary(candidate)
+    if punct_boundary >= len(committed):
+        return candidate[: punct_boundary + 1].strip()
+
+    fallback = candidate.strip()
+    return fallback if len(fallback) > len(committed) else committed
 
 
 @dataclass(frozen=True)

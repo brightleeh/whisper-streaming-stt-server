@@ -273,6 +273,40 @@ def test_decode_stream_commit_state_progression():
     assert unstable == ""
 
 
+def test_decode_stream_commit_state_cjk_without_spaces():
+    """Committed text should advance even without whitespace boundaries."""
+    scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock())
+    stream = DecodeStream(scheduler)
+
+    first = "\uc548\ub155\ud558\uc138"  # 안녕하세
+    second = "\uc548\ub155\ud558\uc138\uc694"  # 안녕하세요
+
+    committed, unstable = stream._update_commit_state(first, False)
+    assert committed == ""
+    assert unstable == first
+
+    committed, unstable = stream._update_commit_state(second, False)
+    assert committed == first
+    assert unstable == "\uc694"  # 요
+
+
+def test_decode_stream_commit_state_punctuation_boundary():
+    """Committed text should respect punctuation boundaries when available."""
+    scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock())
+    stream = DecodeStream(scheduler)
+
+    first = "\u4f60\u597d\u4e16\u754c\u3002"  # 你好世界。
+    second = "\u4f60\u597d\u4e16\u754c\u3002\u4eca\u5929"  # 你好世界。今天
+
+    committed, unstable = stream._update_commit_state(first, False)
+    assert committed == ""
+    assert unstable == first
+
+    committed, unstable = stream._update_commit_state(second, False)
+    assert committed == first
+    assert unstable == "\u4eca\u5929"  # 今天
+
+
 def test_orphaned_decode_marks_scheduler_unhealthy():
     """Orphaned decodes should count as health errors."""
     model_registry = MagicMock()
