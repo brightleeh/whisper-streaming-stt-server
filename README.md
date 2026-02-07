@@ -496,6 +496,13 @@ The server also exposes an HTTP control plane (default `0.0.0.0:8000`) serving:
 - `GET /health`: returns `200` when the gRPC server is running, Whisper models are loaded, and worker pools are healthy; otherwise `500`.
 - `GET /system`: JSON process/system metrics (CPU, RAM, thread counts). Uses `psutil` when available; otherwise falls back to basic RSS info. Optional GPU metrics can be enabled with `STT_ENABLE_GPU_METRICS=1` when `pynvml` is installed.
 
+Backpressure health checklist (during load):
+
+- `system.process.rss_bytes`: should stabilize after warmup (no unbounded climb).
+- `metrics.decode_pending`: should plateau near the configured pending cap.
+- `metrics.buffer_bytes_total`: should plateau near `max_total_buffer_bytes` when buffers are pressured.
+- `metrics.partial_drop_count` / `metrics.rate_limit_blocks.*`: should increase when limits are actively shedding load.
+
 Security checks:
 
 - `tools/security_smoke_check.sh http://<host>:<port>` verifies `/metrics*`, `/system`, `/health` are protected (or `/health` is minimal when `STT_PUBLIC_HEALTH=minimal`).

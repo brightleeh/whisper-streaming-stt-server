@@ -65,3 +65,12 @@ def test_metrics_rate_limit_blocks_hash_keys():
     assert payload["rate_limit_blocks"]["http"] == 1
     hashed = metrics._hash_key("api:secret")
     assert payload["rate_limit_blocks_by_key"][f"stream_{hashed}"] == 2
+
+
+def test_metrics_decode_pending_tracks_latest_value():
+    """Test decode pending metric reflects latest count."""
+    metrics = Metrics()
+    metrics.set_decode_pending(3)
+    assert metrics.render()["decode_pending"] == 3
+    metrics.set_decode_pending(1)
+    assert metrics.render()["decode_pending"] == 1

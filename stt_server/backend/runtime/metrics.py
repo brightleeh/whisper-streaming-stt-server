@@ -24,6 +24,7 @@ class Metrics:
         self._decode_count = 0
         self._decode_total = 0.0
         self._decode_max = 0.0
+        self._decode_pending = 0
         self._decode_buffer_wait_count = 0
         self._decode_buffer_wait_total = 0.0
         self._decode_buffer_wait_max = 0.0
@@ -69,6 +70,11 @@ class Metrics:
         """Set the global buffered audio byte total."""
         with self._lock:
             self._buffer_bytes_total = max(0, int(total_bytes))
+
+    def set_decode_pending(self, pending: int) -> None:
+        """Set the current number of pending decode tasks."""
+        with self._lock:
+            self._decode_pending = max(0, int(pending))
 
     def set_stream_buffer_bytes(self, session_id: str, buffer_bytes: int) -> None:
         """Set per-stream buffer bytes (tracked by hashed session id)."""
@@ -188,6 +194,7 @@ class Metrics:
                 "decode_latency_total": self._decode_total,
                 "decode_latency_count": self._decode_count,
                 "decode_latency_max": self._decode_max,
+                "decode_pending": self._decode_pending,
                 "decode_buffer_wait_total": self._decode_buffer_wait_total,
                 "decode_buffer_wait_count": self._decode_buffer_wait_count,
                 "decode_buffer_wait_max": self._decode_buffer_wait_max,
@@ -244,6 +251,7 @@ class Metrics:
                 "active_sessions": self._active_sessions,
                 "decode_latency_avg": decode_avg,
                 "decode_latency_max": self._decode_max,
+                "decode_pending": float(self._decode_pending),
                 "decode_buffer_wait_avg": buffer_wait_avg,
                 "decode_buffer_wait_max": self._decode_buffer_wait_max,
                 "decode_queue_wait_avg": queue_wait_avg,

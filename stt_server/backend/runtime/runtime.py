@@ -172,6 +172,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             on_vad_utterance_end=self.metrics.decrease_active_vad_utterances,
             on_decode_cancelled=self.metrics.record_decode_cancelled,
             on_decode_orphaned=self.metrics.record_decode_orphaned,
+            on_decode_pending=self.metrics.set_decode_pending,
         )
         stream_hooks = StreamOrchestratorHooks(
             on_vad_trigger=self.metrics.record_vad_trigger,

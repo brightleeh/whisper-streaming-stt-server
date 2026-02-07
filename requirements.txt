@@ -16,3 +16,4 @@ silero-vad
 requests
 pytest
 psutil
+matplotlib

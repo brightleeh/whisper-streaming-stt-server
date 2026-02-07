@@ -81,6 +81,13 @@ def _render(metrics: Optional[Dict[str, Any]], system: Optional[Dict[str, Any]])
                 active_vad=metrics.get("active_vad_utterances", 0),
             )
         )
+        lines.append(
+            "Buffer: total={total} pending_decodes={pending} partial_drops={drops}".format(
+                total=_format_bytes(metrics.get("buffer_bytes_total")),
+                pending=metrics.get("decode_pending", 0),
+                drops=metrics.get("partial_drop_count", 0),
+            )
+        )
         error_counts = metrics.get("error_counts", {})
         if error_counts:
             errors = ", ".join(

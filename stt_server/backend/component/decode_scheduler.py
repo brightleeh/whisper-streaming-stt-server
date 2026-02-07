@@ -83,6 +83,7 @@ class DecodeSchedulerHooks:
     on_vad_utterance_end: Callable[[], None] = _noop
     on_decode_cancelled: Callable[[int], None] = _noop_count
     on_decode_orphaned: Callable[[int], None] = _noop_count
+    on_decode_pending: Callable[[int], None] = _noop_count
 
 
 class DecodeScheduler:
@@ -179,11 +180,15 @@ class DecodeScheduler:
     def _increment_pending(self) -> None:
         with self._pending_lock:
             self._pending_tasks += 1
+            pending = self._pending_tasks
+        self._hooks.on_decode_pending(pending)
 
     def _decrement_pending(self) -> None:
         with self._pending_lock:
             if self._pending_tasks > 0:
                 self._pending_tasks -= 1
+            pending = self._pending_tasks
+        self._hooks.on_decode_pending(pending)
 
     def _on_decode_error(self, status_code: grpc.StatusCode) -> None:
         self._hooks.on_error(status_code)

@@ -46,6 +46,7 @@ def audio_chunks(
     sample_rate: int,
     chunk_ms: int,
     realtime: bool,
+    speed: float,
     session_id: str,
     session_token: str,
     timing: "StreamTiming | None" = None,
@@ -70,7 +71,11 @@ def audio_chunks(
             session_token=session_token,
         )
         if realtime:
-            time.sleep(sleep_time)
+            pace = sleep_time
+            if speed > 0:
+                pace = sleep_time / speed
+            if pace > 0:
+                time.sleep(pace)
 
     if timing is not None:
         now = time.perf_counter()
@@ -502,6 +507,7 @@ class BenchConfig:
     audio_path: str
     chunk_ms: int
     realtime: bool
+    speed: float
     require_token: bool
     task: str
     profile: str
@@ -592,6 +598,7 @@ def run_channel(
                     sample_rate,
                     config.chunk_ms,
                     config.realtime,
+                    config.speed,
                     session_id,
                     token,
                     timing=timing,
@@ -738,6 +745,12 @@ def main() -> None:
     )
     parser.add_argument("--chunk-ms", type=int, default=100)
     parser.add_argument("--realtime", action="store_true")
+    parser.add_argument(
+        "--speed",
+        type=float,
+        default=1.0,
+        help="Realtime speed multiplier (2.0 = 2x faster). Used with --realtime.",
+    )
     parser.add_argument("--tls", action="store_true", help="Enable TLS")
     parser.add_argument("--ca-cert", default=None, help="CA cert for TLS")
     parser.add_argument(
@@ -825,6 +838,7 @@ def main() -> None:
         audio_path=args.audio,
         chunk_ms=max(args.chunk_ms, 1),
         realtime=args.realtime,
+        speed=max(args.speed, 0.0),
         require_token=args.require_token,
         task=args.task,
         profile=args.decode_profile,
