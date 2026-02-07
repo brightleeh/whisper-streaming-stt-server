@@ -364,6 +364,7 @@ class CreateSessionHandler:
             abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
         ts_raw = self._get_metadata_value(metadata, _AUTH_METADATA_TS_KEYS)
         sig_raw = self._extract_signature(metadata)
+        used_legacy_auth_format = False
         if (not ts_raw or not sig_raw) and metadata.get("authorization"):
             raw_auth = metadata.get("authorization", "").strip()
             parts = raw_auth.split(None, 1)
@@ -380,7 +381,13 @@ class CreateSessionHandler:
                     ts_raw = maybe_ts.strip()
                 if not sig_raw or sig_raw == raw_auth or ":" in sig_raw:
                     sig_raw = maybe_sig.strip()
+                used_legacy_auth_format = True
 
+        if used_legacy_auth_format:
+            LOGGER.warning(
+                "CreateSession auth used legacy authorization format; "
+                "prefer 'authorization: Bearer <signature>' + 'x-stt-auth-ts'."
+            )
         if not ts_raw or not sig_raw:
             LOGGER.warning("CreateSession auth token missing timestamp/signature")
             abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)

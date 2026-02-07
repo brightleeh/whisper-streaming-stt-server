@@ -41,6 +41,10 @@ for result in client.streaming_recognize(audio_iter(), metadata=metadata):
     print(result.committed_text, result.unstable_text)
 ```
 
+Signed-token auth uses `authorization: Bearer <signature>` plus
+`x-stt-auth-ts: <epoch seconds>`. Legacy `authorization: Bearer <ts>:<sig>`
+is accepted for compatibility but should be avoided.
+
 Set `attributes.emit_final_on_vad=true` to emit **final** results on every VAD trigger
 without ending the stream (useful for multi-utterance sessions).
 
