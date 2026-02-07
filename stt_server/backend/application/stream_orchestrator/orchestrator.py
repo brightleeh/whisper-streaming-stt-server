@@ -380,7 +380,9 @@ class StreamOrchestrator:
         self._hooks.on_buffer_total_bytes(self._buffer_manager.total_bytes())
 
     def _apply_global_buffer_limit(self, state: _StreamState, incoming_len: int) -> int:
-        return self._buffer_manager.apply_global_limit(state, incoming_len)
+        allowed = self._buffer_manager.apply_global_limit(state, incoming_len)
+        self._hooks.on_buffer_total_bytes(self._buffer_manager.total_bytes())
+        return allowed
 
     def _clear_buffer(self, state: _StreamState) -> None:
         self._buffer_manager.clear(state)
