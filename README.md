@@ -159,6 +159,7 @@ server:
   max_chunk_ms: 2000 # Max single chunk duration in milliseconds (null disables)
   partial_decode_interval_sec: 1.5 # Partial decode interval during speech (null disables)
   partial_decode_window_sec: 10.0 # Window size for partial decode audio (seconds)
+  emit_final_on_vad: false # Emit final result when VAD triggers without ending stream
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
   max_pending_decodes_global: 512 # Global max queued decodes before backpressure/drop
   max_total_buffer_bytes: 268435456 # Global buffered audio cap (bytes)
@@ -382,6 +383,7 @@ Each client first calls `CreateSession`:
 
 - Pass an application-defined `session_id` plus optional `--attr KEY=VALUE` pairs (custom session attributes; `--meta` remains a CLI alias).
 - Choose **VAD Continue** (default) or **VAD Auto-End** via `--vad-mode`; auto-end ends the session on silence, continue keeps it open for multi-utterance workloads.
+- Use `server.emit_final_on_vad: true` (or `--attr emit_final_on_vad=true`) to emit **final** results on each VAD trigger while keeping the stream open.
 - Set `--attr api_key_required=true` to require API keys, and pass `--attr api_key=...` to supply one.
 - Use `--require-token` to have the server issue a per-session token that must be attached to every audio chunk for light-weight validation.
 - Sessions are cleaned up automatically when the streaming RPC ends.

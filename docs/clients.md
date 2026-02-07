@@ -24,7 +24,7 @@ request = stt_pb2.SessionRequest(
     session_id=session_id,
     vad_mode=stt_pb2.VAD_CONTINUE,
     decode_profile=stt_pb2.DECODE_PROFILE_REALTIME,
-    attributes={"partial": "true"},
+    attributes={"partial": "true", "emit_final_on_vad": "true"},
 )
 client.create_session(request, metadata=metadata, retry=RetryConfig(attempts=3))
 
@@ -40,6 +40,9 @@ def audio_iter():
 for result in client.streaming_recognize(audio_iter(), metadata=metadata):
     print(result.committed_text, result.unstable_text)
 ```
+
+Set `attributes.emit_final_on_vad=true` to emit **final** results on every VAD trigger
+without ending the stream (useful for multi-utterance sessions).
 
 For offline audio sources, use `streaming_recognize_with_retry()` with a
 restartable iterator factory.

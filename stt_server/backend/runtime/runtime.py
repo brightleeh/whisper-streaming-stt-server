@@ -126,6 +126,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             max_audio_bytes_per_sec_burst_realtime=streaming_config.max_audio_bytes_per_sec_burst_realtime,
             max_audio_bytes_per_sec_batch=streaming_config.max_audio_bytes_per_sec_batch,
             max_audio_bytes_per_sec_burst_batch=streaming_config.max_audio_bytes_per_sec_burst_batch,
+            emit_final_on_vad=streaming_config.emit_final_on_vad,
         )
         storage_settings = StorageSettings(
             enabled=storage_config.enabled,

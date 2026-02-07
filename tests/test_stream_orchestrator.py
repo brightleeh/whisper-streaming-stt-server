@@ -2,6 +2,7 @@
 
 import threading
 import time
+from types import SimpleNamespace
 from typing import cast
 from unittest.mock import MagicMock
 
@@ -89,6 +90,10 @@ class FakeDecodeStream:
         """Helper for pending count."""
         return 0
 
+    def pending_partial_decodes(self):
+        """Helper for pending partial decodes."""
+        return 0
+
     def drop_pending_partials(self, max_drop=None):
         """Helper for drop pending partials."""
         return 0, 0
@@ -111,6 +116,35 @@ class FakeDecodeStream:
     def timing_summary(self):
         """Helper for timing summary."""
         return self._summary
+
+
+class FakeVADGate:
+    """Stub VAD gate for trigger scenarios."""
+
+    def __init__(self, triggers):
+        self._triggers = list(triggers)
+        self.calls = 0
+
+    def update(self, pcm, sample_rate):
+        """Return a deterministic VAD update."""
+        triggered = self.calls < len(self._triggers) and self._triggers[self.calls]
+        self.calls += 1
+        duration = len(pcm) / (2 * sample_rate) if sample_rate else 0.0
+        return SimpleNamespace(
+            triggered=triggered,
+            speech_active=True,
+            chunk_rms=0.5,
+            chunk_duration=duration,
+            silence_duration=0.1,
+        )
+
+    def reset_after_trigger(self):
+        """No-op reset."""
+        return None
+
+    def close(self):
+        """No-op close."""
+        return None
 
 
 def test_stream_orchestrator_sets_decode_trailing_metadata(monkeypatch):
@@ -156,6 +190,150 @@ def test_stream_orchestrator_sets_decode_trailing_metadata(monkeypatch):
     assert metadata["stt-decode-response-emit-sec"] == "0.400000"
     assert metadata["stt-decode-total-sec"] == "1.000000"
     assert metadata["stt-decode-count"] == "5"
+
+
+def test_emit_final_on_vad_keeps_stream_running(monkeypatch):
+    """Emit final on VAD without stopping streaming."""
+    session_registry = SessionRegistry()
+    session_id = "session-emit-final"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=0.5,
+            token="",
+            token_required=False,
+            client_ip="",
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    stream_settings = StreamSettings(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        emit_final_on_vad=True,
+    )
+    storage_settings = StorageSettings(
+        enabled=False,
+        directory=".",
+        max_bytes=None,
+        max_files=None,
+        max_age_days=None,
+    )
+    config = StreamOrchestratorConfig(
+        stream=stream_settings,
+        storage=storage_settings,
+    )
+
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream((0.0, 0.0, 0.0, 0.0, 0))
+    fake_vad = FakeVADGate([True, False])
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+    monkeypatch.setattr(orchestrator, "_create_vad_state", lambda *_: fake_vad)
+
+    sample_rate = 16000
+    pcm16 = b"\x01\x00" * 800
+    chunks = [
+        stt_pb2.AudioChunk(pcm16=pcm16, sample_rate=sample_rate, session_id=session_id),
+        stt_pb2.AudioChunk(pcm16=pcm16, sample_rate=sample_rate, session_id=session_id),
+    ]
+
+    context = FakeContext()
+    results = list(orchestrator.run(iter(chunks), context))  # type: ignore[arg-type]
+
+    assert not results
+    assert fake_vad.calls == 2
+    assert len(fake_stream.scheduled) == 2
+    args, kwargs = fake_stream.scheduled[0]
+    assert args[3] is True
+    assert kwargs.get("count_vad") is True
+    args, kwargs = fake_stream.scheduled[1]
+    assert args[3] is True
+    assert kwargs.get("count_vad") is False
+
+
+def test_emit_final_on_vad_attribute_override(monkeypatch):
+    """Attributes can enable emit_final_on_vad per session."""
+    session_registry = SessionRegistry()
+    session_id = "session-emit-final-attr"
+    session_registry.create_session(
+        session_id,
+        SessionInfo(
+            attributes={"emit_final_on_vad": "true"},
+            vad_mode=stt_pb2.VAD_CONTINUE,
+            vad_silence=0.2,
+            vad_threshold=0.5,
+            token="",
+            token_required=False,
+            client_ip="",
+            api_key="",
+            decode_profile="realtime",
+            decode_options={},
+            language_code="",
+            task="transcribe",
+        ),
+    )
+
+    session_facade = SessionFacade(session_registry)
+    model_registry = MagicMock()
+    stream_settings = StreamSettings(
+        vad_threshold=0.5,
+        vad_silence=0.2,
+        speech_rms_threshold=0.0,
+        session_timeout_sec=10.0,
+        default_sample_rate=16000,
+        decode_timeout_sec=1.0,
+        language_lookup=SupportedLanguages(),
+        emit_final_on_vad=False,
+    )
+    storage_settings = StorageSettings(
+        enabled=False,
+        directory=".",
+        max_bytes=None,
+        max_files=None,
+        max_age_days=None,
+    )
+    config = StreamOrchestratorConfig(
+        stream=stream_settings,
+        storage=storage_settings,
+    )
+
+    orchestrator = StreamOrchestrator(session_facade, model_registry, config)
+    fake_stream = FakeDecodeStream((0.0, 0.0, 0.0, 0.0, 0))
+    fake_vad = FakeVADGate([True])
+    monkeypatch.setattr(
+        orchestrator.decode_scheduler, "new_stream", lambda: fake_stream
+    )
+    monkeypatch.setattr(orchestrator, "_create_vad_state", lambda *_: fake_vad)
+
+    sample_rate = 16000
+    pcm16 = b"\x01\x00" * 800
+    chunks = [
+        stt_pb2.AudioChunk(pcm16=pcm16, sample_rate=sample_rate, session_id=session_id)
+    ]
+
+    context = FakeContext()
+    results = list(orchestrator.run(iter(chunks), context))  # type: ignore[arg-type]
+
+    assert not results
+    assert len(fake_stream.scheduled) == 1
+    args, _kwargs = fake_stream.scheduled[0]
+    assert args[3] is True
 
 
 def test_stream_orchestrator_timeout_aborts_in_main_loop(monkeypatch):

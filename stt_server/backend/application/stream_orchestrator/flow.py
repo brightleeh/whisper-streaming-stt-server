@@ -20,6 +20,27 @@ from .types import (
     _StreamState,
 )
 
+_TRUE_VALUES = {"1", "true", "yes", "y", "on"}
+_FALSE_VALUES = {"0", "false", "no", "n", "off"}
+
+
+def _attr_bool(attributes: dict[str, str], *keys: str) -> bool | None:
+    """Return bool value from attributes, or None if unset/unknown."""
+    for key in keys:
+        if key not in attributes:
+            continue
+        raw = attributes.get(key)
+        if raw is None:
+            continue
+        value = str(raw).strip().lower()
+        if not value:
+            continue
+        if value in _TRUE_VALUES:
+            return True
+        if value in _FALSE_VALUES:
+            return False
+    return None
+
 
 def handle_vad_trigger(
     flow: StreamFlowContext,
@@ -52,12 +73,25 @@ def handle_vad_trigger(
         )
         flow.buffer.clear(state)
         state.vad.vad_state.reset_after_trigger()
+        state.vad.speech_active = False
+        state.vad.utterance_start_sec = None
+        state.vad.utterance_end_sec = None
         return
     flow.hooks.on_vad_trigger()
     state.vad.vad_count += 1
     flow.hooks.on_vad_utterance_start()
     session_info = state.session.session_state.session_info
-    is_final = session_info.vad_mode == vad_auto_end
+    attr_override = _attr_bool(
+        session_info.attributes,
+        "emit_final_on_vad",
+        "final_on_vad",
+        "vad_final",
+    )
+    emit_final_on_vad = (
+        stream_config.emit_final_on_vad if attr_override is None else attr_override
+    )
+    stop_after = session_info.vad_mode == vad_auto_end
+    emit_final = stop_after or emit_final_on_vad
     if state.events.disconnect_event.is_set() or state.events.timeout_event.is_set():
         LOGGER.info("Skipping decode due to shutdown signal.")
         state.session.final_reason = (
@@ -67,21 +101,35 @@ def handle_vad_trigger(
         state.events.stop_stream = True
         return
     if not flow.decode.ensure_capacity(
-        state.decode.decode_stream, is_final, state.session.session_state
+        state.decode.decode_stream, emit_final, state.session.session_state
     ):
         flow.buffer.clear(state)
         state.vad.vad_state.reset_after_trigger()
+        state.vad.speech_active = False
+        state.vad.utterance_start_sec = None
+        state.vad.utterance_end_sec = None
         return
+    pcm = bytes(state.buffer.buffer)
+    offset_sec = state.buffer.buffer_start_sec
+    utterance_start_sec = state.vad.utterance_start_sec
+    if utterance_start_sec is not None and session_info.vad_threshold > 0:
+        rate = state.session.sample_rate or flow.config.stream.default_sample_rate
+        pcm, offset_sec = _trim_leading_silence(
+            pcm, offset_sec, utterance_start_sec, rate
+        )
     flow.decode.schedule(
         state,
-        bytes(state.buffer.buffer),
-        is_final=is_final,
-        offset_sec=state.buffer.buffer_start_sec,
+        pcm,
+        is_final=emit_final,
+        offset_sec=offset_sec,
         count_vad=True,
         buffer_started_at=state.buffer.buffer_start_time,
         context=context,
     )
     flow.buffer.clear(state)
+    state.vad.speech_active = False
+    state.vad.utterance_start_sec = None
+    state.vad.utterance_end_sec = None
     LOGGER.info(
         "VAD count=%d for current session (pending=%d, mode=%s, active_vad=%d)",
         state.vad.vad_count,
@@ -89,13 +137,34 @@ def handle_vad_trigger(
         "AUTO_END" if session_info.vad_mode == vad_auto_end else "CONTINUE",
         flow.hooks.active_vad_utterances(),
     )
-    if is_final:
+    if stop_after:
         for result in flow.decode.emit_with_activity(state, False):
             yield result
         state.session.final_reason = "auto_vad_finalized"
         state.events.stop_stream = True
         return
     state.vad.vad_state.reset_after_trigger()
+
+
+def _trim_leading_silence(
+    pcm: bytes,
+    offset_sec: float,
+    utterance_start_sec: float,
+    sample_rate: int,
+) -> tuple[bytes, float]:
+    """Trim leading silence from PCM bytes and return updated offset."""
+    if utterance_start_sec <= offset_sec or sample_rate <= 0:
+        return pcm, offset_sec
+    delta_sec = utterance_start_sec - offset_sec
+    drop_bytes = int(delta_sec * sample_rate * 2)
+    if drop_bytes <= 0:
+        return pcm, offset_sec
+    drop_bytes -= drop_bytes % 2
+    if drop_bytes <= 0 or drop_bytes >= len(pcm):
+        return pcm, offset_sec
+    trimmed = pcm[drop_bytes:]
+    new_offset = offset_sec + (drop_bytes / (sample_rate * 2.0))
+    return trimmed, new_offset
 
 
 def handle_final_chunk(
@@ -123,11 +192,23 @@ def handle_final_chunk(
         flow.decode.ensure_capacity(
             state.decode.decode_stream, True, state.session.session_state
         )
+        pcm = bytes(state.buffer.buffer)
+        offset_sec = state.buffer.buffer_start_sec
+        utterance_start_sec = state.vad.utterance_start_sec
+        if (
+            utterance_start_sec is not None
+            and state.session.session_state
+            and state.session.session_state.session_info.vad_threshold > 0
+        ):
+            rate = state.session.sample_rate or flow.config.stream.default_sample_rate
+            pcm, offset_sec = _trim_leading_silence(
+                pcm, offset_sec, utterance_start_sec, rate
+            )
         flow.decode.schedule(
             state,
-            bytes(state.buffer.buffer),
+            pcm,
             is_final=True,
-            offset_sec=state.buffer.buffer_start_sec,
+            offset_sec=offset_sec,
             count_vad=False,
             buffer_started_at=state.buffer.buffer_start_time,
             context=context,
@@ -373,6 +454,16 @@ def step_streaming(
         )
         abort_with_error(context, ErrorCode.STREAM_UNEXPECTED)
     vad_update = vad_state.update(chunk.pcm16, state.session.sample_rate)
+    prev_speech_active = state.vad.speech_active
+    state.vad.speech_active = vad_update.speech_active
+    if vad_update.speech_active and not prev_speech_active:
+        state.vad.utterance_start_sec = max(
+            0.0, state.activity.audio_received_sec - vad_update.chunk_duration
+        )
+    if vad_update.triggered:
+        state.vad.utterance_end_sec = max(
+            0.0, state.activity.audio_received_sec - vad_update.silence_duration
+        )
 
     for result in step_streaming_vad(flow, state, vad_update, context, vad_auto_end):
         yield result

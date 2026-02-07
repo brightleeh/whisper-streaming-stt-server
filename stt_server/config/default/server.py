@@ -21,6 +21,7 @@ DEFAULT_MAX_BUFFER_SEC = 20.0
 DEFAULT_MAX_CHUNK_MS = 2000
 DEFAULT_PARTIAL_DECODE_INTERVAL_SEC = 1.5
 DEFAULT_PARTIAL_DECODE_WINDOW_SEC = 10.0
+DEFAULT_EMIT_FINAL_ON_VAD = False
 DEFAULT_MAX_PENDING_DECODES_PER_STREAM = 8
 DEFAULT_MAX_PENDING_DECODES_GLOBAL = 64
 DEFAULT_MAX_TOTAL_BUFFER_BYTES = 64 * 1024 * 1024
@@ -109,6 +110,7 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "buffer_overlap_sec": "buffer_overlap_sec",
         "partial_decode_interval_sec": "partial_decode_interval_sec",
         "partial_decode_window_sec": "partial_decode_window_sec",
+        "emit_final_on_vad": "emit_final_on_vad",
         "adaptive_throttle_enabled": "adaptive_throttle_enabled",
         "adaptive_throttle_interval_sec": "adaptive_throttle_interval_sec",
         "adaptive_pending_ratio_high": "adaptive_pending_ratio_high",
@@ -191,6 +193,7 @@ __all__ = [
     "DEFAULT_MAX_CHUNK_MS",
     "DEFAULT_PARTIAL_DECODE_INTERVAL_SEC",
     "DEFAULT_PARTIAL_DECODE_WINDOW_SEC",
+    "DEFAULT_EMIT_FINAL_ON_VAD",
     "DEFAULT_MAX_PENDING_DECODES_GLOBAL",
     "DEFAULT_MAX_TOTAL_BUFFER_BYTES",
     "DEFAULT_DECODE_QUEUE_TIMEOUT_SEC",

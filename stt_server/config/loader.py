@@ -31,6 +31,7 @@ from stt_server.config.default import (
     DEFAULT_DECODE_QUEUE_TIMEOUT_SEC,
     DEFAULT_DECODE_TIMEOUT,
     DEFAULT_DEVICE,
+    DEFAULT_EMIT_FINAL_ON_VAD,
     DEFAULT_EXPOSE_API_KEY_METRICS,
     DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES,
     DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES,
@@ -160,6 +161,7 @@ class ServerConfig:
     max_chunk_ms: Optional[int] = DEFAULT_MAX_CHUNK_MS
     partial_decode_interval_sec: Optional[float] = DEFAULT_PARTIAL_DECODE_INTERVAL_SEC
     partial_decode_window_sec: Optional[float] = DEFAULT_PARTIAL_DECODE_WINDOW_SEC
+    emit_final_on_vad: bool = DEFAULT_EMIT_FINAL_ON_VAD
     adaptive_throttle_enabled: bool = DEFAULT_ADAPTIVE_THROTTLE_ENABLED
     adaptive_throttle_interval_sec: float = DEFAULT_ADAPTIVE_THROTTLE_INTERVAL_SEC
     adaptive_pending_ratio_high: float = DEFAULT_ADAPTIVE_PENDING_RATIO_HIGH

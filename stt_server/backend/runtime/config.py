@@ -46,6 +46,7 @@ class StreamingRuntimeConfig:
     max_chunk_ms: Optional[int] = 2000
     partial_decode_interval_sec: Optional[float] = 1.5
     partial_decode_window_sec: Optional[float] = 10.0
+    emit_final_on_vad: bool = False
     max_pending_decodes_per_stream: int = 8
     max_pending_decodes_global: int = 64
     max_total_buffer_bytes: Optional[int] = 64 * 1024 * 1024

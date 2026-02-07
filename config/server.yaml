@@ -28,6 +28,7 @@ server:
   max_chunk_ms: 2000 # Max single chunk duration in milliseconds (null disables)
   partial_decode_interval_sec: 1.5 # Partial decode interval during speech (null disables)
   partial_decode_window_sec: 10.0 # Window size for partial decode audio (seconds)
+  emit_final_on_vad: false # Emit final result when VAD triggers without ending stream
   # Adaptive throttling (optional; defaults off).
   adaptive_throttle_enabled: false
   adaptive_throttle_interval_sec: 2.0

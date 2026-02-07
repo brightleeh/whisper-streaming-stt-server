@@ -73,6 +73,7 @@ class StreamSettings:
     max_audio_bytes_per_sec_burst_realtime: Optional[int] = None
     max_audio_bytes_per_sec_batch: Optional[int] = None
     max_audio_bytes_per_sec_burst_batch: Optional[int] = None
+    emit_final_on_vad: bool = False
 
 
 @dataclass(frozen=True)
@@ -278,6 +279,9 @@ class _StreamVADState:
 
     vad_state: Optional["VADGate"] = None
     vad_count: int = 0
+    speech_active: bool = False
+    utterance_start_sec: Optional[float] = None
+    utterance_end_sec: Optional[float] = None
 
 
 @dataclass
