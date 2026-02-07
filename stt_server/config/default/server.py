@@ -6,6 +6,8 @@ DEFAULT_PORT = 50051
 DEFAULT_MAX_SESSIONS = 4
 DEFAULT_METRICS_PORT = 8000
 DEFAULT_HTTP_HOST = "127.0.0.1"
+DEFAULT_WS_HOST = DEFAULT_HTTP_HOST
+DEFAULT_WS_PORT = 8001
 DEFAULT_DECODE_TIMEOUT = 30.0
 DEFAULT_LOG_METRICS = False
 DEFAULT_LOG_TRANSCRIPTS = False
@@ -80,8 +82,10 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
     "server": {
         "port": "port",
         "http_host": "http_host",
+        "ws_host": "ws_host",
         "max_sessions": "max_sessions",
         "metrics_port": "metrics_port",
+        "ws_port": "ws_port",
         "grpc_worker_threads": "grpc_worker_threads",
         "create_session_rps": "create_session_rps",
         "create_session_burst": "create_session_burst",
@@ -178,6 +182,8 @@ __all__ = [
     "DEFAULT_MAX_SESSIONS",
     "DEFAULT_METRICS_PORT",
     "DEFAULT_HTTP_HOST",
+    "DEFAULT_WS_HOST",
+    "DEFAULT_WS_PORT",
     "DEFAULT_DECODE_TIMEOUT",
     "DEFAULT_LOG_METRICS",
     "DEFAULT_LOG_TRANSCRIPTS",

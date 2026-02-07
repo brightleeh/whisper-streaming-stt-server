@@ -47,8 +47,21 @@ without ending the stream (useful for multi-utterance sessions).
 For offline audio sources, use `streaming_recognize_with_retry()` with a
 restartable iterator factory.
 
+## Web UI (WebSocket bridge)
+
+The WebSocket server exposes a bridge at `ws://<host>:<ws-port>/ws/stream`.
+This allows browser clients to push PCM16 audio and receive streaming results without gRPC.
+
+An example UI is available at `examples/ui/subtitles.html` and expects:
+
+- a JSON `start` message with session options
+- binary PCM16 frames (16kHz mono)
+- an optional JSON `{ "type": "end" }` to finish the stream
+
+The server responds with JSON messages of type `session`, `result`, `done`, or `error`.
+
 ## UI example
 
-UI integration is intentionally omitted from the repo for now. The Python SDK
-outputs `committed_text` and `unstable_text` fields that can be rendered with a
-stable prefix + dimmed suffix in your UI layer.
+The example UI renders `committed_text` and `unstable_text` as a stable prefix +
+dimmed suffix, and can be adapted into a Next.js app (Vercel) without changing
+the WebSocket protocol.

@@ -89,6 +89,8 @@ from stt_server.config.default import (
     DEFAULT_VAD_MODEL_PREWARM,
     DEFAULT_VAD_SILENCE,
     DEFAULT_VAD_THRESHOLD,
+    DEFAULT_WS_HOST,
+    DEFAULT_WS_PORT,
     MODEL_SECTION_MAP,
     SERVER_SECTION_MAP,
     default_decode_profiles,
@@ -117,11 +119,13 @@ class ServerConfig:
     max_sessions: int = DEFAULT_MAX_SESSIONS
     metrics_port: int = DEFAULT_METRICS_PORT
     http_host: str = DEFAULT_HTTP_HOST
+    ws_host: str = DEFAULT_WS_HOST
     http_rate_limit_rps: float = DEFAULT_HTTP_RATE_LIMIT_RPS
     http_rate_limit_burst: float = DEFAULT_HTTP_RATE_LIMIT_BURST
     http_trusted_proxies: list[str] = field(
         default_factory=lambda: list(DEFAULT_HTTP_TRUSTED_PROXIES)
     )
+    ws_port: int = DEFAULT_WS_PORT
     create_session_rps: float = DEFAULT_CREATE_SESSION_RPS
     create_session_burst: float = DEFAULT_CREATE_SESSION_BURST
     max_sessions_per_ip: int = DEFAULT_MAX_SESSIONS_PER_IP

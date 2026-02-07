@@ -9,6 +9,7 @@ from stt_server.backend.runtime.config import (
 
 from .grpc_servicer import STTGrpcServicer
 from .http_server import start_http_server
+from .ws_server import start_ws_server
 
 __all__ = [
     "STTGrpcServicer",
@@ -17,4 +18,5 @@ __all__ = [
     "StorageRuntimeConfig",
     "StreamingRuntimeConfig",
     "start_http_server",
+    "start_ws_server",
 ]

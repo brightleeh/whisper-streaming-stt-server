@@ -70,6 +70,10 @@ def test_graceful_shutdown_on_signal(monkeypatch):
     monkeypatch.setattr(
         main_module, "start_http_server", lambda **kwargs: fake_http_handle
     )
+    fake_ws_handle = MagicMock()
+    monkeypatch.setattr(
+        main_module, "start_ws_server", lambda **kwargs: fake_ws_handle
+    )
 
     fake_runtime = MagicMock()
     fake_servicer = MagicMock()
@@ -88,6 +92,7 @@ def test_graceful_shutdown_on_signal(monkeypatch):
 
     assert fake_server.stop_calls == [2.5]
     fake_http_handle.stop.assert_called_once_with(timeout=3.5)
+    fake_ws_handle.stop.assert_called_once_with(timeout=3.5)
     fake_runtime.stop_accepting_sessions.assert_called_once()
     fake_runtime.shutdown.assert_called_once()
     fake_executor.shutdown.assert_called_once_with(wait=False)
@@ -144,6 +149,10 @@ def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
     fake_http_handle = MagicMock()
     monkeypatch.setattr(
         main_module, "start_http_server", lambda **kwargs: fake_http_handle
+    )
+    fake_ws_handle = MagicMock()
+    monkeypatch.setattr(
+        main_module, "start_ws_server", lambda **kwargs: fake_ws_handle
     )
 
     fake_runtime = MagicMock()
@@ -230,6 +239,10 @@ def test_serve_passes_grpc_message_limits(monkeypatch):
     monkeypatch.setattr(
         main_module, "start_http_server", lambda **kwargs: fake_http_handle
     )
+    fake_ws_handle = MagicMock()
+    monkeypatch.setattr(
+        main_module, "start_ws_server", lambda **kwargs: fake_ws_handle
+    )
 
     fake_runtime = MagicMock()
     fake_servicer = MagicMock()
@@ -297,6 +310,10 @@ def test_serve_requires_tls_when_configured(monkeypatch):
     monkeypatch.setattr(
         main_module, "start_http_server", lambda **kwargs: fake_http_handle
     )
+    fake_ws_handle = MagicMock()
+    monkeypatch.setattr(
+        main_module, "start_ws_server", lambda **kwargs: fake_ws_handle
+    )
 
     fake_runtime = MagicMock()
     fake_servicer = MagicMock()
@@ -315,3 +332,160 @@ def test_serve_requires_tls_when_configured(monkeypatch):
 
     with pytest.raises(ValueError, match="TLS is required"):
         main_module.serve(config)
+
+
+def test_serve_starts_ws_server_when_enabled(monkeypatch):
+    """Test serve starts websocket server when enabled."""
+
+    def fake_signal(*_args, **_kwargs):
+        """Helper for fake signal."""
+        return None
+
+    from stt_server import main as main_module
+
+    monkeypatch.setattr(main_module.signal, "signal", fake_signal)
+
+    fake_executor = MagicMock()
+    monkeypatch.setattr(
+        main_module.futures, "ThreadPoolExecutor", lambda max_workers: fake_executor
+    )
+
+    class FakeFuture:
+        """Test helper FakeFuture."""
+
+        def wait(self):
+            """Helper for wait."""
+            return None
+
+    class FakeServer:
+        """Test helper FakeServer."""
+
+        def add_insecure_port(self, *args, **kwargs):
+            """Helper for add insecure port."""
+            return 0
+
+        def start(self):
+            """Helper for start."""
+            return None
+
+        def wait_for_termination(self, timeout=None):
+            """Helper for wait for termination."""
+            raise RuntimeError("stop")
+
+        def stop(self, grace):
+            """Helper for stop."""
+            return FakeFuture()
+
+    monkeypatch.setattr(
+        main_module.grpc, "server", lambda executor, **_kwargs: FakeServer()
+    )
+
+    fake_http_handle = MagicMock()
+    monkeypatch.setattr(
+        main_module, "start_http_server", lambda **kwargs: fake_http_handle
+    )
+
+    fake_ws_handle = MagicMock()
+    ws_calls = {}
+
+    def fake_start_ws_server(**kwargs):
+        """Helper for fake websocket server."""
+        ws_calls["kwargs"] = kwargs
+        return fake_ws_handle
+
+    monkeypatch.setattr(main_module, "start_ws_server", fake_start_ws_server)
+
+    fake_runtime = MagicMock()
+    fake_servicer = MagicMock()
+    fake_servicer.runtime = fake_runtime
+    monkeypatch.setattr(main_module, "STTGrpcServicer", lambda config: fake_servicer)
+    monkeypatch.setattr(
+        main_module.stt_pb2_grpc,
+        "add_STTBackendServicer_to_server",
+        lambda servicer, server: None,
+    )
+
+    config = ServerConfig()
+    config.ws_port = 4321
+    config.ws_host = "127.0.0.1"
+
+    with pytest.raises(RuntimeError, match="stop"):
+        main_module.serve(config)
+
+    assert ws_calls["kwargs"]["host"] == "127.0.0.1"
+    assert ws_calls["kwargs"]["port"] == 4321
+    fake_ws_handle.stop.assert_called_once()
+    fake_http_handle.stop.assert_called_once()
+
+
+def test_serve_skips_ws_server_when_disabled(monkeypatch):
+    """Test serve skips websocket server when disabled."""
+
+    def fake_signal(*_args, **_kwargs):
+        """Helper for fake signal."""
+        return None
+
+    from stt_server import main as main_module
+
+    monkeypatch.setattr(main_module.signal, "signal", fake_signal)
+
+    fake_executor = MagicMock()
+    monkeypatch.setattr(
+        main_module.futures, "ThreadPoolExecutor", lambda max_workers: fake_executor
+    )
+
+    class FakeFuture:
+        """Test helper FakeFuture."""
+
+        def wait(self):
+            """Helper for wait."""
+            return None
+
+    class FakeServer:
+        """Test helper FakeServer."""
+
+        def add_insecure_port(self, *args, **kwargs):
+            """Helper for add insecure port."""
+            return 0
+
+        def start(self):
+            """Helper for start."""
+            return None
+
+        def wait_for_termination(self, timeout=None):
+            """Helper for wait for termination."""
+            raise RuntimeError("stop")
+
+        def stop(self, grace):
+            """Helper for stop."""
+            return FakeFuture()
+
+    monkeypatch.setattr(
+        main_module.grpc, "server", lambda executor, **_kwargs: FakeServer()
+    )
+
+    fake_http_handle = MagicMock()
+    monkeypatch.setattr(
+        main_module, "start_http_server", lambda **kwargs: fake_http_handle
+    )
+
+    fake_ws_handle = MagicMock()
+    monkeypatch.setattr(main_module, "start_ws_server", fake_ws_handle)
+
+    fake_runtime = MagicMock()
+    fake_servicer = MagicMock()
+    fake_servicer.runtime = fake_runtime
+    monkeypatch.setattr(main_module, "STTGrpcServicer", lambda config: fake_servicer)
+    monkeypatch.setattr(
+        main_module.stt_pb2_grpc,
+        "add_STTBackendServicer_to_server",
+        lambda servicer, server: None,
+    )
+
+    config = ServerConfig()
+    config.ws_port = 0
+
+    with pytest.raises(RuntimeError, match="stop"):
+        main_module.serve(config)
+
+    fake_ws_handle.assert_not_called()

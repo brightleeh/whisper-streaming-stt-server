@@ -9,6 +9,7 @@ pyyaml
 sounddevice
 fastapi
 uvicorn
+websockets
 mypy-protobuf
 torch
 openai-whisper

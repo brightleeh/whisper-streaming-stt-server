@@ -16,7 +16,11 @@ from stt_server.backend.runtime.config import (
     StorageRuntimeConfig,
     StreamingRuntimeConfig,
 )
-from stt_server.backend.transport import STTGrpcServicer, start_http_server
+from stt_server.backend.transport import (
+    STTGrpcServicer,
+    start_http_server,
+    start_ws_server,
+)
 from stt_server.config import (
     DEFAULT_CONFIG_PATH,
     DEFAULT_MODEL_CONFIG_PATH,
@@ -67,11 +71,11 @@ def serve(config: ServerConfig) -> None:
         default_decode_profile=config.default_decode_profile,
         model_load_profiles=config.model_load_profiles,
         default_model_load_profile=config.default_model_load_profile,
-        require_api_key=config.require_api_key,
-        create_session_auth_profile=config.create_session_auth_profile,
-        create_session_auth_secret=config.create_session_auth_secret,
-        create_session_auth_ttl_sec=config.create_session_auth_ttl_sec,
     )
+    model_cfg.require_api_key = config.require_api_key
+    model_cfg.create_session_auth_profile = config.create_session_auth_profile
+    model_cfg.create_session_auth_secret = config.create_session_auth_secret
+    model_cfg.create_session_auth_ttl_sec = config.create_session_auth_ttl_sec
     vad_pool_size = config.vad_model_pool_size
     if vad_pool_size <= 0:
         vad_pool_size = config.max_sessions
@@ -212,6 +216,16 @@ def serve(config: ServerConfig) -> None:
         http_rate_limit_burst=config.http_rate_limit_burst,
         http_trusted_proxies=config.http_trusted_proxies,
     )
+    ws_handle = None
+    if config.ws_port and config.ws_port > 0:
+        ws_handle = start_ws_server(
+            runtime=servicer.runtime,
+            host=config.ws_host,
+            port=config.ws_port,
+            ws_rate_limit_rps=config.http_rate_limit_rps,
+            ws_rate_limit_burst=config.http_rate_limit_burst,
+            ws_trusted_proxies=config.http_trusted_proxies,
+        )
     LOGGER.info(
         "STT Server started on port %s (model=%s, device=%s)",
         config.port,
@@ -231,6 +245,8 @@ def serve(config: ServerConfig) -> None:
             server.stop(grace).wait()
         finally:
             http_handle.stop(timeout=grace + 1)
+            if ws_handle is not None:
+                ws_handle.stop(timeout=grace + 1)
             servicer.runtime.shutdown()
             grpc_executor.shutdown(wait=False)
             shutdown_done.set()

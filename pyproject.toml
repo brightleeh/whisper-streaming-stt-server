@@ -20,6 +20,7 @@ dependencies = [
   "sounddevice",
   "fastapi",
   "uvicorn",
+  "websockets",
   "torch",
   "silero-vad",
   "requests",

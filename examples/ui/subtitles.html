@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>STT Live Subtitles</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap");
+
+      :root {
+        --bg: #0f1222;
+        --bg2: #161a33;
+        --panel: rgba(18, 21, 41, 0.88);
+        --panel-border: rgba(255, 255, 255, 0.08);
+        --text: #e8ecff;
+        --muted: #98a2c8;
+        --accent: #7bdff2;
+        --accent-2: #f2a37b;
+        --good: #8ef0a3;
+        --warn: #ffd166;
+        --danger: #ff6b6b;
+        --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        --sans: "Space Grotesk", system-ui, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: var(--sans);
+        color: var(--text);
+        background: radial-gradient(
+            circle at 10% 20%,
+            rgba(123, 223, 242, 0.15),
+            transparent 40%
+          ),
+          radial-gradient(
+            circle at 80% 0%,
+            rgba(242, 163, 123, 0.2),
+            transparent 40%
+          ),
+          linear-gradient(135deg, var(--bg), var(--bg2));
+        min-height: 100vh;
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: minmax(280px, 340px) 1fr;
+        gap: 24px;
+        padding: 32px;
+      }
+
+      header {
+        grid-column: 1 / -1;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .title {
+        font-size: 1.8rem;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--panel-border);
+        border-radius: 16px;
+        padding: 20px;
+        box-shadow: 0 10px 40px rgba(5, 8, 26, 0.35);
+        backdrop-filter: blur(12px);
+      }
+
+      .panel h2 {
+        margin: 0 0 16px 0;
+        font-size: 1.1rem;
+      }
+
+      .field {
+        margin-bottom: 14px;
+      }
+
+      label {
+        display: block;
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+
+      input,
+      select {
+        width: 100%;
+        background: rgba(255, 255, 255, 0.06);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: var(--text);
+        padding: 10px 12px;
+        border-radius: 10px;
+        font-family: var(--mono);
+        font-size: 0.85rem;
+      }
+
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
+      .toggle input {
+        width: auto;
+      }
+
+      .actions {
+        display: flex;
+        gap: 10px;
+        margin-top: 16px;
+      }
+
+      button {
+        flex: 1;
+        padding: 10px 12px;
+        border: none;
+        border-radius: 10px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
+      .btn-primary {
+        background: linear-gradient(135deg, var(--accent), #5aa6ff);
+        color: #0f1222;
+      }
+
+      .btn-secondary {
+        background: linear-gradient(135deg, #3d4a7a, #2b3052);
+        color: var(--text);
+      }
+
+      button:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: 0 8px 20px rgba(90, 166, 255, 0.2);
+      }
+
+      .status {
+        margin-top: 12px;
+        font-size: 0.85rem;
+        color: var(--muted);
+        font-family: var(--mono);
+      }
+
+      .stream {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        max-height: 70vh;
+        overflow-y: auto;
+      }
+
+      .line {
+        padding: 14px 16px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        animation: fadeUp 0.25s ease;
+      }
+
+      .line.final {
+        border-left: 3px solid var(--good);
+      }
+
+      .line.partial {
+        border-left: 3px solid var(--warn);
+      }
+
+      .time {
+        font-size: 0.75rem;
+        color: var(--muted);
+        margin-top: 6px;
+        font-family: var(--mono);
+      }
+
+      .unstable {
+        color: var(--muted);
+      }
+
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 4px 8px;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        margin-left: 8px;
+        background: rgba(123, 223, 242, 0.15);
+        color: var(--accent);
+      }
+
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(6px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 960px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <header>
+        <div>
+          <div class="title">STT Live Subtitles</div>
+          <div class="subtitle">Browser mic → WebSocket → Python STT server</div>
+        </div>
+        <div class="status" id="status">idle</div>
+      </header>
+
+      <section class="panel">
+        <h2>Connection</h2>
+        <div class="field">
+          <label>WebSocket URL</label>
+          <input
+            id="wsUrl"
+            value="ws://localhost:8001/ws/stream"
+            spellcheck="false"
+          />
+        </div>
+        <div class="field">
+          <label>Session ID</label>
+          <input id="sessionId" value="" placeholder="optional" spellcheck="false" />
+        </div>
+        <div class="field">
+          <label>Language</label>
+          <select id="languageCode">
+            <option value="auto">auto</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Task</label>
+          <select id="task">
+            <option value="transcribe">transcribe</option>
+            <option value="translate">translate</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>VAD Mode</label>
+          <select id="vadMode">
+            <option value="continue">continue</option>
+            <option value="auto_end">auto_end</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Decode Profile</label>
+          <select id="decodeProfile">
+            <option value="realtime">realtime</option>
+            <option value="accurate">accurate</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>VAD Silence (sec)</label>
+          <input id="vadSilence" type="number" value="0.8" step="0.1" />
+        </div>
+        <div class="field">
+          <label>VAD Threshold (0-1)</label>
+          <input id="vadThreshold" type="number" value="0.5" step="0.05" />
+        </div>
+        <div class="toggle">
+          <input id="partial" type="checkbox" checked />
+          <span>Enable partial results</span>
+        </div>
+        <div class="toggle">
+          <input id="emitFinalOnVAD" type="checkbox" checked />
+          <span>Emit final on VAD trigger</span>
+        </div>
+        <div class="actions">
+          <button class="btn-primary" id="startBtn">Start</button>
+          <button class="btn-secondary" id="stopBtn" disabled>Stop</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Transcript <span class="badge" id="sessionBadge">waiting</span></h2>
+        <div class="stream" id="transcript"></div>
+      </section>
+    </div>
+
+    <script>
+      const statusEl = document.getElementById("status");
+      const transcriptEl = document.getElementById("transcript");
+      const sessionBadge = document.getElementById("sessionBadge");
+
+      const wsUrlEl = document.getElementById("wsUrl");
+      const sessionIdEl = document.getElementById("sessionId");
+      const languageCodeEl = document.getElementById("languageCode");
+      const taskEl = document.getElementById("task");
+      const vadModeEl = document.getElementById("vadMode");
+      const decodeProfileEl = document.getElementById("decodeProfile");
+      const vadSilenceEl = document.getElementById("vadSilence");
+      const vadThresholdEl = document.getElementById("vadThreshold");
+      const partialEl = document.getElementById("partial");
+      const emitFinalOnVADel = document.getElementById("emitFinalOnVAD");
+
+      const startBtn = document.getElementById("startBtn");
+      const stopBtn = document.getElementById("stopBtn");
+
+      let ws = null;
+      let audioContext = null;
+      let sourceNode = null;
+      let processorNode = null;
+      let mediaStream = null;
+      let pendingSamples = [];
+      let liveLine = null;
+      let lastFinalText = "";
+      let captureStarted = false;
+      let hasResult = false;
+
+      const targetRate = 16000;
+      const chunkMs = 100;
+      const chunkSamples = Math.floor((targetRate * chunkMs) / 1000);
+      const languageOptions = [
+        { code: "af", name: "Afrikaans" },
+        { code: "am", name: "Amharic" },
+        { code: "ar", name: "Arabic" },
+        { code: "as", name: "Assamese" },
+        { code: "az", name: "Azerbaijani" },
+        { code: "ba", name: "Bashkir" },
+        { code: "be", name: "Belarusian" },
+        { code: "bg", name: "Bulgarian" },
+        { code: "bn", name: "Bengali" },
+        { code: "bo", name: "Tibetan" },
+        { code: "br", name: "Breton" },
+        { code: "bs", name: "Bosnian" },
+        { code: "ca", name: "Catalan" },
+        { code: "cs", name: "Czech" },
+        { code: "cy", name: "Welsh" },
+        { code: "da", name: "Danish" },
+        { code: "de", name: "German" },
+        { code: "el", name: "Greek" },
+        { code: "en", name: "English" },
+        { code: "es", name: "Spanish" },
+        { code: "et", name: "Estonian" },
+        { code: "eu", name: "Basque" },
+        { code: "fa", name: "Persian" },
+        { code: "fi", name: "Finnish" },
+        { code: "fo", name: "Faroese" },
+        { code: "fr", name: "French" },
+        { code: "gl", name: "Galician" },
+        { code: "gu", name: "Gujarati" },
+        { code: "ha", name: "Hausa" },
+        { code: "haw", name: "Hawaiian" },
+        { code: "he", name: "Hebrew" },
+        { code: "hi", name: "Hindi" },
+        { code: "hr", name: "Croatian" },
+        { code: "ht", name: "Haitian Creole" },
+        { code: "hu", name: "Hungarian" },
+        { code: "hy", name: "Armenian" },
+        { code: "id", name: "Indonesian" },
+        { code: "is", name: "Icelandic" },
+        { code: "it", name: "Italian" },
+        { code: "ja", name: "Japanese" },
+        { code: "jw", name: "Javanese" },
+        { code: "ka", name: "Georgian" },
+        { code: "kk", name: "Kazakh" },
+        { code: "km", name: "Khmer" },
+        { code: "kn", name: "Kannada" },
+        { code: "ko", name: "Korean" },
+        { code: "la", name: "Latin" },
+        { code: "lb", name: "Luxembourgish" },
+        { code: "ln", name: "Lingala" },
+        { code: "lo", name: "Lao" },
+        { code: "lt", name: "Lithuanian" },
+        { code: "lv", name: "Latvian" },
+        { code: "mg", name: "Malagasy" },
+        { code: "mi", name: "Maori" },
+        { code: "mk", name: "Macedonian" },
+        { code: "ml", name: "Malayalam" },
+        { code: "mn", name: "Mongolian" },
+        { code: "mr", name: "Marathi" },
+        { code: "ms", name: "Malay" },
+        { code: "mt", name: "Maltese" },
+        { code: "my", name: "Myanmar" },
+        { code: "ne", name: "Nepali" },
+        { code: "nl", name: "Dutch" },
+        { code: "nn", name: "Norwegian Nynorsk" },
+        { code: "no", name: "Norwegian" },
+        { code: "oc", name: "Occitan" },
+        { code: "pa", name: "Punjabi" },
+        { code: "pl", name: "Polish" },
+        { code: "ps", name: "Pashto" },
+        { code: "pt", name: "Portuguese" },
+        { code: "ro", name: "Romanian" },
+        { code: "ru", name: "Russian" },
+        { code: "sa", name: "Sanskrit" },
+        { code: "sd", name: "Sindhi" },
+        { code: "si", name: "Sinhala" },
+        { code: "sk", name: "Slovak" },
+        { code: "sl", name: "Slovenian" },
+        { code: "sn", name: "Shona" },
+        { code: "so", name: "Somali" },
+        { code: "sq", name: "Albanian" },
+        { code: "sr", name: "Serbian" },
+        { code: "su", name: "Sundanese" },
+        { code: "sv", name: "Swedish" },
+        { code: "sw", name: "Swahili" },
+        { code: "ta", name: "Tamil" },
+        { code: "te", name: "Telugu" },
+        { code: "tg", name: "Tajik" },
+        { code: "th", name: "Thai" },
+        { code: "tk", name: "Turkmen" },
+        { code: "tl", name: "Tagalog" },
+        { code: "tr", name: "Turkish" },
+        { code: "tt", name: "Tatar" },
+        { code: "uk", name: "Ukrainian" },
+        { code: "ur", name: "Urdu" },
+        { code: "uz", name: "Uzbek" },
+        { code: "vi", name: "Vietnamese" },
+        { code: "yi", name: "Yiddish" },
+        { code: "yo", name: "Yoruba" },
+        { code: "zh", name: "Chinese" },
+        { code: "yue", name: "Cantonese" },
+      ];
+      languageOptions.forEach((entry) => {
+        const option = document.createElement("option");
+        option.value = entry.code;
+        option.textContent = `${entry.code} · ${entry.name}`;
+        languageCodeEl.appendChild(option);
+      });
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function resetTranscript() {
+        transcriptEl.innerHTML = "";
+        liveLine = null;
+        lastFinalText = "";
+        hasResult = false;
+      }
+
+      function downsampleBuffer(buffer, inRate, outRate) {
+        if (outRate === inRate) {
+          return buffer;
+        }
+        const ratio = inRate / outRate;
+        const newLength = Math.round(buffer.length / ratio);
+        const result = new Float32Array(newLength);
+        let offsetResult = 0;
+        let offsetBuffer = 0;
+        while (offsetResult < result.length) {
+          const nextOffsetBuffer = Math.round((offsetResult + 1) * ratio);
+          let sum = 0;
+          let count = 0;
+          for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i += 1) {
+            sum += buffer[i];
+            count += 1;
+          }
+          result[offsetResult] = sum / Math.max(1, count);
+          offsetResult += 1;
+          offsetBuffer = nextOffsetBuffer;
+        }
+        return result;
+      }
+
+      function floatToInt16(floatBuffer) {
+        const out = new Int16Array(floatBuffer.length);
+        for (let i = 0; i < floatBuffer.length; i += 1) {
+          const s = Math.max(-1, Math.min(1, floatBuffer[i]));
+          out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        return out;
+      }
+
+      function enqueueSamples(int16Buffer) {
+        for (let i = 0; i < int16Buffer.length; i += 1) {
+          pendingSamples.push(int16Buffer[i]);
+        }
+        while (pendingSamples.length >= chunkSamples) {
+          const chunk = pendingSamples.splice(0, chunkSamples);
+          const pcm = new Int16Array(chunk);
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(pcm.buffer);
+          }
+        }
+      }
+
+      function renderResult(payload) {
+        const isFinal = payload.is_final;
+        const rawText = payload.text || "";
+        let displayText = rawText;
+        if (lastFinalText && rawText.startsWith(lastFinalText)) {
+          displayText = rawText.slice(lastFinalText.length).trimStart();
+        }
+        if (!displayText) {
+          displayText = rawText;
+        }
+        const unstable = "";
+
+        const content = `
+          <div>
+            <strong>${displayText}</strong> <span class="unstable">${unstable}</span>
+          </div>
+          <div class="time">
+            ${payload.language_code || "auto"} · ${payload.start_sec.toFixed(2)}-${payload.end_sec.toFixed(2)}s
+          </div>
+        `;
+
+        if (!liveLine) {
+          liveLine = document.createElement("div");
+          liveLine.className = "line partial";
+          transcriptEl.prepend(liveLine);
+        }
+        liveLine.innerHTML = content;
+        liveLine.classList.toggle("partial", !isFinal);
+        liveLine.classList.toggle("final", isFinal);
+
+        if (isFinal) {
+          lastFinalText = rawText || lastFinalText;
+          liveLine = null;
+        }
+        if (!hasResult) {
+          hasResult = true;
+          setStatus("streaming");
+        }
+      }
+
+      async function startCapture() {
+        if (captureStarted) {
+          return;
+        }
+        captureStarted = true;
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        audioContext = new AudioContext();
+        sourceNode = audioContext.createMediaStreamSource(mediaStream);
+        processorNode = audioContext.createScriptProcessor(4096, 1, 1);
+        processorNode.onaudioprocess = (event) => {
+          const input = event.inputBuffer.getChannelData(0);
+          const downsampled = downsampleBuffer(
+            input,
+            audioContext.sampleRate,
+            targetRate
+          );
+          enqueueSamples(floatToInt16(downsampled));
+        };
+        sourceNode.connect(processorNode);
+        processorNode.connect(audioContext.destination);
+      }
+
+      async function startStream() {
+        resetTranscript();
+        let sessionId = sessionIdEl.value.trim();
+        if (!sessionId) {
+          sessionId = `web-${Math.floor(Date.now() / 1000)}`;
+          sessionIdEl.value = sessionId;
+        }
+        sessionBadge.textContent = sessionId;
+
+        ws = new WebSocket(wsUrlEl.value.trim());
+        ws.binaryType = "arraybuffer";
+
+        ws.addEventListener("open", () => {
+          const payload = {
+            type: "start",
+            session_id: sessionId,
+            sample_rate: targetRate,
+            language_code:
+              languageCodeEl.value === "auto" ? "" : languageCodeEl.value,
+            task: taskEl.value,
+            vad_mode: vadModeEl.value,
+            vad_silence: parseFloat(vadSilenceEl.value || "0"),
+            vad_threshold: parseFloat(vadThresholdEl.value || "0"),
+            decode_profile: decodeProfileEl.value,
+            attributes: {
+              partial: partialEl.checked ? "true" : "false",
+              emit_final_on_vad: emitFinalOnVADel.checked ? "true" : "false",
+            },
+          };
+          ws.send(JSON.stringify(payload));
+          setStatus("connected");
+        });
+
+        ws.addEventListener("message", async (event) => {
+          if (typeof event.data !== "string") {
+            return;
+          }
+          const payload = JSON.parse(event.data);
+          if (payload.type === "session") {
+            setStatus("ready");
+            await startCapture();
+            return;
+          }
+          if (payload.type === "result") {
+            renderResult(payload);
+            return;
+          }
+          if (payload.type === "error") {
+            setStatus(`error: ${payload.message || "unknown"}`);
+          }
+          if (payload.type === "done") {
+            setStatus("completed");
+          }
+        });
+
+        ws.addEventListener("close", () => {
+          setStatus("closed");
+          stopBtn.disabled = true;
+          startBtn.disabled = false;
+        });
+      }
+
+      function stopStream() {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "end" }));
+          ws.close();
+        }
+        if (processorNode) {
+          processorNode.disconnect();
+          processorNode = null;
+        }
+        if (sourceNode) {
+          sourceNode.disconnect();
+          sourceNode = null;
+        }
+        if (audioContext) {
+          audioContext.close();
+          audioContext = null;
+        }
+        if (mediaStream) {
+          mediaStream.getTracks().forEach((track) => track.stop());
+          mediaStream = null;
+        }
+        captureStarted = false;
+      }
+
+      startBtn.addEventListener("click", async () => {
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+        setStatus("initializing");
+        try {
+          await startStream();
+        } catch (err) {
+          setStatus(`error: ${err.message}`);
+          startBtn.disabled = false;
+          stopBtn.disabled = true;
+        }
+      });
+
+      stopBtn.addEventListener("click", () => {
+        stopStream();
+      });
+    </script>
+  </body>
+</html>
