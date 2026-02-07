@@ -516,6 +516,18 @@ Use the terminal dashboard to poll `/metrics.json` and `/system` on a fixed inte
 python -m tools.dashboard.monitor_dashboard
 ```
 
+Capture metrics to a file (JSONL or CSV) for later graphing:
+
+```bash
+python -m tools.dashboard.metrics_capture --duration-sec 300 --out metrics.jsonl
+```
+
+Plot captured metrics (requires `matplotlib`):
+
+```bash
+python -m tools.dashboard.plot_metrics metrics.jsonl --relative --output metrics.png
+```
+
 Common options:
 
 - `--metrics-url` / `--system-url` to target a remote server.
