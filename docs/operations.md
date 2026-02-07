@@ -15,6 +15,64 @@ Backpressure health checklist (during load):
 - `metrics.partial_drop_count` / `metrics.rate_limit_blocks.*`: should increase when limits are actively shedding load.
 - Dashboard and alerting suggestions live in `docs/slo.md`.
 
+## Tuning profiles (standard presets)
+
+Baseline backend guidance:
+
+- macOS (Apple Silicon): `torch_whisper` + `mps`
+- Linux + NVIDIA GPU: `faster_whisper` + `cuda`
+- CPU only: `faster_whisper` + `cpu` (prefer `int8`)
+
+Model size:
+
+- If unsure, start with `small` on GPU and `tiny` or `small` on CPU.
+- Replace the RTF ranges below with your benchmarked numbers.
+
+**Low-latency (UI-first)**
+
+- Goal: fast partials, quick UI updates, tighter buffers.
+- Server:
+  - `partial_decode_interval_sec: 0.2-0.4`
+  - `partial_decode_window_sec: 2-4`
+  - `buffer_overlap_sec: 0.2-0.4`
+  - `max_buffer_sec: 3-6`
+  - `vad_silence: 0.4-0.6`
+  - `vad_threshold: 0.5-0.7`
+  - `emit_final_on_vad: true`
+  - `max_pending_decodes_per_stream: 2-4`
+- Client:
+  - `attributes.partial=true`
+- Recommended hardware: GPU preferred (MPS/CUDA).
+- Suggested `max_sessions`: start at `~2-4 x model_pool_size` and tune.
+
+**Balanced (default)**
+
+- Goal: stable partials and reasonable accuracy.
+- Server: keep defaults (`interval=1.5`, `window=10`, `overlap=0.5`, `max_buffer=20`, `vad_silence=0.8`, `vad_threshold=0.5`).
+- Client:
+  - `attributes.partial=true` (optional)
+- Recommended hardware: GPU or strong CPU.
+- Suggested `max_sessions`: start at `~4-6 x model_pool_size` and tune.
+
+**High-accuracy (final-first)**
+
+- Goal: higher stability and accuracy, less partial churn.
+- Server:
+  - `partial_decode_interval_sec: 2-3` (or disable partials)
+  - `partial_decode_window_sec: 12-20`
+  - `buffer_overlap_sec: 0.8-1.2`
+  - `max_buffer_sec: 30-60`
+  - `vad_silence: 0.8-1.2`
+  - `vad_threshold: 0.3-0.5`
+  - `emit_final_on_vad: false`
+  - `max_pending_decodes_per_stream: 8-12`
+- Client:
+  - `attributes.partial=false` (recommended)
+- Recommended hardware: GPU preferred; CPU only for low concurrency.
+- Suggested `max_sessions`: start at `~3-5 x model_pool_size` and tune.
+
+RTF ranges should be filled in after benchmarking in your target environment.
+
 ## Adaptive throttling (optional)
 
 Enable adaptive throttling to reduce partial load and shed new sessions when the system is under pressure.
