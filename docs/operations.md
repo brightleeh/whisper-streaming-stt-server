@@ -92,9 +92,11 @@ adaptive_buffer_ratio_high: 0.85
 adaptive_orphan_rate_high: 0.2
 adaptive_partial_interval_scale: 2.0
 adaptive_partial_interval_max_sec: null
-adaptive_batch_window_min_ms: 0
+adaptive_batch_window_target_ms: 0
 adaptive_create_session_backoff_sec: 2.0
 ```
+
+`adaptive_batch_window_target_ms` was previously named `adaptive_batch_window_min_ms` and is still accepted for backward compatibility.
 
 Operational guidance (when to enable)
 

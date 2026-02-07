@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional
 import yaml
 
 from stt_server.config.default import (
-    DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS,
+    DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS,
     DEFAULT_ADAPTIVE_BUFFER_RATIO_HIGH,
     DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC,
     DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH,
@@ -175,7 +175,7 @@ class ServerConfig:
     adaptive_partial_interval_max_sec: Optional[float] = (
         DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC
     )
-    adaptive_batch_window_min_ms: int = DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS
+    adaptive_batch_window_target_ms: int = DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS
     adaptive_create_session_backoff_sec: float = (
         DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC
     )

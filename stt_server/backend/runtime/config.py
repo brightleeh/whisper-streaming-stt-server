@@ -78,7 +78,7 @@ class StreamingRuntimeConfig:
     adaptive_orphan_rate_high: float = 0.2
     adaptive_partial_interval_scale: float = 2.0
     adaptive_partial_interval_max_sec: Optional[float] = None
-    adaptive_batch_window_min_ms: int = 0
+    adaptive_batch_window_target_ms: int = 0
     adaptive_create_session_backoff_sec: float = 2.0
 
 

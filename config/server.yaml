@@ -39,7 +39,7 @@ server:
   adaptive_orphan_rate_high: 0.2
   adaptive_partial_interval_scale: 2.0
   adaptive_partial_interval_max_sec: null
-  adaptive_batch_window_min_ms: 0
+  adaptive_batch_window_target_ms: 0
   adaptive_create_session_backoff_sec: 2.0
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
   max_pending_decodes_global: 512 # Global max queued decodes before backpressure/drop

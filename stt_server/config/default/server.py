@@ -68,7 +68,9 @@ DEFAULT_ADAPTIVE_BUFFER_RATIO_HIGH = 0.85
 DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH = 0.2
 DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_SCALE = 2.0
 DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC = None
-DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS = 0
+DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS = 0
+# Deprecated alias for backward compatibility.
+DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS = DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS
 DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC = 2.0
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FILE = None
@@ -122,7 +124,8 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "adaptive_orphan_rate_high": "adaptive_orphan_rate_high",
         "adaptive_partial_interval_scale": "adaptive_partial_interval_scale",
         "adaptive_partial_interval_max_sec": "adaptive_partial_interval_max_sec",
-        "adaptive_batch_window_min_ms": "adaptive_batch_window_min_ms",
+        "adaptive_batch_window_min_ms": "adaptive_batch_window_target_ms",
+        "adaptive_batch_window_target_ms": "adaptive_batch_window_target_ms",
         "adaptive_create_session_backoff_sec": "adaptive_create_session_backoff_sec",
         "grpc_max_receive_message_bytes": "grpc_max_receive_message_bytes",
         "grpc_max_send_message_bytes": "grpc_max_send_message_bytes",
@@ -242,6 +245,7 @@ __all__ = [
     "DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH",
     "DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_SCALE",
     "DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC",
+    "DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS",
     "DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS",
     "DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC",
     "DEFAULT_LOG_LEVEL",

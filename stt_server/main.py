@@ -139,7 +139,9 @@ def serve(config: ServerConfig) -> None:
     streaming_cfg.adaptive_partial_interval_max_sec = (
         config.adaptive_partial_interval_max_sec
     )
-    streaming_cfg.adaptive_batch_window_min_ms = config.adaptive_batch_window_min_ms
+    streaming_cfg.adaptive_batch_window_target_ms = (
+        config.adaptive_batch_window_target_ms
+    )
     streaming_cfg.adaptive_create_session_backoff_sec = (
         config.adaptive_create_session_backoff_sec
     )

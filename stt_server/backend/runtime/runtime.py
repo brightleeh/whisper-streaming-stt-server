@@ -347,8 +347,8 @@ class AdaptiveThrottle:
         interval = self._scaled_partial_interval()
         self._runtime.stream_orchestrator.set_partial_interval_override(interval)
 
-        min_window_ms = max(0, int(self._config.adaptive_batch_window_min_ms))
-        window_ms = min(self._base_batch_window_ms, min_window_ms)
+        target_window_ms = max(0, int(self._config.adaptive_batch_window_target_ms))
+        window_ms = min(self._base_batch_window_ms, target_window_ms)
         self._runtime.model_registry.set_batch_window_ms(window_ms)
 
         if self._mode != "throttled":
