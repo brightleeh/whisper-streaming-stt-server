@@ -155,6 +155,34 @@ def test_decode_stream_drop_pending_partials_updates_counts():
     assert len(stream.pending_results) == 2
 
 
+def test_decode_stream_cancel_pending_requests_cancel_for_orphaned():
+    """Cancel pending should request cancellation when futures cannot cancel."""
+    scheduler = DecodeScheduler(MagicMock(), 0.0, MagicMock())
+    scheduler.request_cancel = MagicMock()
+    stream = DecodeStream(scheduler)
+
+    cancel_ok = MagicMock(spec=futures.Future)
+    cancel_ok.cancel.return_value = True
+    cancel_fail = MagicMock(spec=futures.Future)
+    cancel_fail.cancel.return_value = False
+
+    for _ in range(2):
+        scheduler._increment_pending()
+    stream.pending_results.extend(
+        [
+            (cancel_ok, False, 0.0, False, 0.0, False),
+            (cancel_fail, True, 0.0, False, 0.0, False),
+        ]
+    )
+
+    cancelled, orphaned = stream.cancel_pending()
+
+    assert cancelled == 1
+    assert orphaned == 1
+    scheduler.request_cancel.assert_called_once_with(cancel_fail)
+    assert scheduler.pending_decodes() == 0
+
+
 def _build_fake_result(text: str):
     class FakeSegment:
         """Test helper FakeSegment."""

@@ -39,6 +39,7 @@ class _DecodeTask:
     is_final: bool
     submitted_at: float
     future: futures.Future
+    cancel_event: threading.Event
 
 
 class ModelWorkerProtocol(Protocol):
@@ -122,6 +123,27 @@ class ModelRegistry:
         self._dispatcher_shutdown: Dict[str, bool] = {}
         self._batch_window_sec = max(0.0, float(batch_window_ms) / 1000.0)
         self._max_batch_size = max(1, int(max_batch_size))
+        self._cancel_lock = threading.Lock()
+        self._cancel_events: Dict[futures.Future, threading.Event] = {}
+
+    def request_cancel(self, future: futures.Future) -> bool:
+        """Signal a running decode to cancel if possible."""
+        with self._cancel_lock:
+            event = self._cancel_events.get(future)
+        if event is None:
+            return False
+        event.set()
+        return True
+
+    def _register_cancel_event(
+        self, future: futures.Future, cancel_event: threading.Event
+    ) -> None:
+        with self._cancel_lock:
+            self._cancel_events[future] = cancel_event
+
+    def _clear_cancel_event(self, future: futures.Future) -> None:
+        with self._cancel_lock:
+            self._cancel_events.pop(future, None)
 
     def set_batch_window_ms(self, batch_window_ms: int) -> None:
         """Update the decode batch window (milliseconds)."""
@@ -389,6 +411,8 @@ class ModelRegistry:
                 future.set_exception(RuntimeError("Decode dispatcher unavailable"))
                 return future
         future = futures.Future()
+        cancel_event = threading.Event()
+        self._register_cancel_event(future, cancel_event)
         task = _DecodeTask(
             pcm=pcm,
             sample_rate=sample_rate,
@@ -397,6 +421,7 @@ class ModelRegistry:
             is_final=is_final,
             submitted_at=time.perf_counter(),
             future=future,
+            cancel_event=cancel_event,
         )
         with condition:
             queue = session_queues.setdefault(task.session_id, deque())
@@ -501,6 +526,28 @@ class ModelRegistry:
                 except (RuntimeError, ValueError) as exc:
                     LOGGER.exception("Failed to close model worker: %s", exc)
 
+    def _skip_cancelled_task(
+        self, model_id: str, task: _DecodeTask, queue: Queue
+    ) -> bool:
+        if task.future.cancelled():
+            self._release_inflight(model_id, task.session_id)
+            self._clear_cancel_event(task.future)
+            queue.task_done()
+            return True
+        if not task.future.set_running_or_notify_cancel():
+            self._release_inflight(model_id, task.session_id)
+            self._clear_cancel_event(task.future)
+            queue.task_done()
+            return True
+        if task.cancel_event.is_set():
+            if not task.future.done():
+                task.future.set_exception(futures.CancelledError())
+            self._release_inflight(model_id, task.session_id)
+            self._clear_cancel_event(task.future)
+            queue.task_done()
+            return True
+        return False
+
     def _worker_loop(
         self, model_id: str, worker: ModelWorkerProtocol, queue: Queue
     ) -> None:
@@ -509,9 +556,7 @@ class ModelRegistry:
             if task is None:
                 queue.task_done()
                 break
-            if task.future.cancelled():
-                self._release_inflight(model_id, task.session_id)
-                queue.task_done()
+            if self._skip_cancelled_task(model_id, task, queue):
                 continue
             tasks = [task]
             stop_after = False
@@ -533,9 +578,7 @@ class ModelRegistry:
                         queue.task_done()
                         stop_after = True
                         break
-                    if next_task.future.cancelled():
-                        self._release_inflight(model_id, next_task.session_id)
-                        queue.task_done()
+                    if self._skip_cancelled_task(model_id, next_task, queue):
                         continue
                     tasks.append(next_task)
             try:
@@ -553,7 +596,10 @@ class ModelRegistry:
                         task.decode_options,
                         task.submitted_at,
                     )
-                    if not task.future.cancelled():
+                    if task.future.cancelled() or task.cancel_event.is_set():
+                        if not task.future.done():
+                            task.future.set_exception(futures.CancelledError())
+                    else:
                         task.future.set_result(result)
                     LOGGER.debug(
                         "Worker finished decode session_id=%s final=%s model_id=%s",
@@ -578,8 +624,11 @@ class ModelRegistry:
                     )
                     results = worker.decode_batch_sync(batch)
                     for item, result in zip(tasks, results):
-                        if not item.future.cancelled():
-                            item.future.set_result(result)
+                        if item.future.cancelled() or item.cancel_event.is_set():
+                            if not item.future.done():
+                                item.future.set_exception(futures.CancelledError())
+                            continue
+                        item.future.set_result(result)
                     LOGGER.debug(
                         "Worker finished batch decode size=%d model_id=%s",
                         len(tasks),
@@ -593,6 +642,7 @@ class ModelRegistry:
             finally:
                 for item in tasks:
                     self._release_inflight(model_id, item.session_id)
+                    self._clear_cancel_event(item.future)
                     queue.task_done()
                 if stop_after:
                     break
@@ -667,6 +717,7 @@ class ModelRegistry:
                 kept.append(task)
             else:
                 task.future.cancel()
+                self._clear_cancel_event(task.future)
         queue.clear()
         queue.extend(kept)
 

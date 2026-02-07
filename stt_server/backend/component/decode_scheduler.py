@@ -245,6 +245,10 @@ class DecodeScheduler:
             # Treat orphaned decodes as health errors to surface resource pressure.
             self._record_health_event("error", count)
 
+    def request_cancel(self, future: futures.Future) -> None:
+        """Ask the model registry to cancel a running decode if possible."""
+        self.stream_orchestrator.model_registry.request_cancel(future)
+
 
 class DecodeStream:
     """Manages decode futures for a single streaming recognizer call."""
@@ -372,6 +376,7 @@ class DecodeStream:
             if future.cancel():
                 cancelled += 1
             else:
+                self.scheduler.request_cancel(future)
                 orphaned += 1
             self.scheduler._decrement_pending()
             if holds_slot:
@@ -417,6 +422,7 @@ class DecodeStream:
             if future.cancel():
                 cancelled += 1
             else:
+                self.scheduler.request_cancel(future)
                 orphaned += 1
             self.scheduler._decrement_pending()
             if holds_slot:
@@ -450,6 +456,7 @@ class DecodeStream:
             if future.cancel():
                 cancelled += 1
             else:
+                self.scheduler.request_cancel(future)
                 not_cancelled += 1
             self.scheduler._decrement_pending()
             if holds_slot:

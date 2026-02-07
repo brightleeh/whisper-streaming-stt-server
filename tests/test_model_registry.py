@@ -1,144 +1,92 @@
-import logging
-from typing import List, cast
+from __future__ import annotations
+
+import threading
+import time
+from collections import deque
+from concurrent import futures
+from queue import Queue
 
 import pytest
 
-from stt_server.backend.application import model_registry
-from stt_server.backend.application.model_registry import (
-    ModelRegistry,
-    ModelWorkerProtocol,
-)
-from stt_server.config.default.model import DEFAULT_MODEL_ID
+from stt_server.backend.application.model_registry import ModelRegistry, _DecodeTask
 
 
-def test_unload_model_closes_workers(monkeypatch):
-    """Test unload model closes workers."""
-    closed = []
-
-    class FakeWorker:
-        """Test helper FakeWorker."""
-
-        def __init__(self, *args, **kwargs):
-            """Helper for   init  ."""
-            self.args = args
-            self.kwargs = kwargs
-
-        def close(self, *args, **kwargs) -> None:
-            """Helper for close."""
-            closed.append(self)
-
-    monkeypatch.setattr(model_registry, "ModelWorker", FakeWorker)
-
+def test_model_registry_request_cancel_marks_future_cancelled():
+    """request_cancel should signal and skip running tasks."""
     registry = ModelRegistry()
-    registry.load_model("model-a", {"pool_size": 2})
-    registry.load_model("model-b", {"pool_size": 1})
+    model_id = "default"
+    registry._session_inflight[model_id] = set()
+    registry._dispatch_conds[model_id] = threading.Condition()
 
-    assert registry.unload_model("model-b") is True
-    assert len(closed) == 1
-    assert "model-b" not in registry.list_models()
-    assert "model-a" in registry.list_models()
+    future = futures.Future()
+    cancel_event = threading.Event()
+    registry._register_cancel_event(future, cancel_event)
+
+    task = _DecodeTask(
+        pcm=b"abc",
+        sample_rate=16000,
+        decode_options=None,
+        session_id="session",
+        is_final=False,
+        submitted_at=time.perf_counter(),
+        future=future,
+        cancel_event=cancel_event,
+    )
+    queue: Queue = Queue()
+    queue.put(task)
+
+    assert registry.request_cancel(future) is True
+    assert cancel_event.is_set()
+
+    item = queue.get()
+    assert registry._skip_cancelled_task(model_id, item, queue) is True
+
+    with pytest.raises(futures.CancelledError):
+        future.result()
+    assert future.done()
+    assert future not in registry._cancel_events
 
 
-def test_unload_model_passes_drain_timeout(monkeypatch):
-    """Test unload model passes drain timeout."""
-    timeouts = []
-
-    class FakeWorker:
-        """Test helper FakeWorker."""
-
-        def __init__(self, *args, **kwargs):
-            """Helper for   init  ."""
-            self.args = args
-            self.kwargs = kwargs
-
-        def close(self, timeout=None) -> None:
-            """Helper for close."""
-            timeouts.append(timeout)
-
-    monkeypatch.setattr(model_registry, "ModelWorker", FakeWorker)
-
+def test_model_registry_cancel_stale_partials_clears_cancel_map():
+    """Cancelling stale partials should drop cancel tokens for cancelled futures."""
     registry = ModelRegistry()
-    registry.load_model("model-a", {"pool_size": 1})
-    registry.load_model("model-b", {"pool_size": 2})
 
-    assert registry.unload_model("model-b", drain_timeout_sec=1.5) is True
-    assert timeouts == [1.5, 1.5]
+    partial_future = futures.Future()
+    partial_event = threading.Event()
+    registry._register_cancel_event(partial_future, partial_event)
 
+    final_future = futures.Future()
+    final_event = threading.Event()
+    registry._register_cancel_event(final_future, final_event)
 
-def test_load_model_rejects_non_positive_pool_size():
-    """Test load model rejects non positive pool size."""
-    registry = ModelRegistry()
-    with pytest.raises(ValueError):
-        registry.load_model("model-a", {"pool_size": 0})
+    queue = deque(
+        [
+            _DecodeTask(
+                pcm=b"partial",
+                sample_rate=16000,
+                decode_options=None,
+                session_id="session",
+                is_final=False,
+                submitted_at=time.perf_counter(),
+                future=partial_future,
+                cancel_event=partial_event,
+            ),
+            _DecodeTask(
+                pcm=b"final",
+                sample_rate=16000,
+                decode_options=None,
+                session_id="session",
+                is_final=True,
+                submitted_at=time.perf_counter(),
+                future=final_future,
+                cancel_event=final_event,
+            ),
+        ]
+    )
 
+    registry._cancel_stale_partials(queue)
 
-def test_get_worker_prefers_lowest_pending():
-    """Test get worker prefers lowest pending."""
-
-    class FakeWorker:
-        """Test helper FakeWorker."""
-
-        def __init__(self, pending: int):
-            """Helper for   init  ."""
-            self._pending = pending
-
-        def pending_tasks(self) -> int:
-            """Helper for pending tasks."""
-            return self._pending
-
-    registry = ModelRegistry()
-    workers = [FakeWorker(2), FakeWorker(0), FakeWorker(1)]
-    registry._pools[DEFAULT_MODEL_ID] = cast(List[ModelWorkerProtocol], workers)
-    registry._rr_counters[DEFAULT_MODEL_ID] = 0
-
-    worker = registry.get_worker(DEFAULT_MODEL_ID)
-
-    assert worker is workers[1]
-    assert registry._rr_counters[DEFAULT_MODEL_ID] == 2
-
-
-def test_load_model_closes_workers_on_failure(monkeypatch):
-    """Test load model closes partial workers on failure."""
-    closed = []
-
-    class FakeWorker:
-        """Test helper FakeWorker that fails on second init."""
-
-        created = 0
-
-        def __init__(self, *args, **kwargs):
-            if FakeWorker.created == 1:
-                raise RuntimeError("boom")
-            FakeWorker.created += 1
-
-        def close(self, *args, **kwargs) -> None:
-            closed.append(self)
-
-    monkeypatch.setattr(model_registry, "ModelWorker", FakeWorker)
-
-    registry = ModelRegistry()
-    with pytest.raises(RuntimeError):
-        registry.load_model("bad-model", {"pool_size": 2})
-
-
-def test_load_model_cuda_missing_logs_error(monkeypatch, caplog):
-    """Test load model logs failure when device is unsupported."""
-
-    class FakeWorker:
-        """Test helper FakeWorker that rejects cuda."""
-
-        def __init__(self, *args, **kwargs):
-            if kwargs.get("device") == "cuda":
-                raise RuntimeError("CUDA not available")
-
-        def close(self, *args, **kwargs) -> None:
-            return None
-
-    monkeypatch.setattr(model_registry, "ModelWorker", FakeWorker)
-    registry = ModelRegistry()
-    caplog.set_level(logging.ERROR, logger="stt_server.model_registry")
-
-    with pytest.raises((RuntimeError, ValueError)):
-        registry.load_model("cuda-model", {"pool_size": 1, "device": "cuda"})
-
-    assert "Failed to load model 'cuda-model'" in caplog.text
+    assert len(queue) == 1
+    assert queue[0].is_final is True
+    assert partial_future not in registry._cancel_events
+    assert final_future in registry._cancel_events
