@@ -491,6 +491,8 @@ linkStyle 11,12,13,14,15,16,17,18,19,20,21 stroke:#e74c3c,stroke-width:1px;
 
 - `docs/operations.md`: observability, backpressure checks, dashboards, and runtime ops.
 - `docs/admin.md`: admin/control plane endpoints and security.
+- `docs/clients.md`: Python SDK usage.
+- `docs/client_errors.md`: client error handling guidance.
 - `docs/troubleshooting.md`: error code reference.
 - `docs/development.md`: tests, load testing, and dev workflows.
 - `docs/slo.md`: SLO targets and reporting template.

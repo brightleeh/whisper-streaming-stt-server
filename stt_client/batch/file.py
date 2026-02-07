@@ -1,29 +1,30 @@
 """Batch client for submitting a single audio file to the STT server."""
 
 import argparse
-import hashlib
-import hmac
 import sys
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, Optional, Tuple
 
 import grpc
 import numpy as np
 import soundfile as sf
 import yaml
 
-from gen.stt.python.v1 import stt_pb2, stt_pb2_grpc
+from gen.stt.python.v1 import stt_pb2
+from stt_client.sdk import StreamingClient
 
 TASK_CHOICES = ("transcribe", "translate")
 PROFILE_CHOICES = ("realtime", "accurate")
 DEFAULT_AUDIO_PATH = Path(__file__).resolve().parents[1] / "assets" / "hello.wav"
 DEFAULT_AUDIO_DISPLAY = "stt_client/assets/hello.wav"
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "config" / "file.yaml"
+DEFAULT_CHUNK_MS = 100
 CONFIG_KEYS = {
     "audio_path",
     "server",
+    "chunk_ms",
     "vad_mode",
     "metrics",
     "grpc_max_receive_message_bytes",
@@ -95,6 +96,7 @@ class RunConfig:
     connection: ConnectionConfig
     session: SessionConfig
     report_metrics: bool
+    chunk_ms: int
 
 
 def load_yaml_config(path: Path) -> Dict[str, Any]:
@@ -146,37 +148,6 @@ def merge_transcript(prefix: str, next_text: str) -> str:
     return f"{prefix} {next_text}"
 
 
-def _create_channel(
-    target: str,
-    grpc_max_receive_message_bytes: Optional[int],
-    grpc_max_send_message_bytes: Optional[int],
-    tls_enabled: bool,
-    tls_ca_file: Optional[str],
-) -> grpc.Channel:
-    """Create a gRPC channel with optional message size limits."""
-    options = []
-    if grpc_max_receive_message_bytes and grpc_max_receive_message_bytes > 0:
-        options.append(
-            ("grpc.max_receive_message_length", grpc_max_receive_message_bytes)
-        )
-    if grpc_max_send_message_bytes and grpc_max_send_message_bytes > 0:
-        options.append(("grpc.max_send_message_length", grpc_max_send_message_bytes))
-    if tls_ca_file:
-        tls_enabled = True
-        cert_path = Path(tls_ca_file).expanduser()
-        if not cert_path.exists():
-            raise FileNotFoundError(f"TLS CA file not found: {cert_path}")
-        root_certificates = cert_path.read_bytes()
-    else:
-        root_certificates = None
-    if tls_enabled:
-        credentials = grpc.ssl_channel_credentials(root_certificates=root_certificates)
-        return grpc.secure_channel(target, credentials, options=options)
-    if options:
-        return grpc.insecure_channel(target, options=options)
-    return grpc.insecure_channel(target)
-
-
 def _format_value(key: str, value: Any) -> str:
     """Format scalar values for display."""
     if isinstance(value, float):
@@ -208,18 +179,6 @@ def _ensure_session_id(attributes: Dict[str, str]) -> str:
     return session_id
 
 
-def _build_signed_token_metadata(
-    session_id: str, signed_token_secret: Optional[str]
-) -> list[tuple[str, str]]:
-    secret = (signed_token_secret or "").strip()
-    if not secret:
-        return []
-    timestamp = str(int(time.time()))
-    payload = f"{session_id}:{timestamp}".encode("utf-8")
-    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
-    return [("authorization", f"Bearer {signature}"), ("x-stt-auth-ts", timestamp)]
-
-
 def _build_session_request(
     session: SessionConfig, session_id: str
 ) -> stt_pb2.SessionRequest:
@@ -247,7 +206,7 @@ def _build_session_request(
 
 
 def _print_stream_results(
-    responses: Iterator[stt_pb2.STTResult],
+    responses: Iterable[stt_pb2.STTResult],
     session_id: str,
     stream_start: float,
 ) -> None:
@@ -310,43 +269,48 @@ def _print_metrics(
     )
 
 
-def single_chunk_iter(
-    pcm_bytes: bytes, sample_rate: int, session_id: str, session_token: str
+def chunked_iter(
+    audio: np.ndarray,
+    sample_rate: int,
+    session_id: str,
+    session_token: str,
+    chunk_ms: int,
 ) -> Iterator[stt_pb2.AudioChunk]:
-    """Yield a single AudioChunk carrying the entire file buffer."""
-    yield stt_pb2.AudioChunk(
-        pcm16=pcm_bytes,
-        sample_rate=sample_rate,
-        is_final=True,
-        session_id=session_id,
-        session_token=session_token,
-    )
+    """Yield AudioChunk messages sized to stay under server limits."""
+    effective_chunk_ms = chunk_ms if chunk_ms > 0 else DEFAULT_CHUNK_MS
+    samples_per_chunk = max(int(sample_rate * (effective_chunk_ms / 1000.0)), 1)
+    total_samples = len(audio)
+    for start in range(0, total_samples, samples_per_chunk):
+        end = min(total_samples, start + samples_per_chunk)
+        is_final = end >= total_samples
+        yield stt_pb2.AudioChunk(
+            pcm16=audio[start:end].tobytes(),
+            sample_rate=sample_rate,
+            is_final=is_final,
+            session_id=session_id,
+            session_token=session_token,
+        )
 
 
 def run(config: RunConfig) -> None:
     """Run a batch streaming request against the STT server."""
-    channel = _create_channel(
+    client = StreamingClient(
         config.connection.target,
-        config.connection.grpc_max_receive_message_bytes,
-        config.connection.grpc_max_send_message_bytes,
-        config.connection.tls_enabled,
-        config.connection.tls_ca_file,
+        grpc_max_receive_message_bytes=config.connection.grpc_max_receive_message_bytes,
+        grpc_max_send_message_bytes=config.connection.grpc_max_send_message_bytes,
+        tls_enabled=config.connection.tls_enabled,
+        tls_ca_file=config.connection.tls_ca_file,
+        signed_token_secret=config.session.signed_token_secret,
     )
     metrics_ready = False
     audio_len = 0
     sample_rate = 0
     stream_start = 0.0
     try:
-        stub = stt_pb2_grpc.STTBackendStub(channel)
         session_id = _ensure_session_id(config.session.attributes)
         request = _build_session_request(config.session, session_id)
-        metadata = _build_signed_token_metadata(
-            session_id, config.session.signed_token_secret
-        )
-        if metadata:
-            session_resp = stub.CreateSession(request, metadata=metadata)
-        else:
-            session_resp = stub.CreateSession(request)
+        metadata = client.build_signed_metadata(session_id)
+        session_resp = client.create_session(request, metadata=metadata)
         session_token = session_resp.token if session_resp.token_required else ""
         print(
             f"[SESSION] session_id={session_id} created "
@@ -355,9 +319,14 @@ def run(config: RunConfig) -> None:
 
         audio, sample_rate = load_audio(config.path)
         audio_len = len(audio)
-        pcm_bytes = audio.tobytes()
-        responses = stub.StreamingRecognize(
-            single_chunk_iter(pcm_bytes, sample_rate, session_id, session_token),
+        responses = client.streaming_recognize(
+            chunked_iter(
+                audio,
+                sample_rate,
+                session_id,
+                session_token,
+                config.chunk_ms,
+            ),
             metadata=[("session-id", session_id)],
         )
         print(
@@ -385,7 +354,7 @@ def run(config: RunConfig) -> None:
             if config.report_metrics and metrics_ready:
                 _print_metrics(session_id, audio_len, sample_rate, stream_start)
     finally:
-        channel.close()
+        client.close()
 
 
 def _build_config_parser() -> argparse.ArgumentParser:
@@ -465,6 +434,15 @@ def _build_arg_parser(config_values: Dict[str, Any]) -> argparse.ArgumentParser:
         "--server",
         default="localhost:50051",
         help="gRPC target in host:port format (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--chunk-ms",
+        type=int,
+        default=DEFAULT_CHUNK_MS,
+        help=(
+            "Chunk size in milliseconds for batch streaming "
+            "(default: %(default)s)"
+        ),
     )
     parser.add_argument(
         "--vad-mode",
@@ -607,6 +585,7 @@ def main() -> None:
                 ),
             ),
             report_metrics=args.metrics,
+            chunk_ms=args.chunk_ms,
         )
     )
 

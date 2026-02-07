@@ -1,11 +1,11 @@
-from concurrent import futures
 import socket
+from concurrent import futures
 
 import grpc
 import pytest
 
 from gen.stt.python.v1 import stt_pb2, stt_pb2_grpc
-from stt_client.realtime.file import _create_channel as create_realtime_channel
+from stt_client.sdk import StreamingClient
 
 _CERT_PEM = """-----BEGIN CERTIFICATE-----
 MIICpDCCAYwCCQCHSeVShcNnMjANBgkqhkiG9w0BAQsFADAUMRIwEAYDVQQDDAls
@@ -99,17 +99,18 @@ def test_tls_grpc_client_server_roundtrip(tmp_path):
     assert port > 0
     server.start()
 
-    channel = None
+    client = None
     try:
-        channel = create_realtime_channel(
-            f"localhost:{port}", None, None, True, str(cert_path)
+        client = StreamingClient(
+            f"localhost:{port}",
+            tls_enabled=True,
+            tls_ca_file=str(cert_path),
         )
-        stub = stt_pb2_grpc.STTBackendStub(channel)
-        response = stub.CreateSession(stt_pb2.SessionRequest(session_id="tls-test"))
+        response = client.create_session(stt_pb2.SessionRequest(session_id="tls-test"))
         assert isinstance(response, stt_pb2.SessionResponse)
     finally:
-        if channel is not None:
-            channel.close()
+        if client is not None:
+            client.close()
         server.stop(0)
 
 

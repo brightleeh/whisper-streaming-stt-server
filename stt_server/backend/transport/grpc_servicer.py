@@ -31,7 +31,7 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
         try:
             return self.runtime.create_session_handler.handle(request, context)
         except grpc.RpcError as exc:
-            self._record_error(exc.code())
+            self._record_error(self._rpc_error_status(exc))
             raise
         except STTError as exc:
             self._record_error(exc.status)
@@ -51,7 +51,7 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
         try:
             yield from self.runtime.stream_orchestrator.run(request_iterator, context)
         except grpc.RpcError as exc:
-            self._record_error(exc.code())
+            self._record_error(self._rpc_error_status(exc))
             raise
         except STTError as exc:
             self._record_error(exc.status)
@@ -64,3 +64,18 @@ class STTGrpcServicer(stt_pb2_grpc.STTBackendServicer):
 
     def _record_error(self, status_code: grpc.StatusCode) -> None:
         self.runtime.metrics.record_error(status_code)
+
+    @staticmethod
+    def _rpc_error_status(exc: grpc.RpcError) -> grpc.StatusCode:
+        code = getattr(exc, "code", None)
+        if callable(code):
+            try:
+                value = code()
+                return (
+                    value
+                    if isinstance(value, grpc.StatusCode)
+                    else grpc.StatusCode.UNKNOWN
+                )
+            except Exception:
+                return grpc.StatusCode.UNKNOWN
+        return grpc.StatusCode.UNKNOWN

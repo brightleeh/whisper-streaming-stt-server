@@ -1,8 +1,6 @@
 """Realtime file-streaming client for the STT server."""
 
 import argparse
-import hashlib
-import hmac
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -14,7 +12,8 @@ import numpy as np
 import soundfile as sf
 import yaml
 
-from gen.stt.python.v1 import stt_pb2, stt_pb2_grpc
+from gen.stt.python.v1 import stt_pb2
+from stt_client.sdk import StreamingClient
 
 CHUNK_MS = 100  # 100ms
 TASK_CHOICES = ("transcribe", "translate")
@@ -125,49 +124,6 @@ def merge_transcript(prefix: str, next_text: str) -> str:
     if next_text.startswith(prefix):
         return next_text
     return f"{prefix} {next_text}"
-
-
-def _build_signed_token_metadata(
-    session_id: str, signed_token_secret: Optional[str]
-) -> list[tuple[str, str]]:
-    secret = (signed_token_secret or "").strip()
-    if not secret:
-        return []
-    timestamp = str(int(time.time()))
-    payload = f"{session_id}:{timestamp}".encode("utf-8")
-    signature = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
-    return [("authorization", f"Bearer {signature}"), ("x-stt-auth-ts", timestamp)]
-
-
-def _create_channel(
-    target: str,
-    grpc_max_receive_message_bytes: Optional[int],
-    grpc_max_send_message_bytes: Optional[int],
-    tls_enabled: bool,
-    tls_ca_file: Optional[str],
-) -> grpc.Channel:
-    """Create a gRPC channel with optional message size limits."""
-    options = []
-    if grpc_max_receive_message_bytes and grpc_max_receive_message_bytes > 0:
-        options.append(
-            ("grpc.max_receive_message_length", grpc_max_receive_message_bytes)
-        )
-    if grpc_max_send_message_bytes and grpc_max_send_message_bytes > 0:
-        options.append(("grpc.max_send_message_length", grpc_max_send_message_bytes))
-    if tls_ca_file:
-        tls_enabled = True
-        cert_path = Path(tls_ca_file).expanduser()
-        if not cert_path.exists():
-            raise FileNotFoundError(f"TLS CA file not found: {cert_path}")
-        root_certificates = cert_path.read_bytes()
-    else:
-        root_certificates = None
-    if tls_enabled:
-        credentials = grpc.ssl_channel_credentials(root_certificates=root_certificates)
-        return grpc.secure_channel(target, credentials, options=options)
-    if options:
-        return grpc.insecure_channel(target, options=options)
-    return grpc.insecure_channel(target)
 
 
 def _format_value(key: str, value: Any) -> str:
@@ -288,14 +244,14 @@ def run(
     vad_threshold: Optional[float],
 ) -> None:
     """Run a realtime streaming session for a single audio file."""
-    channel = _create_channel(
+    client = StreamingClient(
         target,
-        grpc_max_receive_message_bytes,
-        grpc_max_send_message_bytes,
-        tls_enabled,
-        tls_ca_file,
+        grpc_max_receive_message_bytes=grpc_max_receive_message_bytes,
+        grpc_max_send_message_bytes=grpc_max_send_message_bytes,
+        tls_enabled=tls_enabled,
+        tls_ca_file=tls_ca_file,
+        signed_token_secret=signed_token_secret,
     )
-    stub = stt_pb2_grpc.STTBackendStub(channel)
     session_id = attributes.get("session_id") or str(int(time.time() * 1000))
     attributes["session_id"] = session_id
 
@@ -312,11 +268,8 @@ def run(
     )
     if vad_threshold is not None:
         request.vad_threshold_override = vad_threshold
-    metadata = _build_signed_token_metadata(session_id, signed_token_secret)
-    if metadata:
-        session_resp = stub.CreateSession(request, metadata=metadata)
-    else:
-        session_resp = stub.CreateSession(request)
+    metadata = client.build_signed_metadata(session_id)
+    session_resp = client.create_session(request, metadata=metadata)
     session_token = session_resp.token if session_resp.token_required else ""
     print(
         f"[SESSION] session_id={session_id} created "
@@ -330,7 +283,7 @@ def run(
     stream_start = time.perf_counter()
 
     progress_state = {"dirty": False}
-    responses = stub.StreamingRecognize(
+    responses = client.streaming_recognize(
         stream_chunks(
             audio,
             sr,
@@ -428,7 +381,7 @@ def run(
                 real_time_factor=rtf,
             )
             print(format_kv_block("METRIC", asdict(summary)))
-        channel.close()
+        client.close()
 
 
 def main() -> None:
