@@ -58,6 +58,15 @@ DEFAULT_HEALTH_WINDOW_SEC = 60.0
 DEFAULT_HEALTH_MIN_EVENTS = 5
 DEFAULT_HEALTH_MAX_TIMEOUT_RATIO = 0.5
 DEFAULT_HEALTH_MIN_SUCCESS_RATIO = 0.5
+DEFAULT_ADAPTIVE_THROTTLE_ENABLED = False
+DEFAULT_ADAPTIVE_THROTTLE_INTERVAL_SEC = 2.0
+DEFAULT_ADAPTIVE_PENDING_RATIO_HIGH = 0.8
+DEFAULT_ADAPTIVE_BUFFER_RATIO_HIGH = 0.85
+DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH = 0.2
+DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_SCALE = 2.0
+DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC = None
+DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS = 0
+DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC = 2.0
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FILE = None
 DEFAULT_TRANSCRIPT_LOG_FILE = None
@@ -100,6 +109,15 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "buffer_overlap_sec": "buffer_overlap_sec",
         "partial_decode_interval_sec": "partial_decode_interval_sec",
         "partial_decode_window_sec": "partial_decode_window_sec",
+        "adaptive_throttle_enabled": "adaptive_throttle_enabled",
+        "adaptive_throttle_interval_sec": "adaptive_throttle_interval_sec",
+        "adaptive_pending_ratio_high": "adaptive_pending_ratio_high",
+        "adaptive_buffer_ratio_high": "adaptive_buffer_ratio_high",
+        "adaptive_orphan_rate_high": "adaptive_orphan_rate_high",
+        "adaptive_partial_interval_scale": "adaptive_partial_interval_scale",
+        "adaptive_partial_interval_max_sec": "adaptive_partial_interval_max_sec",
+        "adaptive_batch_window_min_ms": "adaptive_batch_window_min_ms",
+        "adaptive_create_session_backoff_sec": "adaptive_create_session_backoff_sec",
         "grpc_max_receive_message_bytes": "grpc_max_receive_message_bytes",
         "grpc_max_send_message_bytes": "grpc_max_send_message_bytes",
         "log_metrics": "log_metrics",
@@ -208,6 +226,15 @@ __all__ = [
     "DEFAULT_HEALTH_MIN_EVENTS",
     "DEFAULT_HEALTH_MAX_TIMEOUT_RATIO",
     "DEFAULT_HEALTH_MIN_SUCCESS_RATIO",
+    "DEFAULT_ADAPTIVE_THROTTLE_ENABLED",
+    "DEFAULT_ADAPTIVE_THROTTLE_INTERVAL_SEC",
+    "DEFAULT_ADAPTIVE_PENDING_RATIO_HIGH",
+    "DEFAULT_ADAPTIVE_BUFFER_RATIO_HIGH",
+    "DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH",
+    "DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_SCALE",
+    "DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC",
+    "DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS",
+    "DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC",
     "DEFAULT_LOG_LEVEL",
     "DEFAULT_LOG_FILE",
     "DEFAULT_TRANSCRIPT_LOG_FILE",

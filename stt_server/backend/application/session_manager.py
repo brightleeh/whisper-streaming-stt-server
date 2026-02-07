@@ -268,6 +268,7 @@ class CreateSessionConfig:
     max_sessions_per_ip: int = 0
     max_sessions_per_api_key: int = 0
     allow_new_sessions: Callable[[], bool] = lambda: True
+    allow_overload_sessions: Callable[[], bool] = lambda: True
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -424,6 +425,9 @@ class CreateSessionHandler:
         if not self._config.allow_new_sessions():
             LOGGER.warning("CreateSession rejected during shutdown")
             abort_with_error(context, ErrorCode.SERVER_SHUTTING_DOWN)
+        if not self._config.allow_overload_sessions():
+            LOGGER.warning("CreateSession rejected due to overload")
+            abort_with_error(context, ErrorCode.CREATE_SESSION_RATE_LIMITED)
         if not request.session_id:
             LOGGER.error(format_error(ErrorCode.SESSION_ID_REQUIRED))
             abort_with_error(context, ErrorCode.SESSION_ID_REQUIRED)

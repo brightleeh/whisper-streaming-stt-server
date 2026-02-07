@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import threading
+import time
 from typing import Any, Dict, Optional
 
 from stt_server.backend.application.model_registry import ModelRegistry
@@ -29,7 +31,7 @@ from stt_server.backend.application.stream_orchestrator.types import (
 )
 from stt_server.backend.component.decode_scheduler import DecodeSchedulerHooks
 from stt_server.backend.component.vad_gate import release_vad_slot
-from stt_server.backend.runtime.config import ServicerConfig
+from stt_server.backend.runtime.config import ServicerConfig, StreamingRuntimeConfig
 from stt_server.backend.runtime.metrics import Metrics
 from stt_server.backend.utils.profile_resolver import normalize_decode_profiles
 from stt_server.config.default.model import DEFAULT_MODEL_ID
@@ -47,6 +49,9 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
         self.metrics = Metrics()
         self.config = config
         self._accepting_sessions = True
+        self._overload_until = 0.0
+        self._overload_lock = threading.Lock()
+        self._adaptive_throttle: AdaptiveThrottle | None = None
         model_config = self.config.model
         streaming_config = self.config.streaming
         self.metrics.set_expose_api_key_metrics(streaming_config.expose_api_key_metrics)
@@ -96,6 +101,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             max_sessions_per_ip=streaming_config.max_sessions_per_ip,
             max_sessions_per_api_key=streaming_config.max_sessions_per_api_key,
             allow_new_sessions=self._allow_new_sessions,
+            allow_overload_sessions=self._allow_overload_sessions,
         )
         self.create_session_handler = CreateSessionHandler(
             session_registry=self.session_registry,
@@ -206,6 +212,10 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
         }
         self.stream_orchestrator.load_model(DEFAULT_MODEL_ID, default_model_config)
 
+        if streaming_config.adaptive_throttle_enabled:
+            self._adaptive_throttle = AdaptiveThrottle(self, streaming_config)
+            self._adaptive_throttle.start()
+
     def _build_language_cycle(self) -> list[Optional[str]]:
         if self.language_fix and self.default_language:
             return [self.default_language]
@@ -240,6 +250,8 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
 
     def shutdown(self) -> None:
         """Release runtime resources before exiting."""
+        if self._adaptive_throttle is not None:
+            self._adaptive_throttle.stop()
         self.model_registry.close()
 
     def stop_accepting_sessions(self) -> None:
@@ -248,3 +260,119 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
 
     def _allow_new_sessions(self) -> bool:
         return self._accepting_sessions
+
+    def _allow_overload_sessions(self) -> bool:
+        with self._overload_lock:
+            return time.monotonic() >= self._overload_until
+
+    def _set_overload_until(self, deadline: float) -> None:
+        with self._overload_lock:
+            self._overload_until = max(self._overload_until, deadline)
+
+
+class AdaptiveThrottle:
+    """Adaptive throttling loop based on runtime pressure signals."""
+
+    def __init__(self, runtime: ApplicationRuntime, config: StreamingRuntimeConfig):
+        self._runtime = runtime
+        self._config = config
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._base_partial_interval = config.partial_decode_interval_sec
+        self._base_batch_window_ms = max(0, int(config.decode_batch_window_ms))
+        self._pending_limit = max(0, int(config.max_pending_decodes_global))
+        self._buffer_limit = (
+            max(0, int(config.max_total_buffer_bytes))
+            if config.max_total_buffer_bytes is not None
+            else 0
+        )
+        self._last_orphaned = 0.0
+        self._last_cancelled = 0.0
+        self._mode = "normal"
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._thread.join(timeout=1.0)
+
+    def _loop(self) -> None:
+        interval = max(0.5, float(self._config.adaptive_throttle_interval_sec))
+        while not self._stop.wait(interval):
+            self._tick()
+
+    def _tick(self) -> None:
+        metrics = self._runtime.metrics.render()
+        pending = float(metrics.get("decode_pending", 0.0) or 0.0)
+        buffer_total = float(metrics.get("buffer_bytes_total", 0.0) or 0.0)
+        orphaned = float(metrics.get("decode_orphaned", 0.0) or 0.0)
+        cancelled = float(metrics.get("decode_cancelled", 0.0) or 0.0)
+
+        delta_orphaned = max(0.0, orphaned - self._last_orphaned)
+        delta_cancelled = max(0.0, cancelled - self._last_cancelled)
+        self._last_orphaned = orphaned
+        self._last_cancelled = cancelled
+
+        orphan_rate = 0.0
+        denom = delta_orphaned + delta_cancelled
+        if denom > 0:
+            orphan_rate = delta_orphaned / denom
+
+        pending_ratio = (
+            pending / self._pending_limit if self._pending_limit > 0 else 0.0
+        )
+        buffer_ratio = (
+            buffer_total / self._buffer_limit if self._buffer_limit > 0 else 0.0
+        )
+
+        pressure = (
+            pending_ratio >= self._config.adaptive_pending_ratio_high
+            or buffer_ratio >= self._config.adaptive_buffer_ratio_high
+            or orphan_rate >= self._config.adaptive_orphan_rate_high
+        )
+
+        if pressure:
+            self._apply_throttle()
+        else:
+            self._restore_defaults()
+
+    def _apply_throttle(self) -> None:
+        now = time.monotonic()
+        self._runtime._set_overload_until(  # pylint: disable=protected-access
+            now + max(0.0, float(self._config.adaptive_create_session_backoff_sec))
+        )
+
+        interval = self._scaled_partial_interval()
+        self._runtime.stream_orchestrator.set_partial_interval_override(interval)
+
+        min_window_ms = max(0, int(self._config.adaptive_batch_window_min_ms))
+        window_ms = min(self._base_batch_window_ms, min_window_ms)
+        self._runtime.model_registry.set_batch_window_ms(window_ms)
+
+        if self._mode != "throttled":
+            self._mode = "throttled"
+            LOGGER.warning(
+                "Adaptive throttling enabled: partial_interval=%s batch_window_ms=%s",
+                interval,
+                window_ms,
+            )
+
+    def _restore_defaults(self) -> None:
+        self._runtime.stream_orchestrator.set_partial_interval_override(
+            self._base_partial_interval
+        )
+        self._runtime.model_registry.set_batch_window_ms(self._base_batch_window_ms)
+        if self._mode != "normal":
+            self._mode = "normal"
+            LOGGER.info("Adaptive throttling disabled; restored defaults.")
+
+    def _scaled_partial_interval(self) -> Optional[float]:
+        base = self._base_partial_interval
+        if base is None or base <= 0:
+            return base
+        scaled = base * max(1.0, float(self._config.adaptive_partial_interval_scale))
+        max_sec = self._config.adaptive_partial_interval_max_sec
+        if max_sec is not None and max_sec > 0:
+            return min(scaled, max_sec)
+        return scaled

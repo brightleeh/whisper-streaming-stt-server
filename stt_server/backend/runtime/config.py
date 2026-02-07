@@ -70,6 +70,15 @@ class StreamingRuntimeConfig:
     health_min_success_ratio: float = 0.5
     expose_api_key_metrics: bool = False
     log_transcripts: bool = False
+    adaptive_throttle_enabled: bool = False
+    adaptive_throttle_interval_sec: float = 2.0
+    adaptive_pending_ratio_high: float = 0.8
+    adaptive_buffer_ratio_high: float = 0.85
+    adaptive_orphan_rate_high: float = 0.2
+    adaptive_partial_interval_scale: float = 2.0
+    adaptive_partial_interval_max_sec: Optional[float] = None
+    adaptive_batch_window_min_ms: int = 0
+    adaptive_create_session_backoff_sec: float = 2.0
 
 
 @dataclass

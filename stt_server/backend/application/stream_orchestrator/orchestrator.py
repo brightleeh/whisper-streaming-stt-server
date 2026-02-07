@@ -94,6 +94,8 @@ class StreamOrchestrator:
         self._audio_storage: Optional[AudioStorageManager] = None
         self._buffer_manager = _AudioBufferManager(config)
         self._stream_rate_limiters: Dict[str, Optional[KeyedRateLimiter]] = {}
+        self._adaptive_lock = threading.Lock()
+        self._partial_interval_override: Optional[float] = None
         self._configure_stream_rate_limiters(config.stream)
         configure_vad_model_pool(
             config.vad_pool.size,
@@ -132,6 +134,11 @@ class StreamOrchestrator:
     def config(self) -> StreamOrchestratorConfig:
         """Expose the orchestrator configuration."""
         return self._config
+
+    def set_partial_interval_override(self, interval_sec: Optional[float]) -> None:
+        """Override the partial decode interval (set None to restore defaults)."""
+        with self._adaptive_lock:
+            self._partial_interval_override = interval_sec
 
     def load_model(self, model_id: str, config: Dict[str, Any]) -> None:
         """Load a model into the registry."""
@@ -814,6 +821,13 @@ class StreamOrchestrator:
     def _partial_decode_window_bytes(self, sample_rate: Optional[int]) -> Optional[int]:
         return self._buffer_manager.partial_decode_window_bytes(sample_rate)
 
+    def _partial_interval_sec(self) -> Optional[float]:
+        with self._adaptive_lock:
+            override = self._partial_interval_override
+        if override is not None:
+            return override
+        return self._config.partial_decode.interval_sec
+
     def _partial_enabled(self, state: _StreamState) -> bool:
         session_state = state.session.session_state
         if not session_state:
@@ -835,7 +849,7 @@ class StreamOrchestrator:
     ) -> None:
         if not self._partial_enabled(state):
             return
-        interval = self._config.partial_decode.interval_sec
+        interval = self._partial_interval_sec()
         if interval is None:
             return
         limit_bytes = self._buffer_limit_bytes(state.session.sample_rate)

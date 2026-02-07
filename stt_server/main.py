@@ -106,10 +106,6 @@ def serve(config: ServerConfig) -> None:
         max_audio_seconds_per_session=config.max_audio_seconds_per_session,
         max_audio_bytes_per_sec=config.max_audio_bytes_per_sec,
         max_audio_bytes_per_sec_burst=config.max_audio_bytes_per_sec_burst,
-        max_audio_bytes_per_sec_realtime=config.max_audio_bytes_per_sec_realtime,
-        max_audio_bytes_per_sec_burst_realtime=config.max_audio_bytes_per_sec_burst_realtime,
-        max_audio_bytes_per_sec_batch=config.max_audio_bytes_per_sec_batch,
-        max_audio_bytes_per_sec_burst_batch=config.max_audio_bytes_per_sec_burst_batch,
         health_window_sec=config.health_window_sec,
         health_min_events=config.health_min_events,
         health_max_timeout_ratio=config.health_max_timeout_ratio,
@@ -117,6 +113,31 @@ def serve(config: ServerConfig) -> None:
         log_transcripts=config.log_transcripts,
     )
     streaming_cfg.speech_rms_threshold = config.speech_rms_threshold
+    streaming_cfg.max_audio_bytes_per_sec_realtime = (
+        config.max_audio_bytes_per_sec_realtime
+    )
+    streaming_cfg.max_audio_bytes_per_sec_burst_realtime = (
+        config.max_audio_bytes_per_sec_burst_realtime
+    )
+    streaming_cfg.max_audio_bytes_per_sec_batch = config.max_audio_bytes_per_sec_batch
+    streaming_cfg.max_audio_bytes_per_sec_burst_batch = (
+        config.max_audio_bytes_per_sec_burst_batch
+    )
+    streaming_cfg.adaptive_throttle_enabled = config.adaptive_throttle_enabled
+    streaming_cfg.adaptive_throttle_interval_sec = config.adaptive_throttle_interval_sec
+    streaming_cfg.adaptive_pending_ratio_high = config.adaptive_pending_ratio_high
+    streaming_cfg.adaptive_buffer_ratio_high = config.adaptive_buffer_ratio_high
+    streaming_cfg.adaptive_orphan_rate_high = config.adaptive_orphan_rate_high
+    streaming_cfg.adaptive_partial_interval_scale = (
+        config.adaptive_partial_interval_scale
+    )
+    streaming_cfg.adaptive_partial_interval_max_sec = (
+        config.adaptive_partial_interval_max_sec
+    )
+    streaming_cfg.adaptive_batch_window_min_ms = config.adaptive_batch_window_min_ms
+    streaming_cfg.adaptive_create_session_backoff_sec = (
+        config.adaptive_create_session_backoff_sec
+    )
     storage_cfg = StorageRuntimeConfig(
         enabled=config.persist_audio,
         directory=config.audio_storage_dir,

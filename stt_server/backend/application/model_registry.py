@@ -123,6 +123,11 @@ class ModelRegistry:
         self._batch_window_sec = max(0.0, float(batch_window_ms) / 1000.0)
         self._max_batch_size = max(1, int(max_batch_size))
 
+    def set_batch_window_ms(self, batch_window_ms: int) -> None:
+        """Update the decode batch window (milliseconds)."""
+        with self._lock:
+            self._batch_window_sec = max(0.0, float(batch_window_ms) / 1000.0)
+
     def is_loaded(self, model_id: str) -> bool:
         """Check if a model is currently loaded."""
         with self._lock:

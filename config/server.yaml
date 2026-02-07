@@ -28,6 +28,16 @@ server:
   max_chunk_ms: 2000 # Max single chunk duration in milliseconds (null disables)
   partial_decode_interval_sec: 1.5 # Partial decode interval during speech (null disables)
   partial_decode_window_sec: 10.0 # Window size for partial decode audio (seconds)
+  # Adaptive throttling (optional; defaults off).
+  adaptive_throttle_enabled: false
+  adaptive_throttle_interval_sec: 2.0
+  adaptive_pending_ratio_high: 0.8
+  adaptive_buffer_ratio_high: 0.85
+  adaptive_orphan_rate_high: 0.2
+  adaptive_partial_interval_scale: 2.0
+  adaptive_partial_interval_max_sec: null
+  adaptive_batch_window_min_ms: 0
+  adaptive_create_session_backoff_sec: 2.0
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
   max_pending_decodes_global: 512 # Global max queued decodes before backpressure/drop
   max_total_buffer_bytes: 268435456 # Global buffered audio cap (bytes)

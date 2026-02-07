@@ -15,6 +15,36 @@ Backpressure health checklist (during load):
 - `metrics.partial_drop_count` / `metrics.rate_limit_blocks.*`: should increase when limits are actively shedding load.
 - Dashboard and alerting suggestions live in `docs/slo.md`.
 
+## Adaptive throttling (optional)
+
+Enable adaptive throttling to reduce partial load and shed new sessions when the system is under pressure.
+The policy watches pending decode depth, buffer pressure, and orphan rate, then:
+
+- increases `partial_decode_interval_sec` (fewer partials)
+- reduces `decode_batch_window_ms` (lower queue latency)
+- temporarily rejects new CreateSession requests
+
+Configure in `server:`:
+
+```yaml
+adaptive_throttle_enabled: true
+adaptive_throttle_interval_sec: 2.0
+adaptive_pending_ratio_high: 0.8
+adaptive_buffer_ratio_high: 0.85
+adaptive_orphan_rate_high: 0.2
+adaptive_partial_interval_scale: 2.0
+adaptive_partial_interval_max_sec: null
+adaptive_batch_window_min_ms: 0
+adaptive_create_session_backoff_sec: 2.0
+```
+
+Operational guidance (when to enable)
+
+- Enable when `decode_pending` sits near the cap for 1-2 minutes, or
+  `buffer_bytes_total` sustains >80% of `max_total_buffer_bytes`, or
+  orphan rate spikes.
+- Disable after ~10 minutes of stability (pending <50%, buffer <50%, orphan rate low).
+
 Security checks:
 
 - `tools/security_smoke_check.sh http://<host>:<port>` verifies `/metrics*`, `/system`, `/health` are protected (or `/health` is minimal when `STT_PUBLIC_HEALTH=minimal`).

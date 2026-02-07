@@ -7,6 +7,15 @@ from typing import Any, Dict, Optional
 import yaml
 
 from stt_server.config.default import (
+    DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS,
+    DEFAULT_ADAPTIVE_BUFFER_RATIO_HIGH,
+    DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC,
+    DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH,
+    DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC,
+    DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_SCALE,
+    DEFAULT_ADAPTIVE_PENDING_RATIO_HIGH,
+    DEFAULT_ADAPTIVE_THROTTLE_ENABLED,
+    DEFAULT_ADAPTIVE_THROTTLE_INTERVAL_SEC,
     DEFAULT_AUDIO_STORAGE_DIR,
     DEFAULT_AUDIO_STORAGE_QUEUE_MAX_CHUNKS,
     DEFAULT_BUFFER_OVERLAP_SEC,
@@ -151,6 +160,19 @@ class ServerConfig:
     max_chunk_ms: Optional[int] = DEFAULT_MAX_CHUNK_MS
     partial_decode_interval_sec: Optional[float] = DEFAULT_PARTIAL_DECODE_INTERVAL_SEC
     partial_decode_window_sec: Optional[float] = DEFAULT_PARTIAL_DECODE_WINDOW_SEC
+    adaptive_throttle_enabled: bool = DEFAULT_ADAPTIVE_THROTTLE_ENABLED
+    adaptive_throttle_interval_sec: float = DEFAULT_ADAPTIVE_THROTTLE_INTERVAL_SEC
+    adaptive_pending_ratio_high: float = DEFAULT_ADAPTIVE_PENDING_RATIO_HIGH
+    adaptive_buffer_ratio_high: float = DEFAULT_ADAPTIVE_BUFFER_RATIO_HIGH
+    adaptive_orphan_rate_high: float = DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH
+    adaptive_partial_interval_scale: float = DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_SCALE
+    adaptive_partial_interval_max_sec: Optional[float] = (
+        DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC
+    )
+    adaptive_batch_window_min_ms: int = DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS
+    adaptive_create_session_backoff_sec: float = (
+        DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC
+    )
     max_pending_decodes_per_stream: int = DEFAULT_MAX_PENDING_DECODES_PER_STREAM
     max_pending_decodes_global: int = DEFAULT_MAX_PENDING_DECODES_GLOBAL
     max_total_buffer_bytes: Optional[int] = DEFAULT_MAX_TOTAL_BUFFER_BYTES
