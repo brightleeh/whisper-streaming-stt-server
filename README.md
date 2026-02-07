@@ -781,6 +781,7 @@ See `docs/slo.md` for draft targets and a load-test report template.
 - Unit tests only (skip integration): `./tools/run_tests.sh unit`
 - Integration tests (requires running server): `./tools/run_tests.sh integration`
 - Abuse/load smoke tests (starts temp server): `./tools/run_tests.sh abuse`
+- Abuse scenarios include a backpressure metrics check (buffer cap + pending drops); enable with `STT_RUN_ABUSE_TESTS=1`.
 - Full test run: `./tools/run_tests.sh all`
 
 ### Long-run abuse/profiling
@@ -821,6 +822,22 @@ Run the gRPC load-test script from the repo root:
 ```bash
 python -m tools.bench.grpc_load_test --channels 100 --iterations 1 --warmup-iterations 1 --log-sessions
 ```
+
+Backpressure/drop validation (short run):
+
+```bash
+python -m stt_server.main --config config/loadtest/bench_backpressure.yaml \
+  --model small --device mps --model-backend torch_whisper --model-pool-size 1 --max-sessions 100
+
+python -m tools.bench.grpc_load_test \
+  --channels 50 --iterations 6 --chunk-ms 100 --realtime --speed 2.0 --attr partial=true
+```
+
+Expected signals: `metrics.partial_drop_count` increases, `metrics.buffer_bytes_total` plateaus near
+`max_total_buffer_bytes`, and `metrics.decode_pending` plateaus near `max_pending_decodes_global`.
+To confirm stream rate limits, keep the default `config/server.yaml` and increase load
+(for example `--speed 2.5` with 50 channels) until `ERR2003` appears and `metrics.rate_limit_blocks`
+increments.
 
 Per-session logs can be emitted in structured formats:
 
