@@ -385,17 +385,23 @@ class CreateSessionHandler:
             LOGGER.warning("CreateSession auth token missing timestamp/signature")
             abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
         try:
-            timestamp = int(float(ts_raw))
+            timestamp_raw = int(float(ts_raw))
         except (TypeError, ValueError):
             LOGGER.warning("CreateSession auth timestamp invalid: %s", ts_raw)
             abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
+        timestamp_sec = timestamp_raw
+        if timestamp_sec > 100_000_000_000:
+            # Treat large epoch values as milliseconds for TTL checks.
+            timestamp_sec = int(timestamp_sec / 1000)
         ttl = float(self._config.create_session_auth_ttl_sec or 0.0)
         if ttl > 0:
             now = time.time()
-            if abs(now - timestamp) > ttl:
-                LOGGER.warning("CreateSession auth token expired (ts=%s)", timestamp)
+            if abs(now - timestamp_sec) > ttl:
+                LOGGER.warning(
+                    "CreateSession auth token expired (ts=%s)", timestamp_raw
+                )
                 abort_with_error(context, ErrorCode.CREATE_SESSION_AUTH_INVALID)
-        payload = f"{session_id}:{timestamp}".encode("utf-8")
+        payload = f"{session_id}:{timestamp_raw}".encode("utf-8")
         expected = hmac.new(secret.encode("utf-8"), payload, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, sig_raw):
             LOGGER.warning("CreateSession auth signature mismatch")
