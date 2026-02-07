@@ -1,3 +1,4 @@
+import contextlib
 import os
 import random
 import socket
@@ -6,6 +7,7 @@ import sys
 import tempfile
 import threading
 import time
+import wave
 from pathlib import Path
 
 import grpc
@@ -36,6 +38,86 @@ def _pick_port(env_name: str, default: int) -> int:
         if not _port_in_use(candidate):
             return candidate
     return default
+
+
+def _load_wav_pcm16(path: str) -> tuple[bytes, int]:
+    with wave.open(path, "rb") as wf:
+        sample_rate = wf.getframerate()
+        sample_width = wf.getsampwidth()
+        channels = wf.getnchannels()
+        frames = wf.readframes(wf.getnframes())
+    if sample_width != 2 or channels != 1:
+        raise ValueError(f"Unsupported WAV format: {channels}ch {sample_width * 8}-bit")
+    return frames, sample_rate
+
+
+def _chunk_pcm(pcm16: bytes, sample_rate: int, chunk_ms: int) -> list[bytes]:
+    chunk_bytes = max(1, int(sample_rate * 2 * (chunk_ms / 1000.0)))
+    return [
+        pcm16[offset : offset + chunk_bytes]
+        for offset in range(0, len(pcm16), chunk_bytes)
+        if pcm16[offset : offset + chunk_bytes]
+    ]
+
+
+@contextlib.contextmanager
+def _temp_grpc_server(config_content: str):
+    if os.getenv("STT_SKIP_INTEGRATION", "").strip().lower() in {"1", "true", "yes"}:
+        pytest.skip("Integration tests skipped via STT_SKIP_INTEGRATION.")
+    grpc_port = _pick_port("STT_TEST_GRPC_PORT", 50053)
+    http_port = _pick_port("STT_TEST_HTTP_PORT", 8002)
+    if http_port == grpc_port:
+        http_port = _pick_port("STT_TEST_HTTP_PORT", 8002)
+    health_url = f"http://localhost:{http_port}/health"
+    proc = None
+    config_path = None
+
+    with tempfile.NamedTemporaryFile(
+        mode="w", delete=False, suffix=".yaml"
+    ) as tmp_config:
+        config_path = tmp_config.name
+        tmp_config.write(config_content)
+
+    try:
+        cmd = [
+            sys.executable,
+            "-m",
+            "stt_server.main",
+            "--model",
+            "tiny",
+            "--device",
+            "cpu",
+            "--config",
+            config_path,
+            "--port",
+            str(grpc_port),
+            "--metrics-port",
+            str(http_port),
+        ]
+        env = os.environ.copy()
+        env["PYTHONPATH"] = PROJECT_ROOT
+        proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, env=env)
+
+        for _ in range(60):
+            try:
+                if requests.get(health_url, timeout=1).status_code == 200:
+                    break
+            except requests.exceptions.RequestException:
+                time.sleep(1)
+        else:
+            raise RuntimeError("Temporary server failed to start.")
+
+        yield {
+            "proc": proc,
+            "grpc_target": f"localhost:{grpc_port}",
+            "http_base_url": f"http://localhost:{http_port}",
+        }
+    finally:
+        if proc is not None:
+            proc.terminate()
+            proc.wait()
+        if config_path and os.path.exists(config_path):
+            os.unlink(config_path)
 
 
 @pytest.fixture(scope="module")
@@ -421,3 +503,201 @@ def test_error_session_timeout(short_timeout_grpc_server):
         assert e.value.code() == grpc.StatusCode.DEADLINE_EXCEEDED
         assert "ERR1006" in str(e.value.details())
         print("\n[PASS] ERR1006 (session timeout) test successful.")
+
+
+def test_streaming_partial_and_final_results():
+    """Stream audio and expect partials plus a final result."""
+    config_content = (
+        "server:\n"
+        "  partial_decode_interval_sec: 0.2\n"
+        "  partial_decode_window_sec: 2.0\n"
+        "  session_timeout_sec: 30\n"
+        "  max_pending_decodes_per_stream: 0\n"
+        "  max_audio_bytes_per_sec: 0\n"
+        "  max_audio_bytes_per_sec_burst: 0\n"
+        "vad:\n"
+        "  threshold: 0.1\n"
+        "safety:\n"
+        "  speech_rms_threshold: 0.0\n"
+    )
+    asset_path = os.path.join(PROJECT_ROOT, "stt_client/assets/hello.wav")
+    pcm16, sample_rate = _load_wav_pcm16(asset_path)
+    chunks = _chunk_pcm(pcm16, sample_rate, chunk_ms=200)
+
+    with _temp_grpc_server(config_content) as server:
+        with grpc.insecure_channel(server["grpc_target"]) as channel:
+            stub = stt_pb2_grpc.STTBackendStub(channel)
+            session_id = f"test-partial-{time.time()}"
+            stub.CreateSession(
+                stt_pb2.SessionRequest(
+                    session_id=session_id,
+                    attributes={"partial": "true"},
+                    vad_mode=stt_pb2.VAD_CONTINUE,
+                )
+            )
+
+            def audio_chunks():
+                for idx, chunk in enumerate(chunks):
+                    yield stt_pb2.AudioChunk(
+                        session_id=session_id,
+                        pcm16=chunk,
+                        sample_rate=sample_rate,
+                        is_final=(idx == len(chunks) - 1),
+                    )
+                    time.sleep(len(chunk) / (sample_rate * 2))
+
+            results = list(stub.StreamingRecognize(audio_chunks()))
+            partials = [result for result in results if not result.is_final]
+            finals = [result for result in results if result.is_final]
+            assert partials, "Expected at least one partial result"
+            assert len(finals) == 1
+
+
+def test_chunk_too_large_invalid_argument():
+    """Send an oversized chunk and expect ERR1007."""
+    config_content = "server:\n  max_chunk_ms: 20\n"
+    with _temp_grpc_server(config_content) as server:
+        with grpc.insecure_channel(server["grpc_target"]) as channel:
+            stub = stt_pb2_grpc.STTBackendStub(channel)
+            session_id = f"test-chunk-max-{time.time()}"
+            stub.CreateSession(stt_pb2.SessionRequest(session_id=session_id))
+
+            def audio_chunks():
+                yield stt_pb2.AudioChunk(
+                    session_id=session_id,
+                    pcm16=b"\x00\x00" * 500,
+                    sample_rate=16000,
+                    is_final=True,
+                )
+
+            with pytest.raises(grpc.RpcError) as e:
+                list(stub.StreamingRecognize(audio_chunks()))
+
+            assert e.value.code() == grpc.StatusCode.INVALID_ARGUMENT
+            assert "ERR1007" in str(e.value.details())
+
+
+def test_stream_rate_limit_exceeded():
+    """Exceed stream rate limit and expect ERR2003."""
+    config_content = (
+        "server:\n"
+        "  max_audio_bytes_per_sec: 1000\n"
+        "  max_audio_bytes_per_sec_burst: 1000\n"
+    )
+    with _temp_grpc_server(config_content) as server:
+        with grpc.insecure_channel(server["grpc_target"]) as channel:
+            stub = stt_pb2_grpc.STTBackendStub(channel)
+            session_id = f"test-rate-limit-{time.time()}"
+            stub.CreateSession(stt_pb2.SessionRequest(session_id=session_id))
+
+            def audio_chunks():
+                yield stt_pb2.AudioChunk(
+                    session_id=session_id,
+                    pcm16=b"\x00\x00" * 800,
+                    sample_rate=16000,
+                    is_final=True,
+                )
+
+            with pytest.raises(grpc.RpcError) as e:
+                list(stub.StreamingRecognize(audio_chunks()))
+
+            assert e.value.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
+            assert "ERR2003" in str(e.value.details())
+
+
+def test_buffer_limit_triggers_partial_drop_metric():
+    """Hit buffer limits and expect partial drop metrics to increment."""
+    config_content = (
+        "server:\n"
+        "  max_buffer_sec: 0.5\n"
+        "  partial_decode_interval_sec: 0.1\n"
+        "  partial_decode_window_sec: 1.0\n"
+        "  max_pending_decodes_per_stream: 1\n"
+        "  max_audio_bytes_per_sec: 0\n"
+        "  max_audio_bytes_per_sec_burst: 0\n"
+        "vad:\n"
+        "  threshold: 0.1\n"
+        "safety:\n"
+        "  speech_rms_threshold: 0.0\n"
+    )
+    asset_path = os.path.join(PROJECT_ROOT, "stt_client/assets/hello.wav")
+    pcm16, sample_rate = _load_wav_pcm16(asset_path)
+    pcm16 = pcm16 * 6
+    chunks = _chunk_pcm(pcm16, sample_rate, chunk_ms=500)
+
+    with _temp_grpc_server(config_content) as server:
+        with grpc.insecure_channel(server["grpc_target"]) as channel:
+            stub = stt_pb2_grpc.STTBackendStub(channel)
+            session_id = f"test-buffer-limit-{time.time()}"
+            stub.CreateSession(
+                stt_pb2.SessionRequest(
+                    session_id=session_id,
+                    attributes={"partial": "true"},
+                    vad_mode=stt_pb2.VAD_CONTINUE,
+                )
+            )
+
+            def audio_chunks():
+                for idx, chunk in enumerate(chunks):
+                    yield stt_pb2.AudioChunk(
+                        session_id=session_id,
+                        pcm16=chunk,
+                        sample_rate=sample_rate,
+                        is_final=(idx == len(chunks) - 1),
+                    )
+
+            list(stub.StreamingRecognize(audio_chunks()))
+
+        metrics = requests.get(
+            f"{server['http_base_url']}/metrics.json", timeout=2
+        ).json()
+        assert metrics.get("partial_drop_count", 0) > 0
+
+
+def test_decode_timeout_returns_deadline_exceeded():
+    """Force decode timeout and expect ERR2001."""
+    config_content = (
+        "server:\n"
+        "  decode_timeout_sec: 0.001\n"
+        "  max_chunk_ms: 10000\n"
+        "  max_audio_bytes_per_sec: 0\n"
+        "  max_audio_bytes_per_sec_burst: 0\n"
+    )
+    with _temp_grpc_server(config_content) as server:
+        with grpc.insecure_channel(server["grpc_target"]) as channel:
+            stub = stt_pb2_grpc.STTBackendStub(channel)
+            session_id = f"test-decode-timeout-{time.time()}"
+            stub.CreateSession(stt_pb2.SessionRequest(session_id=session_id))
+
+            pcm16 = b"\x00\x00" * 16000 * 3
+
+            def audio_chunks():
+                yield stt_pb2.AudioChunk(
+                    session_id=session_id,
+                    pcm16=pcm16,
+                    sample_rate=16000,
+                    is_final=True,
+                )
+
+            with pytest.raises(grpc.RpcError) as e:
+                list(stub.StreamingRecognize(audio_chunks()))
+
+            assert e.value.code() == grpc.StatusCode.DEADLINE_EXCEEDED
+            assert "ERR2001" in str(e.value.details())
+
+
+def test_max_sessions_per_ip_exceeded():
+    """Exceed per-IP session limit and expect ERR1011."""
+    config_content = "server:\n  max_sessions_per_ip: 1\n"
+    with _temp_grpc_server(config_content) as server:
+        with grpc.insecure_channel(server["grpc_target"]) as channel:
+            stub = stt_pb2_grpc.STTBackendStub(channel)
+            stub.CreateSession(
+                stt_pb2.SessionRequest(session_id=f"test-sess-1-{time.time()}")
+            )
+            with pytest.raises(grpc.RpcError) as e:
+                stub.CreateSession(
+                    stt_pb2.SessionRequest(session_id=f"test-sess-2-{time.time()}")
+                )
+            assert e.value.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
+            assert "ERR1011" in str(e.value.details())
