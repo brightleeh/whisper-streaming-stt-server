@@ -1,0 +1,7 @@
+[
+  {
+    "id": "local",
+    "grpc_target": "localhost:50051",
+    "http_base": "http://localhost:8000"
+  }
+]
