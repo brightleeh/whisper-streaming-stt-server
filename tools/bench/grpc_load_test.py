@@ -147,6 +147,22 @@ def parse_attrs(values: Sequence[str]) -> Dict[str, str]:
     return attrs
 
 
+def parse_metadata(values: Sequence[str]) -> List[Tuple[str, str]]:
+    """Parse repeatable metadata key=value flags."""
+    metadata: List[Tuple[str, str]] = []
+    for raw in values:
+        if not raw:
+            continue
+        if "=" not in raw:
+            raise ValueError(f"Invalid --metadata '{raw}', expected key=value")
+        key, value = raw.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"Invalid --metadata '{raw}', key is empty")
+        metadata.append((key, value.strip()))
+    return metadata
+
+
 def _extract_decode_metrics(
     metadata: Optional[Iterable[Tuple[str, str]]],
 ) -> Dict[str, float]:
@@ -287,10 +303,13 @@ class SessionLog:
     """Per-session log entry for benchmark reporting."""
 
     session_id: str
+    start_ts: Optional[float]
+    end_ts: Optional[float]
     responses: int
     elapsed_sec: float
     success: bool
     error_code: Optional[str] = None
+    final_text: Optional[str] = None
     send_sec: Optional[float] = None
     first_response_sec: Optional[float] = None
     tail_sec: Optional[float] = None
@@ -308,9 +327,12 @@ class SessionLog:
 
 SESSION_LOG_HEADERS = [
     "session_id",
+    "start_time",
+    "end_time",
     "responses",
     "success",
     "error_code",
+    "final_text",
     "failure_stage",
     "send_duration_seconds",
     "first_response_seconds",
@@ -328,9 +350,12 @@ SESSION_LOG_HEADERS = [
 
 SESSION_LOG_COLUMN_DESCRIPTIONS = [
     ("session_id", "Client-provided session identifier"),
+    ("start_time", "Session start time (local)"),
+    ("end_time", "Session end time (local)"),
     ("responses", "Number of responses in the stream"),
     ("success", "True when the stream completed without error"),
     ("error_code", "gRPC error code when success is false"),
+    ("final_text", "Final transcript text (best-effort)"),
     ("failure_stage", "Stage of failure when success is false"),
     ("send_duration_seconds", "Time spent sending audio chunks from the client"),
     ("first_response_seconds", "Time from stream start to first response"),
@@ -376,13 +401,25 @@ def format_seconds_string(value: Optional[float]) -> str:
     return f"{value:.3f}"
 
 
+def format_timestamp_string(value: Optional[float]) -> str:
+    """Format an epoch timestamp as a string."""
+    if value is None:
+        return ""
+    return datetime.fromtimestamp(value).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def session_log_payload(entry: SessionLog) -> Dict[str, object]:
     """Build a JSON-friendly payload for a session log entry."""
     return {
         "session_id": entry.session_id,
+        "start_ts": entry.start_ts,
+        "end_ts": entry.end_ts,
+        "start_time": format_timestamp_string(entry.start_ts),
+        "end_time": format_timestamp_string(entry.end_ts),
         "responses": entry.responses,
         "success": entry.success,
         "error_code": entry.error_code,
+        "final_text": entry.final_text,
         "failure_stage": entry.failure_stage,
         "send_duration_seconds": format_seconds_value(entry.send_sec),
         "first_response_seconds": format_seconds_value(entry.first_response_sec),
@@ -407,9 +444,12 @@ def session_log_row(entry: SessionLog) -> List[str]:
     """Build a CSV/TSV row for a session log entry."""
     return [
         entry.session_id,
+        format_timestamp_string(entry.start_ts),
+        format_timestamp_string(entry.end_ts),
         str(entry.responses),
         "true" if entry.success else "false",
         entry.error_code or "",
+        entry.final_text or "",
         entry.failure_stage or "",
         format_seconds_string(entry.send_sec),
         format_seconds_string(entry.first_response_sec),
@@ -526,6 +566,7 @@ class BenchConfig:
     speed: float
     require_token: bool
     task: str
+    language_code: str
     profile: str
     vad_mode: str
     attributes: Dict[str, str]
@@ -533,6 +574,7 @@ class BenchConfig:
     max_session_logs: int
     ramp_steps: int
     ramp_interval_sec: float
+    create_session_backoff_ms: int
     session_log_writer: Optional[SessionLogWriter]
     tls: bool
     ca_cert: Optional[str]
@@ -571,6 +613,7 @@ def run_channel(
             f"bench-{index:0{channel_width}d}-{i:0{iteration_width}d}-"
             f"{uuid.uuid4().hex[:8]}"
         )
+        session_start_ts = time.time()
         audio_sec = len(pcm16) / (sample_rate * BYTES_PER_SAMPLE)
         try:
             timing = StreamTiming(start_sec=time.perf_counter())
@@ -580,6 +623,7 @@ def run_channel(
                         session_id=session_id,
                         require_token=config.require_token,
                         task=task_enum,
+                        language_code=config.language_code,
                         decode_profile=profile_enum,
                         vad_mode=vad_mode_enum,
                         attributes=config.attributes,
@@ -588,8 +632,11 @@ def run_channel(
                     metadata=config.metadata,
                 )
             except grpc.RpcError as exc:
+                session_end_ts = time.time()
                 session_log_entry = SessionLog(
                     session_id=session_id,
+                    start_ts=session_start_ts,
+                    end_ts=session_end_ts,
                     responses=0,
                     elapsed_sec=0.0,
                     success=False,
@@ -605,9 +652,13 @@ def run_channel(
                         stats.record_failure(exc, "create_session")
                         if config.log_sessions:
                             stats.maybe_log(session_log_entry, config.max_session_logs)
+                if config.create_session_backoff_ms > 0:
+                    time.sleep(config.create_session_backoff_ms / 1000.0)
                 continue
             token = response.token if response.token_required else ""
             responses = 0
+            latest_text: Optional[str] = None
+            final_text: Optional[str] = None
             first_response_at: Optional[float] = None
             last_response_at: Optional[float] = None
             call = stub.StreamingRecognize(
@@ -631,13 +682,25 @@ def run_channel(
                         first_response_at = now
                     last_response_at = now
                     responses += 1
+                    text_value = None
+                    if hasattr(_, "text") and _.text:
+                        text_value = _.text
+                    elif hasattr(_, "committed_text") and _.committed_text:
+                        text_value = _.committed_text
+                    if text_value:
+                        latest_text = text_value
+                    if hasattr(_, "is_final") and _.is_final and latest_text:
+                        final_text = latest_text
                 try:
                     trailing = call.trailing_metadata()
                 except grpc.RpcError:
                     trailing = None
             except grpc.RpcError as exc:
+                session_end_ts = time.time()
                 session_log_entry = SessionLog(
                     session_id=session_id,
+                    start_ts=session_start_ts,
+                    end_ts=session_end_ts,
                     responses=responses,
                     elapsed_sec=0.0,
                     success=False,
@@ -671,11 +734,17 @@ def run_channel(
                 else None
             )
             rtf = audio_sec / elapsed if elapsed > 0 else 0.0
+            if final_text is None:
+                final_text = latest_text
+            session_end_ts = time.time()
             session_log_entry = SessionLog(
                 session_id=session_id,
+                start_ts=session_start_ts,
+                end_ts=session_end_ts,
                 responses=responses,
                 elapsed_sec=elapsed,
                 success=True,
+                final_text=final_text,
                 audio_sec=audio_sec,
                 rtf=rtf,
                 send_sec=send_sec,
@@ -721,8 +790,11 @@ def run_channel(
                     if config.log_sessions:
                         stats.maybe_log(session_log_entry, config.max_session_logs)
         except grpc.RpcError as exc:
+            session_end_ts = time.time()
             session_log_entry = SessionLog(
                 session_id=session_id,
+                start_ts=session_start_ts,
+                end_ts=session_end_ts,
                 responses=0,
                 elapsed_sec=0.0,
                 success=False,
@@ -789,6 +861,11 @@ def main() -> None:
         "--task", choices=("transcribe", "translate"), default="transcribe"
     )
     parser.add_argument(
+        "--language",
+        default="",
+        help="BCP-47 language code (e.g. en, ko, ja); empty uses server default",
+    )
+    parser.add_argument(
         "--decode-profile", choices=("realtime", "accurate"), default="realtime"
     )
     parser.add_argument("--vad-mode", choices=("continue", "auto"), default="continue")
@@ -797,6 +874,12 @@ def main() -> None:
         action="append",
         default=[],
         help="Session attributes key=value (repeatable)",
+    )
+    parser.add_argument(
+        "--metadata",
+        action="append",
+        default=[],
+        help="Request metadata key=value (repeatable)",
     )
     parser.add_argument(
         "--ramp-steps",
@@ -809,6 +892,12 @@ def main() -> None:
         type=float,
         default=2.0,
         help="Seconds to wait between ramp-up steps",
+    )
+    parser.add_argument(
+        "--create-session-backoff-ms",
+        type=int,
+        default=0,
+        help="Backoff delay (ms) after CreateSession failures",
     )
     parser.add_argument(
         "--log-sessions",
@@ -838,6 +927,7 @@ def main() -> None:
         args.stream_timeout_sec = args.deadline_sec
     try:
         attributes = parse_attrs(args.attr)
+        metadata = parse_metadata(args.metadata)
     except ValueError as exc:
         parser.error(str(exc))
 
@@ -869,6 +959,7 @@ def main() -> None:
         speed=max(args.speed, 0.0),
         require_token=args.require_token,
         task=args.task,
+        language_code=str(args.language or ""),
         profile=args.decode_profile,
         vad_mode=args.vad_mode,
         attributes=attributes,
@@ -876,13 +967,14 @@ def main() -> None:
         max_session_logs=max(args.max_session_logs, 0),
         ramp_steps=max(args.ramp_steps, 1),
         ramp_interval_sec=max(args.ramp_interval_sec, 0.0),
+        create_session_backoff_ms=max(args.create_session_backoff_ms, 0),
         session_log_writer=session_log_writer,
         tls=args.tls or bool(args.ca_cert),
         ca_cert=args.ca_cert,
         server_hostname=args.server_hostname,
         rpc_timeout_sec=args.rpc_timeout_sec,
         stream_timeout_sec=args.stream_timeout_sec,
-        metadata=[],
+        metadata=metadata,
     )
 
     stats = BenchStats()

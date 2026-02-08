@@ -287,6 +287,70 @@ def build_http_app(
                 model_config, "default_model_load_profile", None
             )
 
+    def _runtime_snapshot() -> Dict[str, Any]:
+        config = getattr(runtime, "config", None)
+        if config is None:
+            return {}
+        model_cfg = getattr(config, "model", None)
+        streaming_cfg = getattr(config, "streaming", None)
+        payload: Dict[str, Any] = {}
+        if model_cfg is not None:
+            payload["model"] = {
+                "model_size": getattr(model_cfg, "model_size", None),
+                "model_backend": getattr(model_cfg, "model_backend", None),
+                "device": getattr(model_cfg, "device", None),
+                "compute_type": getattr(model_cfg, "compute_type", None),
+                "model_pool_size": getattr(model_cfg, "model_pool_size", None),
+                "default_decode_profile": getattr(
+                    model_cfg, "default_decode_profile", None
+                ),
+                "language": getattr(model_cfg, "language", None),
+                "task": getattr(model_cfg, "task", None),
+            }
+        if streaming_cfg is not None:
+            payload["streaming"] = {
+                "sample_rate": getattr(streaming_cfg, "sample_rate", None),
+                "session_timeout_sec": getattr(streaming_cfg, "session_timeout_sec", None),
+                "decode_timeout_sec": getattr(streaming_cfg, "decode_timeout_sec", None),
+                "create_session_rps": getattr(
+                    streaming_cfg, "create_session_rps", None
+                ),
+                "create_session_burst": getattr(
+                    streaming_cfg, "create_session_burst", None
+                ),
+                "vad_model_pool_size": getattr(
+                    streaming_cfg, "vad_model_pool_size", None
+                ),
+                "vad_model_prewarm": getattr(
+                    streaming_cfg, "vad_model_prewarm", None
+                ),
+                "vad_silence": getattr(streaming_cfg, "vad_silence", None),
+                "vad_threshold": getattr(streaming_cfg, "vad_threshold", None),
+                "max_chunk_ms": getattr(streaming_cfg, "max_chunk_ms", None),
+                "partial_decode_interval_sec": getattr(
+                    streaming_cfg, "partial_decode_interval_sec", None
+                ),
+                "partial_decode_window_sec": getattr(
+                    streaming_cfg, "partial_decode_window_sec", None
+                ),
+                "decode_batch_window_ms": getattr(
+                    streaming_cfg, "decode_batch_window_ms", None
+                ),
+                "max_decode_batch_size": getattr(
+                    streaming_cfg, "max_decode_batch_size", None
+                ),
+                "max_pending_decodes_global": getattr(
+                    streaming_cfg, "max_pending_decodes_global", None
+                ),
+                "max_pending_decodes_per_stream": getattr(
+                    streaming_cfg, "max_pending_decodes_per_stream", None
+                ),
+                "adaptive_throttle_enabled": getattr(
+                    streaming_cfg, "adaptive_throttle_enabled", None
+                ),
+            }
+        return payload
+
     def _prune_load_threads() -> None:
         with load_threads_lock:
             if not load_threads:
@@ -446,7 +510,11 @@ def build_http_app(
         _enforce_ip_allowlist(request)
         _enforce_rate_limit(request)
         _require_observability(request)
-        return JSONResponse(collect_system_metrics(), status_code=200)
+        payload = collect_system_metrics()
+        runtime_payload = _runtime_snapshot()
+        if runtime_payload:
+            payload["runtime"] = runtime_payload
+        return JSONResponse(payload, status_code=200)
 
     @app.post("/admin/load_model")
     def load_model_endpoint(req: LoadModelRequest, request: Request) -> JSONResponse:

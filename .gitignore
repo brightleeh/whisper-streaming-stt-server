@@ -188,6 +188,12 @@ cython_debug/
 #  you could uncomment the following to ignore the entire vscode folder
 # .vscode/
 
+# Next.js / Web dashboard
+tools/web_dashboard/frontend/.next/
+tools/web_dashboard/frontend/node_modules/
+tools/web_dashboard/runs/
+tools/web_dashboard/uploads/
+
 # Ruff stuff:
 .ruff_cache/
 
