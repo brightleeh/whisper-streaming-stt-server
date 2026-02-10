@@ -24,6 +24,18 @@ pnpm install
 pnpm dev
 ```
 
+## Run both (helper script)
+
+```bash
+./tools/web_dashboard/run_load_dashboard.sh
+```
+
+Remote access:
+
+```bash
+WEB_DASHBOARD_PUBLIC_HOST="<server_ip>" ./tools/web_dashboard/run_load_dashboard.sh
+```
+
 ## Targets
 
 Edit `tools/web_dashboard/targets.json` to define gRPC + HTTP endpoints.
