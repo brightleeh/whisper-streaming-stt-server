@@ -582,6 +582,8 @@ class BenchConfig:
     rpc_timeout_sec: Optional[float]
     stream_timeout_sec: Optional[float]
     metadata: List[Tuple[str, str]]
+    stop_after_sec: Optional[float]
+    test_start_sec: float
 
 
 def run_channel(
@@ -609,6 +611,10 @@ def run_channel(
     channel_width = max(1, len(str(config.channels)))
     iteration_width = max(1, len(str(config.iterations)))
     for i in range(total_iterations):
+        if config.stop_after_sec is not None:
+            elapsed = time.perf_counter() - config.test_start_sec
+            if elapsed >= config.stop_after_sec:
+                break
         session_id = (
             f"bench-{index:0{channel_width}d}-{i:0{iteration_width}d}-"
             f"{uuid.uuid4().hex[:8]}"
@@ -921,6 +927,12 @@ def main() -> None:
         default=10,
         help="Max number of session logs to keep/print (0 disables)",
     )
+    parser.add_argument(
+        "--stop-after-sec",
+        type=float,
+        default=None,
+        help="Stop starting new sessions after N seconds (let in-flight finish)",
+    )
     args = parser.parse_args()
     if args.deadline_sec is not None:
         args.rpc_timeout_sec = args.deadline_sec
@@ -932,6 +944,7 @@ def main() -> None:
         parser.error(str(exc))
 
     test_started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    test_start_sec = time.perf_counter()
     session_log_writer: Optional[SessionLogWriter] = None
     if args.session_log_path:
         session_log_path = Path(args.session_log_path).expanduser()
@@ -975,6 +988,8 @@ def main() -> None:
         rpc_timeout_sec=args.rpc_timeout_sec,
         stream_timeout_sec=args.stream_timeout_sec,
         metadata=metadata,
+        stop_after_sec=args.stop_after_sec if args.stop_after_sec is not None else None,
+        test_start_sec=test_start_sec,
     )
 
     stats = BenchStats()

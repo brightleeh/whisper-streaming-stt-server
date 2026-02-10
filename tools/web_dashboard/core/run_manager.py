@@ -189,6 +189,10 @@ class RunState:
     transcript_total: int = 0
     last_resource: Dict[str, Any] = field(default_factory=dict)
     last_runtime: Dict[str, Any] = field(default_factory=dict)
+    last_metrics_summary: Dict[str, Any] = field(default_factory=dict)
+    last_metrics_total: Optional[int] = None
+    last_metrics_ts: Optional[float] = None
+    last_metrics_log_total: Optional[int] = None
     last_metrics_ok: bool = False
     last_system_ok: bool = False
     last_grpc_ok: bool = False
@@ -457,10 +461,15 @@ class RunManager:
         start = time.time()
         grpc_ok = self._check_grpc_target(target.grpc_target)
         system_ok, system_payload = self._fetch_json(f"{target.http_base}/system")
-        metrics_ok, _ = self._fetch_json(f"{target.http_base}/metrics.json")
+        metrics_ok, metrics_payload = self._fetch_json(
+            f"{target.http_base}/metrics.json"
+        )
         rtt_ms = int((time.time() - start) * 1000)
         last_ok_ts = time.time() if (grpc_ok or system_ok or metrics_ok) else None
         runtime_payload = self._extract_runtime(system_payload)
+        metrics_summary = (
+            self._summarize_metrics(metrics_payload, None) if metrics_payload else {}
+        )
         return {
             "grpc_ok": grpc_ok,
             "system_ok": system_ok,
@@ -469,6 +478,7 @@ class RunManager:
             "ts": time.time(),
             "last_ok_ts": last_ok_ts,
             "runtime": runtime_payload or None,
+            "server_errors": metrics_summary or None,
         }
 
     def upload_audio(self, filename: str, data: bytes) -> Dict[str, Any]:
@@ -697,12 +707,6 @@ class RunManager:
                 "msg": f"Run started (id={run_id}, target={target.id}, channels={config.channels})",
             },
         )
-        if duration_sec and duration_sec > 0:
-            threading.Thread(
-                target=self._auto_stop,
-                args=(state, duration_sec),
-                daemon=True,
-            ).start()
         return state
 
     def stop_run(self, run_id: str, reason: str = "stopped") -> None:
@@ -959,6 +963,33 @@ class RunManager:
                 runtime_payload = self._extract_runtime(system_payload)
                 if runtime_payload:
                     state.last_runtime = runtime_payload
+            if metrics_payload:
+                summary = self._summarize_metrics(metrics_payload, state)
+                if summary:
+                    state.last_metrics_summary = summary
+                    total = summary.get("total")
+                    if isinstance(total, (int, float)):
+                        total_int = int(total)
+                        prev_total = state.last_metrics_log_total
+                        if prev_total is None:
+                            state.last_metrics_log_total = total_int
+                        else:
+                            if total_int < prev_total:
+                                state.last_metrics_log_total = total_int
+                            elif total_int > prev_total:
+                                delta = total_int - prev_total
+                                self._broadcast.send(
+                                    "log",
+                                    {
+                                        "ts": time.time(),
+                                        "level": "ERROR",
+                                        "source": "metrics",
+                                        "msg": self._format_server_errors(
+                                            summary, delta
+                                        ),
+                                    },
+                                )
+                                state.last_metrics_log_total = total_int
             time.sleep(self.poll_interval_sec)
 
     def _fetch_json(self, url: str) -> tuple[bool, Dict[str, Any]]:
@@ -1015,6 +1046,59 @@ class RunManager:
         if isinstance(runtime, dict):
             return runtime
         return {}
+
+    def _summarize_metrics(
+        self, payload: Dict[str, Any], state: Optional[RunState]
+    ) -> Dict[str, Any]:
+        error_counts = payload.get("error_counts")
+        if not isinstance(error_counts, dict):
+            return {}
+        normalized: Dict[str, int] = {}
+        for key, value in error_counts.items():
+            try:
+                count = int(value)
+            except (TypeError, ValueError):
+                continue
+            normalized[str(key)] = count
+        total = sum(normalized.values())
+        top_codes = [
+            {"code": code, "count": count}
+            for code, count in sorted(
+                normalized.items(), key=lambda item: item[1], reverse=True
+            )[:3]
+        ]
+        per_sec = None
+        now = time.time()
+        if state is not None:
+            if (
+                state.last_metrics_total is not None
+                and state.last_metrics_ts is not None
+            ):
+                delta = total - state.last_metrics_total
+                dt = now - state.last_metrics_ts
+                if delta < 0:
+                    delta = 0
+                if dt > 0:
+                    per_sec = delta / dt
+            state.last_metrics_total = total
+            state.last_metrics_ts = now
+        summary: Dict[str, Any] = {
+            "total": total,
+            "per_sec": per_sec,
+            "top_codes": top_codes,
+        }
+        for key in ("decode_cancelled", "decode_orphaned"):
+            if isinstance(payload.get(key), (int, float)):
+                summary[key] = payload.get(key)
+        return summary
+
+    @staticmethod
+    def _format_server_errors(summary: Dict[str, Any], delta: Optional[int]) -> str:
+        total = summary.get("total", 0)
+        top_codes = summary.get("top_codes") or []
+        top = ", ".join(f"{item.get('code')}:{item.get('count')}" for item in top_codes)
+        suffix = f" (+{delta})" if delta is not None else ""
+        return f"Server errors: {total}{suffix}" + (f" · {top}" if top else "")
 
     def _tick_loop(self, state: RunState) -> None:
         while not state.stop_event.is_set():
@@ -1079,6 +1163,8 @@ class RunManager:
                 "grpc_ok": state.last_grpc_ok,
             }
         )
+        if state.last_metrics_summary:
+            resource["server_errors"] = dict(state.last_metrics_summary)
         self._broadcast.send("kpi", kpi)
         self._broadcast.send("resource", resource)
         self._append_series(state, "kpi", kpi)
@@ -1214,6 +1300,8 @@ class RunManager:
             cmd.extend(
                 ["--create-session-backoff-ms", str(config.create_session_backoff_ms)]
             )
+        if config.duration_sec and config.duration_sec > 0:
+            cmd.extend(["--stop-after-sec", str(config.duration_sec)])
         if config.realtime:
             cmd.append("--realtime")
             cmd.extend(["--speed", str(max(0.1, config.speed))])

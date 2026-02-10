@@ -50,6 +50,13 @@ type Resource = {
   system_ok?: boolean;
   metrics_ok?: boolean;
   runtime?: RuntimeInfo;
+  server_errors?: {
+    total?: number;
+    per_sec?: number | null;
+    top_codes?: { code: string; count: number }[];
+    decode_cancelled?: number;
+    decode_orphaned?: number;
+  };
 };
 
 type RuntimeInfo = {
@@ -918,6 +925,44 @@ export default function HomePage() {
                             GPU: {display?.gpu_util_pct ?? "--"}% · VRAM:{" "}
                             {display?.vram_gb ?? "--"} GB
                           </>
+                        ) : null}
+                        {display?.server_errors ? (
+                          (() => {
+                            const errors = display.server_errors;
+                            const perSec =
+                              typeof errors?.per_sec === "number"
+                                ? errors.per_sec.toFixed(2)
+                                : null;
+                            const top =
+                              errors?.top_codes && errors.top_codes.length > 0
+                                ? errors.top_codes
+                                    .map((item) => `${item.code}:${item.count}`)
+                                    .join(", ")
+                                : null;
+                            const cancelled =
+                              typeof errors?.decode_cancelled === "number"
+                                ? errors.decode_cancelled
+                                : null;
+                            const orphaned =
+                              typeof errors?.decode_orphaned === "number"
+                                ? errors.decode_orphaned
+                                : null;
+                            return (
+                              <>
+                                <br />
+                                Server errors: {errors?.total ?? "--"}
+                                {perSec ? ` (${perSec}/s)` : ""}
+                                {top ? ` · ${top}` : ""}
+                                {cancelled != null || orphaned != null ? (
+                                  <>
+                                    <br />
+                                    Decode cancelled: {cancelled ?? "--"} · Orphaned:{" "}
+                                    {orphaned ?? "--"}
+                                  </>
+                                ) : null}
+                              </>
+                            );
+                          })()
                         ) : null}
                       </div>
                     </div>

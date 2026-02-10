@@ -35,6 +35,7 @@ class TargetStatus(BaseModel):
     ts: float
     last_ok_ts: Optional[float] = None
     runtime: Optional[Dict[str, Any]] = None
+    server_errors: Optional[Dict[str, Any]] = None
 
 
 class RunRequest(BaseModel):
