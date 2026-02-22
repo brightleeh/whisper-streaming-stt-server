@@ -135,8 +135,8 @@ Copy/edit the server YAMLs (or point `--config` / `--model-config` at your own Y
 ```yaml
 server:
   port: 50051 # gRPC listen port
-  http_host: "127.0.0.1" # HTTP metrics/health bind host
-  ws_host: "127.0.0.1" # WebSocket streaming bind host
+  http_host: "0.0.0.0" # HTTP metrics/health bind host
+  ws_host: "0.0.0.0" # WebSocket streaming bind host
   max_sessions: 50 # Concurrent gRPC sessions
   metrics_port: 8000 # HTTP metrics/health port
   ws_port: 8001 # WebSocket streaming port
@@ -203,7 +203,7 @@ metrics:
 
 auth:
   require_api_key: false # Require api_key attribute on CreateSession
-  create_session_auth_profile: "none" # none|api_key|signed_token
+  create_session_auth_profile: "none" # none|api_key|signed_token (public WebSocket bind requires non-none unless STT_ALLOW_INSECURE_WS=1)
   create_session_auth_secret: "" # HMAC secret for signed_token profile
   create_session_auth_ttl_sec: 0.0 # Auth token TTL seconds (0 disables)
   # signed_token expects gRPC metadata: authorization (Bearer <sig> or <ts>:<sig>) and x-stt-auth-ts
@@ -296,7 +296,11 @@ CLI flags always override YAML entries if provided.
 
 **Observability security**
 
-- The HTTP metrics/health server binds to `server.http_host` (default `127.0.0.1`).
+- The HTTP metrics/health server binds to `server.http_host` (repo default `0.0.0.0`).
+- The WebSocket bridge binds to `server.ws_host`/`server.ws_port`.
+  If bound to a non-loopback host, the server requires CreateSession auth
+  (`auth.create_session_auth_profile=api_key|signed_token` or `auth.require_api_key=true`).
+  For local-only testing, `STT_ALLOW_INSECURE_WS=1` bypasses this guard.
 - Set `STT_OBSERVABILITY_TOKEN` to require `Authorization: Bearer <token>` for
   `/metrics`, `/metrics.json`, `/system`, and `/health`.
 - Optional public health: set `STT_PUBLIC_HEALTH=minimal` to allow `/health` without a token,
@@ -411,6 +415,7 @@ Each client first calls `CreateSession`:
 - The runtime wires the session manager, model registry, and stream orchestrator.
 - The orchestrator drives VAD, decode scheduling, and optional audio storage.
 - The HTTP server exposes `/health`, `/metrics` (Prometheus), `/metrics.json` (JSON), and an admin control plane for model load/unload/list.
+- The WebSocket bridge exposes `/ws/stream` for browser-based streaming clients.
 
 ```mermaid
 flowchart TD
@@ -425,6 +430,7 @@ flowchart TD
       Servicer[gRPC Servicer]
       HttpClient[HTTP: health/metrics]
       HttpAdmin[HTTP: admin]
+      WsBridge[WebSocket Bridge]
     end
 
 		subgraph RuntimeWrap[Runtime]
@@ -480,6 +486,9 @@ Decode -->|enqueue| SessionQueues
 SessionQueues -->|round-robin| Dispatcher
 Dispatcher -->|dispatch| Worker
 
+WebClient <-->|websocket| WsBridge
+WsBridge <-->|stream session/results| Runtime
+
 Runtime <-->|request/render| Metrics
 
 style Client fill:#f6f5f2,stroke:#c8c1b8,stroke-width:1px,color:#4b473f
@@ -493,6 +502,7 @@ linkStyle 0,1,2,3 stroke:#3498db,stroke-width:1px;
 linkStyle 4,5 stroke:#f1c40f,stroke-width:1px;
 linkStyle 6,7,8,9,10 stroke:#2ecc71,stroke-width:1px;
 linkStyle 11,12,13,14,15,16,17,18,19,20,21 stroke:#e74c3c,stroke-width:1px;
+linkStyle 22,23 stroke:#e74c3c,stroke-width:1px;
 ```
 
 ## Documentation
