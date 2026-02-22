@@ -21,23 +21,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 1. Generate Protobuf/gRPC Stubs
-      # Without this step, import errors will occur due to missing generated code.
       - name: Generate gRPC Stubs
-        run: |
-          mkdir -p gen/stt/python/v1
-          touch gen/__init__.py
-          touch gen/stt/__init__.py
-          touch gen/stt/python/__init__.py
-          touch gen/stt/python/v1/__init__.py
-
-          # Execute command as specified in README.md
-          python3 -m grpc_tools.protoc \
-            -I proto \
-            --python_out=gen/stt/python/v1 \
-            --grpc_python_out=gen/stt/python/v1 \
-            --mypy_out=./gen/stt/python/v1 \
-            proto/stt.proto
+        run: ./tools/gen_proto.sh
 
       # 2. Run Tests
       # Set PYTHONPATH to current directory (.) to locate stt_server and gen packages.

@@ -10,6 +10,24 @@ if [[ -f .venv/bin/activate ]]; then
   source .venv/bin/activate
 fi
 
+ensure_grpc_stubs() {
+  local stub_file="gen/stt/python/v1/stt_pb2.py"
+  if [[ -f "$stub_file" ]]; then
+    return
+  fi
+
+  echo "Missing generated gRPC stubs ($stub_file). Generating..."
+  if ! python3 -c "import grpc_tools.protoc" >/dev/null 2>&1; then
+    echo "grpcio-tools is required to generate stubs. Install dev dependencies first." >&2
+    echo "Example: pip install -e '.[dev]'" >&2
+    exit 1
+  fi
+
+  ./tools/gen_proto.sh
+}
+
+ensure_grpc_stubs
+
 case "$MODE" in
   unit)
     export STT_SKIP_INTEGRATION=1

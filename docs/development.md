@@ -23,21 +23,10 @@ python3 tools/long_run_abuse.py --server localhost:50051 --http http://localhost
 
 ## Generate gRPC stubs
 
-Create a versioned package structure (e.g. `gen/stt/python/v1`) so both the server and client can import the same generated stubs:
+Use the shared generator script so local/CI generation stays identical:
 
 ```bash
-mkdir -p gen/stt/python/v1
-touch gen/__init__.py
-touch gen/stt/__init__.py
-touch gen/stt/python/__init__.py
-touch gen/stt/python/v1/__init__.py
-
-python -m grpc_tools.protoc \
-  -I proto \
-  --python_out=gen/stt/python/v1 \
-  --grpc_python_out=gen/stt/python/v1 \
-  --mypy_out=./gen/stt/python/v1 \
-  proto/stt.proto
+./tools/gen_proto.sh
 ```
 
 Commit/publish the `gen` package (or copy it into each project) so both
