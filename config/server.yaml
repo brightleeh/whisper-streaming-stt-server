@@ -1,7 +1,7 @@
 server:
   port: 50051 # gRPC listen port
-  http_host: "127.0.0.1" # HTTP metrics/health bind host
-  ws_host: "127.0.0.1" # WebSocket streaming bind host
+  http_host: "0.0.0.0" # HTTP metrics/health bind host
+  ws_host: "0.0.0.0" # WebSocket streaming bind host
   max_sessions: 50 # Concurrent gRPC sessions
   metrics_port: 8000 # HTTP metrics/health port
   ws_port: 8001 # WebSocket streaming port
