@@ -1,11 +1,64 @@
 """Runtime metrics for streaming STT sessions."""
 
+import bisect
 import hashlib
 import threading
 from collections import defaultdict
+from dataclasses import dataclass
 from typing import Any, Dict
 
 import grpc
+
+
+@dataclass(frozen=True)
+class HistogramSnapshot:
+    """Serializable histogram snapshot for metrics export."""
+
+    bounds: tuple[float, ...]
+    cumulative_counts: tuple[int, ...]
+    count: int
+    sum: float
+
+
+class Histogram:
+    """Thread-safe(under external lock) histogram with fixed buckets."""
+
+    def __init__(self, bounds: tuple[float, ...]):
+        normalized = []
+        for value in bounds:
+            value = float(value)
+            if value < 0:
+                continue
+            if normalized and value <= normalized[-1]:
+                continue
+            normalized.append(value)
+        self._bounds = tuple(normalized)
+        self._bucket_counts = [0] * (len(self._bounds) + 1)  # includes +Inf bucket
+        self._count = 0
+        self._sum = 0.0
+
+    def observe(self, value: float) -> None:
+        """Observe a non-negative sample."""
+        if value < 0:
+            return
+        index = bisect.bisect_left(self._bounds, value)
+        self._bucket_counts[index] += 1
+        self._count += 1
+        self._sum += value
+
+    def snapshot(self) -> HistogramSnapshot:
+        """Return cumulative counts for Prometheus exposition."""
+        cumulative = []
+        running = 0
+        for count in self._bucket_counts:
+            running += count
+            cumulative.append(running)
+        return HistogramSnapshot(
+            bounds=self._bounds,
+            cumulative_counts=tuple(cumulative),
+            count=self._count,
+            sum=self._sum,
+        )
 
 
 class Metrics:
@@ -42,6 +95,18 @@ class Metrics:
         self._vad_triggers = 0
         self._active_vad_utterances = 0
         self._error_counts: Dict[str, int] = defaultdict(int)
+        self._decode_latency_hist = Histogram(
+            (0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.5, 5.0, 10.0)
+        )
+        self._decode_buffer_wait_hist = Histogram(
+            (0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0)
+        )
+        self._decode_queue_wait_hist = Histogram(
+            (0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0)
+        )
+        self._decode_response_emit_hist = Histogram(
+            (0.0005, 0.001, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0)
+        )
 
     def _hash_key(self, value: str) -> str:
         if not value:
@@ -105,24 +170,28 @@ class Metrics:
             self._decode_count += 1
             self._decode_total += inference_sec
             self._decode_max = max(self._decode_max, inference_sec)
+            self._decode_latency_hist.observe(inference_sec)
             if buffer_wait_sec is not None and buffer_wait_sec >= 0:
                 self._decode_buffer_wait_count += 1
                 self._decode_buffer_wait_total += buffer_wait_sec
                 self._decode_buffer_wait_max = max(
                     self._decode_buffer_wait_max, buffer_wait_sec
                 )
+                self._decode_buffer_wait_hist.observe(buffer_wait_sec)
             if queue_wait_sec is not None and queue_wait_sec >= 0:
                 self._decode_queue_wait_count += 1
                 self._decode_queue_wait_total += queue_wait_sec
                 self._decode_queue_wait_max = max(
                     self._decode_queue_wait_max, queue_wait_sec
                 )
+                self._decode_queue_wait_hist.observe(queue_wait_sec)
             if response_emit_sec is not None and response_emit_sec >= 0:
                 self._decode_response_emit_count += 1
                 self._decode_response_emit_total += response_emit_sec
                 self._decode_response_emit_max = max(
                     self._decode_response_emit_max, response_emit_sec
                 )
+                self._decode_response_emit_hist.observe(response_emit_sec)
             if real_time_factor >= 0:
                 self._rtf_count += 1
                 self._rtf_total += real_time_factor
@@ -223,7 +292,32 @@ class Metrics:
                 payload["rate_limit_blocks_by_key"] = dict(
                     self._rate_limit_blocks_by_key
                 )
+            payload["histograms"] = self._render_histograms()
             return payload
+
+    def _render_histograms(self) -> Dict[str, Dict[str, Any]]:
+        """Render histogram values as JSON-friendly maps."""
+        return {
+            "decode_latency_sec": self._histogram_payload(self._decode_latency_hist),
+            "decode_buffer_wait_sec": self._histogram_payload(
+                self._decode_buffer_wait_hist
+            ),
+            "decode_queue_wait_sec": self._histogram_payload(
+                self._decode_queue_wait_hist
+            ),
+            "decode_response_emit_sec": self._histogram_payload(
+                self._decode_response_emit_hist
+            ),
+        }
+
+    @staticmethod
+    def _histogram_payload(histogram: Histogram) -> Dict[str, Any]:
+        snap = histogram.snapshot()
+        buckets: Dict[str, int] = {}
+        for idx, bound in enumerate(snap.bounds):
+            buckets[str(bound)] = snap.cumulative_counts[idx]
+        buckets["+Inf"] = snap.cumulative_counts[-1]
+        return {"buckets": buckets, "count": snap.count, "sum": snap.sum}
 
     def snapshot(self) -> Dict[str, float]:
         """Return a snapshot with averages and maxima for key metrics."""

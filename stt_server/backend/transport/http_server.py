@@ -310,8 +310,12 @@ def build_http_app(
         if streaming_cfg is not None:
             payload["streaming"] = {
                 "sample_rate": getattr(streaming_cfg, "sample_rate", None),
-                "session_timeout_sec": getattr(streaming_cfg, "session_timeout_sec", None),
-                "decode_timeout_sec": getattr(streaming_cfg, "decode_timeout_sec", None),
+                "session_timeout_sec": getattr(
+                    streaming_cfg, "session_timeout_sec", None
+                ),
+                "decode_timeout_sec": getattr(
+                    streaming_cfg, "decode_timeout_sec", None
+                ),
                 "create_session_rps": getattr(
                     streaming_cfg, "create_session_rps", None
                 ),
@@ -321,9 +325,7 @@ def build_http_app(
                 "vad_model_pool_size": getattr(
                     streaming_cfg, "vad_model_pool_size", None
                 ),
-                "vad_model_prewarm": getattr(
-                    streaming_cfg, "vad_model_prewarm", None
-                ),
+                "vad_model_prewarm": getattr(streaming_cfg, "vad_model_prewarm", None),
                 "vad_silence": getattr(streaming_cfg, "vad_silence", None),
                 "vad_threshold": getattr(streaming_cfg, "vad_threshold", None),
                 "max_chunk_ms": getattr(streaming_cfg, "max_chunk_ms", None),
@@ -448,6 +450,55 @@ def build_http_app(
                         flat[metric_key] = float(sub_val)
         return flat
 
+    def _histogram_text(payload: Dict[str, Any]) -> List[str]:
+        lines: List[str] = []
+        histograms = payload.get("histograms")
+        if not isinstance(histograms, dict):
+            return lines
+
+        for raw_name in sorted(histograms.keys()):
+            spec = histograms.get(raw_name)
+            if not isinstance(spec, dict):
+                continue
+            buckets = spec.get("buckets")
+            count = spec.get("count")
+            total = spec.get("sum")
+            if not isinstance(buckets, dict):
+                continue
+            metric_name = f"stt_{_sanitize_metric_name(str(raw_name))}"
+            lines.append(f"# HELP {metric_name} Histogram for '{raw_name}'.")
+            lines.append(f"# TYPE {metric_name} histogram")
+
+            items: List[tuple[float, str, float]] = []
+            inf_value: tuple[str, float] | None = None
+            for bucket_key, bucket_count in buckets.items():
+                if not isinstance(bucket_count, (int, float, bool)):
+                    continue
+                label = str(bucket_key)
+                if label == "+Inf":
+                    inf_value = (label, float(bucket_count))
+                    continue
+                try:
+                    order = float(label)
+                except ValueError:
+                    continue
+                items.append((order, label, float(bucket_count)))
+            items.sort(key=lambda item: item[0])
+            for _order, label, bucket_count in items:
+                lines.append(f'{metric_name}_bucket{{le="{label}"}} {bucket_count}')
+            if inf_value is not None:
+                lines.append(
+                    f'{metric_name}_bucket{{le="{inf_value[0]}"}} {inf_value[1]}'
+                )
+            elif items:
+                lines.append(f'{metric_name}_bucket{{le="+Inf"}} {items[-1][2]}')
+
+            if isinstance(total, (int, float, bool)):
+                lines.append(f"{metric_name}_sum {float(total)}")
+            if isinstance(count, (int, float, bool)):
+                lines.append(f"{metric_name}_count {float(count)}")
+        return lines
+
     def _prometheus_text(payload: Dict[str, Any]) -> str:
         flat = _flatten_metrics(payload)
         lines: List[str] = []
@@ -458,6 +509,7 @@ def build_http_app(
             )
             lines.append(f"# TYPE {metric_name} gauge")
             lines.append(f"{metric_name} {flat[key]}")
+        lines.extend(_histogram_text(payload))
         return "\n".join(lines) + "\n"
 
     @app.get("/metrics")
