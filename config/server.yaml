@@ -43,7 +43,7 @@ server:
   adaptive_create_session_backoff_sec: 2.0
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
   max_pending_decodes_global: 1024 # Global max queued decodes before backpressure/drop
-  max_total_buffer_bytes: 536870912 # Global buffered audio cap (bytes)
+  max_total_buffer_bytes: 536870912 # Global buffered audio cap (bytes); baseline=max_sessions*max_buffer_sec*sample_rate*2 (+25-50% headroom)
   decode_queue_timeout_sec: 1.0 # Seconds to wait for a global decode slot (final only)
   decode_batch_window_ms: 0 # Batch window for shared decode queue (0 disables)
   max_decode_batch_size: 1 # Max tasks per batch (1 disables)
@@ -60,7 +60,7 @@ vad:
   model_pool_growth_factor: 1.5 # VAD pool growth factor on demand
 
 safety:
-  speech_rms_threshold: 0.00 # Minimum RMS required before decoding buffered audio
+  speech_rms_threshold: 0.00 # Minimum RMS before decode; 0.00 disables gate (typical tuned range: 0.005-0.02)
 
 logging:
   level: "INFO" # TRACE/DEBUG/INFO/WARN/ERROR

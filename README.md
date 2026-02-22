@@ -168,7 +168,7 @@ server:
   emit_final_on_vad: false # Emit final result when VAD triggers without ending stream
   max_pending_decodes_per_stream: 8 # Max queued decodes per stream before dropping partials
   max_pending_decodes_global: 512 # Global max queued decodes before backpressure/drop
-  max_total_buffer_bytes: 268435456 # Global buffered audio cap (bytes)
+  max_total_buffer_bytes: 268435456 # Global buffered audio cap (bytes); size from max_sessions*max_buffer_sec*sample_rate*2 (+ headroom)
   decode_queue_timeout_sec: 1.0 # Seconds to wait for a global decode slot (final only)
   decode_batch_window_ms: 0 # Batch window for shared decode queue (0 disables)
   max_decode_batch_size: 1 # Max tasks per batch (1 disables)
@@ -348,6 +348,9 @@ Suggested production defaults (tune per traffic profile):
 - `server.partial_decode_interval_sec`: partial decode cadence during speech.
 - `server.partial_decode_window_sec`: audio window length sent to partial decode.
 - `server.max_total_buffer_bytes`: total buffered bytes across all sessions.
+- Memory sizing baseline: `max_sessions * max_buffer_sec * sample_rate * 2 bytes`.
+  Add 25-50% headroom for overlap windows, queue bursts, and allocator overhead.
+  Example: `50 * 20s * 16000 * 2 = 32,000,000` bytes (~30.5 MiB), so a practical cap is ~40-48 MiB minimum.
 - Partial results are opt-in per session: set `--attr partial=true` (default is off).
 
 **Decode/Backpressure**
@@ -379,6 +382,8 @@ Suggested production defaults (tune per traffic profile):
 **Safety**
 
 - `safety.speech_rms_threshold`: skip decode when RMS is too low.
+  `0.00` effectively disables RMS gating and decodes every buffered segment.
+  Start with `0.005-0.02` for typical 16k PCM microphone input, then tune with real traffic/noise floors.
 
 Each client first calls `CreateSession`:
 
@@ -443,6 +448,7 @@ Include API/compat notes in release tags to make contract impact explicit.
 - **No removals/renames**: existing fields/messages must remain.
 - **No type/label changes**: field type and cardinality (`optional`, `repeated`, `map`) are frozen.
 - **No number reuse**: field numbers are immutable; do not reuse removed numbers.
+- **If a field is retired**: add `reserved <number>;` and `reserved "<name>";` in the same message.
 - **Document meaning/units** for any new field or enum value in [`proto/stt.proto`](proto/stt.proto).
 
 ### HTTP schema rules
@@ -455,6 +461,7 @@ Include API/compat notes in release tags to make contract impact explicit.
 ### Compatibility tests
 
 - [`tests/compat/stt_proto_contract.json`](tests/compat/stt_proto_contract.json) captures existing proto fields and numbers.
+- [`tests/compat/proto_reserved_contract.json`](tests/compat/proto_reserved_contract.json) records intentionally removed fields and enforces `reserved` name/number coverage.
 - [`tests/compat/error_code_contract.json`](tests/compat/error_code_contract.json) pins key error/status mappings.
 
 ## License

@@ -11,7 +11,16 @@ See `docs/slo.md` for draft targets and a load-test report template.
 - Abuse/load smoke tests (starts temp server): `./tools/run_tests.sh abuse`
 - Abuse scenarios include a backpressure metrics check (buffer cap + pending drops); enable with `STT_RUN_ABUSE_TESTS=1`.
 - Shutdown integration tests (real process + SIGTERM): `STT_RUN_SHUTDOWN_INTEGRATION=1 python3 -m pytest tests/test_shutdown_integration.py -q`
+- Config mapping contract tests (YAML/CLI -> `ServerConfig`): `python3 -m pytest tests/test_config_mapping_contract.py -q`
 - Full test run: `./tools/run_tests.sh all`
+
+## API compatibility workflow
+
+- `tests/test_api_contract.py` enforces proto and error mapping compatibility.
+- If you intentionally retire a proto field:
+  1. Add `reserved <number>;` and `reserved "<name>";` to the message in `proto/stt.proto`.
+  2. Add an entry to `tests/compat/proto_reserved_contract.json`.
+  3. Update `tests/compat/stt_proto_contract.json` as part of the intentional contract change.
 
 ## Long-run abuse/profiling
 
