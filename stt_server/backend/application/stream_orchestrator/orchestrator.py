@@ -24,9 +24,9 @@ from stt_server.backend.component.decode_scheduler import (
 )
 from stt_server.backend.component.vad_gate import (
     VADGate,
+    VADModelPool,
     buffer_is_speech,
-    configure_vad_model_pool,
-    reserve_vad_slot,
+    default_vad_model_pool,
 )
 from stt_server.backend.utils.rate_limit import KeyedRateLimiter
 from stt_server.errors import ErrorCode, abort_with_error
@@ -84,12 +84,14 @@ class StreamOrchestrator:
         model_registry: ModelRegistry,
         config: StreamOrchestratorConfig,
         hooks: StreamOrchestratorHooks | None = None,
+        vad_model_pool: VADModelPool | None = None,
     ) -> None:
         """Initialize orchestrator dependencies and configure internal pools."""
         self._session_facade = session_facade
         self._model_registry = model_registry
         self._config = config
         self._hooks = hooks or StreamOrchestratorHooks()
+        self._vad_model_pool = vad_model_pool or default_vad_model_pool()
         self._decode_scheduler = self._create_decode_scheduler(config)
         self._audio_storage: Optional[AudioStorageManager] = None
         self._buffer_manager = _AudioBufferManager(config)
@@ -97,7 +99,7 @@ class StreamOrchestrator:
         self._adaptive_lock = threading.Lock()
         self._partial_interval_override: Optional[float] = None
         self._configure_stream_rate_limiters(config.stream)
-        configure_vad_model_pool(
+        self._vad_model_pool.configure(
             config.vad_pool.size,
             config.vad_pool.prewarm,
             config.vad_pool.max_size,
@@ -784,14 +786,14 @@ class StreamOrchestrator:
         if threshold < 0:
             threshold = self._config.stream.vad_threshold
         if threshold > 0 and not info.vad_reserved:
-            if not reserve_vad_slot():
+            if not self._vad_model_pool.reserve_slot():
                 LOGGER.error(
                     "VAD pool exhausted; rejecting session_id=%s", state.session_id
                 )
                 self._session_facade.remove_session(state, reason="vad_pool_exhausted")
                 abort_with_error(context, ErrorCode.VAD_POOL_EXHAUSTED)
             info.vad_reserved = True
-        return VADGate(threshold, silence)
+        return VADGate(threshold, silence, model_pool=self._vad_model_pool)
 
     def _capture_audio_chunk(
         self,

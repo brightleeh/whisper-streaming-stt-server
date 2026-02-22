@@ -30,7 +30,7 @@ from stt_server.backend.application.stream_orchestrator.types import (
     VADPoolSettings,
 )
 from stt_server.backend.component.decode_scheduler import DecodeSchedulerHooks
-from stt_server.backend.component.vad_gate import release_vad_slot
+from stt_server.backend.component.vad_gate import VADModelPool
 from stt_server.backend.runtime.config import ServicerConfig, StreamingRuntimeConfig
 from stt_server.backend.runtime.metrics import Metrics
 from stt_server.backend.utils.profile_resolver import normalize_decode_profiles
@@ -61,6 +61,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
         self.language_fix = model_config.language_fix
         self.default_task = (model_config.task or "transcribe").lower()
         self.supported_languages = SupportedLanguages()
+        self.vad_model_pool = VADModelPool()
 
         self.decode_profiles = normalize_decode_profiles(model_config.decode_profiles)
         default_profile = model_config.default_decode_profile
@@ -108,6 +109,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             model_registry=self.model_registry,
             config=session_config,
             metrics=self.metrics,
+            vad_model_pool=self.vad_model_pool,
         )
         storage_config = self.config.storage
         stream_settings = StreamSettings(
@@ -197,6 +199,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             model_registry=self.model_registry,
             config=orchestrator_config,
             hooks=stream_hooks,
+            vad_model_pool=self.vad_model_pool,
         )
         self.decode_scheduler = self.stream_orchestrator.decode_scheduler
 
@@ -228,7 +231,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
 
     def _on_session_removed(self, info: SessionInfo) -> None:
         if info.vad_reserved:
-            release_vad_slot()
+            self.vad_model_pool.release_slot()
             info.vad_reserved = False
         if info.api_key:
             self.metrics.decrease_active_sessions(info.api_key)

@@ -405,9 +405,7 @@ def test_create_session_skips_vad_reserve_when_token_required(
     request = stt_pb2.SessionRequest(
         session_id="ok", require_token=True, vad_threshold=0.5
     )
-    with patch(
-        "stt_server.backend.application.session_manager.reserve_vad_slot"
-    ) as reserve_mock:
+    with patch.object(handler._vad_model_pool, "reserve_slot") as reserve_mock:
         handler.handle(request, mock_servicer_context)
     reserve_mock.assert_not_called()
     args, _kwargs = mock_session_registry.create_session.call_args

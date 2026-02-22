@@ -65,7 +65,166 @@ class _VADPoolState:
     pool_reserved: int = 0
 
 
-_VAD_STATE = _VADPoolState()
+class VADModelPool:
+    """Owns VAD model pooling state for one runtime instance."""
+
+    def __init__(self) -> None:
+        self._state = _VADPoolState()
+
+    def _load_silero_base_model(self) -> VADModel:
+        """Return a cached base Silero VAD model."""
+        if torch is None or load_silero_vad is None:
+            raise RuntimeError(
+                "silero-vad requires torch + silero-vad. Install them to enable VAD-based detection."
+            )
+        if self._state.base_model is None:
+            self._state.base_model = _load_silero_model()
+        return self._state.base_model
+
+    def _new_silero_model(self) -> VADModel:
+        """Create a fresh Silero VAD model instance."""
+        base_model = self._load_silero_base_model()
+        try:
+            model = copy.deepcopy(base_model)
+        except (AttributeError, RuntimeError, TypeError, ValueError):
+            # deepcopy can fail for non-picklable model components; reload instead.
+            model = _load_silero_model()
+        if hasattr(model, "eval"):
+            model.eval()
+        if hasattr(model, "reset_states"):
+            model.reset_states()
+        return model
+
+    def configure(
+        self,
+        max_size: Optional[int] = None,
+        prewarm: Optional[int] = None,
+        max_capacity: Optional[int] = None,
+        growth_factor: Optional[float] = None,
+    ) -> None:
+        """Configure the VAD model pool and optionally prewarm instances."""
+        state = self._state
+        max_size_value = int(max_size) if max_size is not None else 0
+        prewarm_value = int(prewarm) if prewarm is not None else 0
+        max_capacity_value = int(max_capacity) if max_capacity is not None else 0
+        max_size_value = max(0, max_size_value)
+        prewarm_value = max(0, prewarm_value)
+        max_capacity_value = max(0, max_capacity_value)
+        if growth_factor is None:
+            growth_value = 1.5
+        else:
+            try:
+                growth_value = float(growth_factor)
+            except (TypeError, ValueError):
+                growth_value = 1.5
+        if growth_value < 1.0:
+            growth_value = 1.0
+        if max_capacity_value == 0:
+            max_capacity_value = max_size_value
+        if max_size_value == 0 and max_capacity_value == 0:
+            with state.pool_lock:
+                state.pool.clear()
+                state.pool_capacity = 0
+                state.pool_max_capacity = 0
+                state.pool_total_created = 0
+                state.pool_reserved = 0
+            return
+
+        with state.pool_lock:
+            state.pool_capacity = max_size_value or max_capacity_value
+            state.pool_max_capacity = max_capacity_value
+            state.pool_growth_factor = growth_value
+            if state.pool_capacity > state.pool_max_capacity:
+                state.pool_capacity = state.pool_max_capacity
+            if state.pool_reserved > state.pool_capacity:
+                state.pool_reserved = state.pool_capacity
+            while len(state.pool) > state.pool_capacity:
+                state.pool.pop()
+                state.pool_total_created = max(0, state.pool_total_created - 1)
+
+        target_pool = min(prewarm_value, state.pool_capacity)
+        while True:
+            with state.pool_lock:
+                if len(state.pool) >= target_pool:
+                    break
+                if state.pool_total_created >= state.pool_capacity:
+                    break
+            try:
+                model = self._new_silero_model()
+            except (OSError, RuntimeError, TypeError, ValueError):
+                LOGGER.exception("Failed to prewarm VAD model pool")
+                break
+            with state.pool_lock:
+                if len(state.pool) >= state.pool_capacity:
+                    break
+                state.pool.append(model)
+                state.pool_total_created += 1
+
+    def acquire_model(self) -> VADModel:
+        """Acquire a VAD model from the pool, creating one if needed."""
+        state = self._state
+        with state.pool_lock:
+            if state.pool_capacity > 0 and state.pool:
+                model = state.pool.popleft()
+                if hasattr(model, "reset_states"):
+                    model.reset_states()
+                return model
+            if state.pool_capacity > 0:
+                overflow = state.pool_total_created >= state.pool_capacity
+                state.pool_total_created += 1
+            else:
+                overflow = False
+        if overflow:
+            LOGGER.warning(
+                "VAD pool capacity exceeded; creating overflow model instance."
+            )
+        return self._new_silero_model()
+
+    def release_model(self, model: VADModel) -> None:
+        """Return a VAD model to the pool."""
+        state = self._state
+        with state.pool_lock:
+            if state.pool_capacity <= 0:
+                return
+            if len(state.pool) >= state.pool_capacity:
+                state.pool_total_created = max(0, state.pool_total_created - 1)
+                return
+            if hasattr(model, "reset_states"):
+                model.reset_states()
+            state.pool.append(model)
+
+    def reserve_slot(self) -> bool:
+        """Reserve a VAD slot without instantiating a model."""
+        state = self._state
+        with state.pool_lock:
+            if state.pool_capacity <= 0:
+                return True
+            if state.pool_reserved < state.pool_capacity:
+                state.pool_reserved += 1
+                return True
+            if state.pool_capacity < state.pool_max_capacity:
+                new_capacity = max(
+                    1,
+                    int(math.ceil(state.pool_capacity * state.pool_growth_factor)),
+                )
+                if new_capacity > state.pool_max_capacity:
+                    new_capacity = state.pool_max_capacity
+                if new_capacity > state.pool_capacity:
+                    state.pool_capacity = new_capacity
+                    LOGGER.info("Expanded VAD pool capacity to %d", state.pool_capacity)
+                if state.pool_reserved < state.pool_capacity:
+                    state.pool_reserved += 1
+                    return True
+            return False
+
+    def release_slot(self) -> None:
+        """Release a previously reserved VAD slot."""
+        state = self._state
+        with state.pool_lock:
+            if state.pool_capacity <= 0:
+                return
+            if state.pool_reserved > 0:
+                state.pool_reserved -= 1
 
 
 def _load_silero_model() -> VADModel:
@@ -83,30 +242,12 @@ def _load_silero_model() -> VADModel:
         return cast(VADModel, load_silero_vad())
 
 
-def _load_silero_base_model():
-    """Return a cached base Silero VAD model."""
-    if torch is None or load_silero_vad is None:
-        raise RuntimeError(
-            "silero-vad requires torch + silero-vad. Install them to enable VAD-based detection."
-        )
-    if _VAD_STATE.base_model is None:
-        _VAD_STATE.base_model = _load_silero_model()
-    return _VAD_STATE.base_model
+_DEFAULT_VAD_POOL = VADModelPool()
 
 
-def _new_silero_model():
-    """Create a fresh Silero VAD model instance."""
-    base_model = _load_silero_base_model()
-    try:
-        model = copy.deepcopy(base_model)
-    except (AttributeError, RuntimeError, TypeError, ValueError):
-        # deepcopy can fail for non-picklable model components; reload instead.
-        model = _load_silero_model()
-    if hasattr(model, "eval"):
-        model.eval()
-    if hasattr(model, "reset_states"):
-        model.reset_states()
-    return model
+def default_vad_model_pool() -> VADModelPool:
+    """Return the module-level default VAD pool."""
+    return _DEFAULT_VAD_POOL
 
 
 def configure_vad_model_pool(
@@ -115,131 +256,18 @@ def configure_vad_model_pool(
     max_capacity: Optional[int] = None,
     growth_factor: Optional[float] = None,
 ) -> None:
-    """Configure the VAD model pool and optionally prewarm instances."""
-    state = _VAD_STATE
-    max_size_value = int(max_size) if max_size is not None else 0
-    prewarm_value = int(prewarm) if prewarm is not None else 0
-    max_capacity_value = int(max_capacity) if max_capacity is not None else 0
-    max_size_value = max(0, max_size_value)
-    prewarm_value = max(0, prewarm_value)
-    max_capacity_value = max(0, max_capacity_value)
-    if growth_factor is None:
-        growth_value = 1.5
-    else:
-        try:
-            growth_value = float(growth_factor)
-        except (TypeError, ValueError):
-            growth_value = 1.5
-    if growth_value < 1.0:
-        growth_value = 1.0
-    if max_capacity_value == 0:
-        max_capacity_value = max_size_value
-    if max_size_value == 0 and max_capacity_value == 0:
-        with state.pool_lock:
-            state.pool.clear()
-            state.pool_capacity = 0
-            state.pool_max_capacity = 0
-            state.pool_total_created = 0
-            state.pool_reserved = 0
-        return
-
-    with state.pool_lock:
-        state.pool_capacity = max_size_value or max_capacity_value
-        state.pool_max_capacity = max_capacity_value
-        state.pool_growth_factor = growth_value
-        if state.pool_capacity > state.pool_max_capacity:
-            state.pool_capacity = state.pool_max_capacity
-        if state.pool_reserved > state.pool_capacity:
-            state.pool_reserved = state.pool_capacity
-        while len(state.pool) > state.pool_capacity:
-            state.pool.pop()
-            state.pool_total_created = max(0, state.pool_total_created - 1)
-
-    target_pool = min(prewarm_value, state.pool_capacity)
-    while True:
-        with state.pool_lock:
-            if len(state.pool) >= target_pool:
-                break
-            if state.pool_total_created >= state.pool_capacity:
-                break
-        try:
-            model = _new_silero_model()
-        except (OSError, RuntimeError, TypeError, ValueError):
-            LOGGER.exception("Failed to prewarm VAD model pool")
-            break
-        with state.pool_lock:
-            if len(state.pool) >= state.pool_capacity:
-                break
-            state.pool.append(model)
-            state.pool_total_created += 1
-
-
-def _acquire_vad_model() -> VADModel:
-    """Acquire a VAD model from the pool, creating one if needed."""
-    state = _VAD_STATE
-    with state.pool_lock:
-        if state.pool_capacity > 0 and state.pool:
-            model = state.pool.popleft()
-            if hasattr(model, "reset_states"):
-                model.reset_states()
-            return model
-        if state.pool_capacity > 0:
-            overflow = state.pool_total_created >= state.pool_capacity
-            state.pool_total_created += 1
-        else:
-            overflow = False
-    if overflow:
-        LOGGER.warning("VAD pool capacity exceeded; creating overflow model instance.")
-    return _new_silero_model()
-
-
-def _release_vad_model(model: VADModel) -> None:
-    """Return a VAD model to the pool."""
-    state = _VAD_STATE
-    with state.pool_lock:
-        if state.pool_capacity <= 0:
-            return
-        if len(state.pool) >= state.pool_capacity:
-            state.pool_total_created = max(0, state.pool_total_created - 1)
-            return
-        if hasattr(model, "reset_states"):
-            model.reset_states()
-        state.pool.append(model)
+    """Backward-compatible module-level wrapper around the default pool."""
+    _DEFAULT_VAD_POOL.configure(max_size, prewarm, max_capacity, growth_factor)
 
 
 def reserve_vad_slot() -> bool:
-    """Reserve a VAD slot without instantiating a model."""
-    state = _VAD_STATE
-    with state.pool_lock:
-        if state.pool_capacity <= 0:
-            return True
-        if state.pool_reserved < state.pool_capacity:
-            state.pool_reserved += 1
-            return True
-        if state.pool_capacity < state.pool_max_capacity:
-            new_capacity = max(
-                1,
-                int(math.ceil(state.pool_capacity * state.pool_growth_factor)),
-            )
-            if new_capacity > state.pool_max_capacity:
-                new_capacity = state.pool_max_capacity
-            if new_capacity > state.pool_capacity:
-                state.pool_capacity = new_capacity
-                LOGGER.info("Expanded VAD pool capacity to %d", state.pool_capacity)
-            if state.pool_reserved < state.pool_capacity:
-                state.pool_reserved += 1
-                return True
-        return False
+    """Backward-compatible module-level wrapper around the default pool."""
+    return _DEFAULT_VAD_POOL.reserve_slot()
 
 
 def release_vad_slot() -> None:
-    """Release a previously reserved VAD slot."""
-    state = _VAD_STATE
-    with state.pool_lock:
-        if state.pool_capacity <= 0:
-            return
-        if state.pool_reserved > 0:
-            state.pool_reserved -= 1
+    """Backward-compatible module-level wrapper around the default pool."""
+    _DEFAULT_VAD_POOL.release_slot()
 
 
 def _silero_frame_probability(model: VADModel, frame: np.ndarray) -> float:
@@ -271,13 +299,21 @@ class VADGateUpdate:
 class VADGate:
     """Tracks silence windows and determines when to trigger VAD."""
 
-    def __init__(self, vad_threshold: float, vad_silence: float) -> None:
+    def __init__(
+        self,
+        vad_threshold: float,
+        vad_silence: float,
+        model_pool: VADModelPool | None = None,
+    ) -> None:
         """Initialize VAD thresholds and internal buffers."""
         self.vad_threshold = vad_threshold
         self.vad_silence = vad_silence
         self.speech_active = False
         self.silence_duration = 0.0
-        self._vad_model = _acquire_vad_model() if vad_threshold > 0 else None
+        self._model_pool = model_pool or _DEFAULT_VAD_POOL
+        self._vad_model = (
+            self._model_pool.acquire_model() if vad_threshold > 0 else None
+        )
         self._vad_chunks: "deque[np.ndarray]" = deque()
         self._vad_chunk_offset = 0
         self._vad_buffered = 0
@@ -361,7 +397,7 @@ class VADGate:
         """Release pooled VAD resources."""
         if self._vad_model is None:
             return
-        _release_vad_model(self._vad_model)
+        self._model_pool.release_model(self._vad_model)
         self._vad_model = None
 
 

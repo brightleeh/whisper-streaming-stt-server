@@ -424,15 +424,13 @@ def test_stream_orchestrator_reserves_vad_slot_for_token_required(monkeypatch):
     )
     orchestrator = StreamOrchestrator(session_facade, model_registry, config)
     reserve_mock = MagicMock(return_value=True)
-    monkeypatch.setattr(
-        "stt_server.backend.application.stream_orchestrator.orchestrator.reserve_vad_slot",
-        reserve_mock,
-    )
+    monkeypatch.setattr(orchestrator._vad_model_pool, "reserve_slot", reserve_mock)
 
     class DummyVADGate:
         """Test helper for VADGate without model dependencies."""
 
-        def __init__(self, _threshold, _silence) -> None:
+        def __init__(self, _threshold, _silence, model_pool=None) -> None:
+            _ = model_pool
             return None
 
     monkeypatch.setattr(

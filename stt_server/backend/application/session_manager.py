@@ -14,7 +14,10 @@ import grpc
 
 from gen.stt.python.v1 import stt_pb2
 from stt_server.backend.application.model_registry import ModelRegistry
-from stt_server.backend.component.vad_gate import release_vad_slot, reserve_vad_slot
+from stt_server.backend.component.vad_gate import (
+    VADModelPool,
+    default_vad_model_pool,
+)
 from stt_server.backend.utils.profile_resolver import (
     invalid_decode_options,
     profile_enum_from_name,
@@ -288,11 +291,13 @@ class CreateSessionHandler:
         model_registry: ModelRegistry,
         config: CreateSessionConfig,
         metrics: "Metrics | None" = None,
+        vad_model_pool: VADModelPool | None = None,
     ) -> None:
         self._session_registry = session_registry
         self._model_registry = model_registry
         self._config = config
         self._metrics = metrics
+        self._vad_model_pool = vad_model_pool or default_vad_model_pool()
         self._create_session_limiter = None
         if config.create_session_rps > 0:
             self._create_session_limiter = KeyedRateLimiter(
@@ -524,7 +529,7 @@ class CreateSessionHandler:
             vad_threshold = self._resolve_vad_threshold(request.vad_threshold, context)
         vad_reserved = False
         if vad_threshold > 0 and not token_required:
-            if not reserve_vad_slot():
+            if not self._vad_model_pool.reserve_slot():
                 LOGGER.error("VAD pool exhausted; rejecting session_id=%s", session_id)
                 abort_with_error(context, ErrorCode.VAD_POOL_EXHAUSTED)
             vad_reserved = True
@@ -550,7 +555,7 @@ class CreateSessionHandler:
                 self._session_registry.create_session(session_id, session_info)
             except ValueError:
                 if vad_reserved:
-                    release_vad_slot()
+                    self._vad_model_pool.release_slot()
                 LOGGER.error(format_error(ErrorCode.SESSION_ID_ALREADY_ACTIVE))
                 abort_with_error(context, ErrorCode.SESSION_ID_ALREADY_ACTIVE)
 
