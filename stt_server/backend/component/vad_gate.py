@@ -7,7 +7,7 @@ import math
 import threading
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Optional, Protocol, TypeAlias, cast
+from typing import TYPE_CHECKING, Callable, Optional, Protocol, TypeAlias, cast
 
 import numpy as np
 
@@ -68,8 +68,11 @@ class _VADPoolState:
 class VADModelPool:
     """Owns VAD model pooling state for one runtime instance."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self, on_deepcopy_fallback: Callable[[int], None] | None = None
+    ) -> None:
         self._state = _VADPoolState()
+        self._on_deepcopy_fallback = on_deepcopy_fallback
 
     def _load_silero_base_model(self) -> VADModel:
         """Return a cached base Silero VAD model."""
@@ -88,6 +91,8 @@ class VADModelPool:
             model = copy.deepcopy(base_model)
         except (AttributeError, RuntimeError, TypeError, ValueError):
             # deepcopy can fail for non-picklable model components; reload instead.
+            if self._on_deepcopy_fallback is not None:
+                self._on_deepcopy_fallback(1)
             model = _load_silero_model()
         if hasattr(model, "eval"):
             model.eval()

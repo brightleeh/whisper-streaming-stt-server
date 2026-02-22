@@ -94,6 +94,7 @@ class Metrics:
         self._rtf_max = 0.0
         self._vad_triggers = 0
         self._active_vad_utterances = 0
+        self._vad_model_deepcopy_fallback_total = 0
         self._error_counts: Dict[str, int] = defaultdict(int)
         self._decode_latency_hist = Histogram(
             (0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.5, 5.0, 10.0)
@@ -228,6 +229,11 @@ class Metrics:
             if self._active_vad_utterances > 0:
                 self._active_vad_utterances -= 1
 
+    def record_vad_model_deepcopy_fallback(self, count: int = 1) -> None:
+        """Record fallback model reloads caused by deepcopy failures."""
+        with self._lock:
+            self._vad_model_deepcopy_fallback_total += max(0, int(count))
+
     def active_vad_utterances(self) -> int:
         """Return the current active VAD utterance count."""
         with self._lock:
@@ -281,6 +287,7 @@ class Metrics:
                 "rtf_max": self._rtf_max,
                 "vad_triggers_total": self._vad_triggers,
                 "active_vad_utterances": self._active_vad_utterances,
+                "vad_model_deepcopy_fallback_total": self._vad_model_deepcopy_fallback_total,
                 "error_counts": dict(self._error_counts),
                 "rate_limit_blocks": dict(self._rate_limit_blocks),
             }

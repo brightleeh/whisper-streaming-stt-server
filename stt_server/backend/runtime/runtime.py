@@ -61,7 +61,9 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
         self.language_fix = model_config.language_fix
         self.default_task = (model_config.task or "transcribe").lower()
         self.supported_languages = SupportedLanguages()
-        self.vad_model_pool = VADModelPool()
+        self.vad_model_pool = VADModelPool(
+            on_deepcopy_fallback=self.metrics.record_vad_model_deepcopy_fallback
+        )
 
         self.decode_profiles = normalize_decode_profiles(model_config.decode_profiles)
         default_profile = model_config.default_decode_profile
