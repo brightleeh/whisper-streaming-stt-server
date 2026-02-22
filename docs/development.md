@@ -32,6 +32,12 @@ Use the shared generator script so local/CI generation stays identical:
 Commit/publish the `gen` package (or copy it into each project) so both
 sides share the same `stt_pb2.py` and `stt_pb2_grpc.py` files.
 
+## Dependency policy
+
+- Runtime dependencies use bounded ranges (`>=` and `<`) in `pyproject.toml` and `requirements.txt`.
+- Prefer raising the lower bound only after verifying compatibility in CI.
+- Keep major upgrades explicit (for example `grpcio 1.x -> 2.x`) instead of allowing silent jumps.
+
 ## Load testing (bench)
 
 Run the gRPC load-test script from the repo root:
