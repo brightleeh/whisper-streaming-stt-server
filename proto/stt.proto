@@ -2,6 +2,12 @@ syntax = "proto3";
 
 package stt;
 
+// Compatibility policy:
+// If a field is removed from any message, reserve both its number and name.
+// Example:
+//   reserved 12;
+//   reserved "old_field_name";
+
 service STTBackend {
   // Creates a new STT session and returns server-side session attributes.
   rpc CreateSession(SessionRequest) returns (SessionResponse);
@@ -28,7 +34,7 @@ enum VADMode {
 enum Task {
   TASK_UNSPECIFIED = 0;
   TASK_TRANSCRIBE = 1; // Transcribe speech as-is
-  TASK_TRANSLATE  = 2; // Translate speech into another language
+  TASK_TRANSLATE = 2; // Translate speech into another language
 }
 
 //
@@ -48,15 +54,15 @@ enum DecodeProfile {
 // Session initialization request from the client.
 //
 message SessionRequest {
-  string session_id = 1;             // Client-generated session identifier
+  string session_id = 1; // Client-generated session identifier
   map<string, string> attributes = 2; // Optional custom attributes
 
-  VADMode vad_mode = 3;              // Desired VAD behavior
-  double vad_silence = 4;            // Desired trailing silence window (seconds)
-  double vad_threshold = 5;          // Desired VAD probability threshold (0-1)
+  VADMode vad_mode = 3; // Desired VAD behavior
+  double vad_silence = 4; // Desired trailing silence window (seconds)
+  double vad_threshold = 5; // Desired VAD probability threshold (0-1)
   optional double vad_threshold_override = 10; // Optional override; allows explicit 0.0
 
-  bool require_token = 6;            // Whether the server should issue a session token
+  bool require_token = 6; // Whether the server should issue a session token
 
   // Desired input language (BCP-47 code).
   // Examples: "de", "en", "fr", "ja", "ko", "zh". Empty string → default or server-chosen.
@@ -77,8 +83,8 @@ message SessionResponse {
   VADMode vad_mode = 2;
   double vad_silence = 3;
   double vad_threshold = 4;
-  string token = 5;                  // Optional session token
-  bool token_required = 6;           // Whether the session requires token validation
+  string token = 5; // Optional session token
+  bool token_required = 6; // Whether the session requires token validation
 
   // Echo back the final resolved session settings (after defaults/fallbacks).
   string language_code = 7;
@@ -90,10 +96,10 @@ message SessionResponse {
 // Audio packet sent during StreamingRecognize.
 //
 message AudioChunk {
-  bytes pcm16 = 1;        // Raw PCM16 mono audio
-  int32 sample_rate = 2;  // Sample rate in Hz (e.g., 8000, 16000, 44100)
-  bool is_final = 3;      // True if this is the last chunk for the session
-  string session_id = 4;  // Session ID obtained from CreateSession
+  bytes pcm16 = 1; // Raw PCM16 mono audio
+  int32 sample_rate = 2; // Sample rate in Hz (e.g., 8000, 16000, 44100)
+  bool is_final = 3; // True if this is the last chunk for the session
+  string session_id = 4; // Session ID obtained from CreateSession
   string session_token = 5; // Include only if token_required=true
 }
 
@@ -101,13 +107,13 @@ message AudioChunk {
 // Server-to-client STT output messages.
 //
 message STTResult {
-  string text = 1;          // Transcript text segment
-  bool is_final = 2;        // True if the segment is finalized
-  double start_sec = 3;     // Segment start time (sec since session start)
-  double end_sec = 4;       // Segment end time (sec since session start)
+  string text = 1; // Transcript text segment
+  bool is_final = 2; // True if the segment is finalized
+  double start_sec = 3; // Segment start time (sec since session start)
+  double end_sec = 4; // Segment end time (sec since session start)
   string language_code = 5; // Detected BCP-47 language (e.g., "en")
-  string language = 6;      // Human-readable language name (optional)
-  double probability = 7;   // Confidence score for language detection (0.0–1.0)
+  string language = 6; // Human-readable language name (optional)
+  double probability = 7; // Confidence score for language detection (0.0–1.0)
   string committed_text = 10; // Stable prefix for UI display
-  string unstable_text = 11;  // Unstable suffix for UI display
+  string unstable_text = 11; // Unstable suffix for UI display
 }

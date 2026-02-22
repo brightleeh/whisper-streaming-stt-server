@@ -1,0 +1,8 @@
+{
+  "//": [
+    "Record intentionally removed proto fields here.",
+    "For each removed field, stt.proto must reserve BOTH the field name and number.",
+    "If no fields were removed yet, keep entries empty."
+  ],
+  "entries": []
+}
