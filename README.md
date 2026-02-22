@@ -112,6 +112,10 @@ python -m stt_server.main \
    - Batch ignores `chunk_ms`/`realtime` fields in the config; it always sends a single chunk.
    - TLS: add `--tls` or `--tls-ca-file /path/to/cert.pem`.
 
+6. For a browser web client (WebSocket bridge + PWA):
+
+   - See `stt_client/web_mobile/README.md` for setup and run steps.
+
 ## Configuration
 
 Runtime defaults live in two files:
@@ -500,6 +504,7 @@ linkStyle 11,12,13,14,15,16,17,18,19,20,21 stroke:#e74c3c,stroke-width:1px;
 - `docs/troubleshooting.md`: error code reference.
 - `docs/development.md`: tests, load testing, and dev workflows.
 - `docs/slo.md`: SLO targets and reporting template.
+- `stt_client/web_mobile/README.md`: browser web client (WebSocket + PWA).
 
 ## API Stability Contract
 

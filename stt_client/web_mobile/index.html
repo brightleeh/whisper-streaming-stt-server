@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Whisper Web Client</title>
+    <meta name="theme-color" content="#1c2128" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="description" content="Browser-based Whisper streaming client over WebSocket" />
+    <script>
+      (() => {
+        try {
+          const mode = localStorage.getItem("whisper_theme_mode");
+          const prefersLight =
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: light)").matches;
+          const resolvedTheme =
+            mode === "dark" || mode === "light" ? mode : prefersLight ? "light" : "dark";
+          const meta = document.querySelector('meta[name="theme-color"]');
+          if (meta) {
+            meta.setAttribute("content", resolvedTheme === "light" ? "#f6f8fa" : "#1c2128");
+          }
+          if (mode === "dark" || mode === "light") {
+            document.documentElement.dataset.theme = mode;
+          }
+        } catch (_error) {
+          // no-op
+        }
+      })();
+    </script>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero card">
+        <div>
+          <p class="eyebrow">Whisper STT</p>
+          <h1>Web Client</h1>
+        </div>
+        <p class="muted">
+          Speak into your microphone, stream audio to the server, and see live transcripts.
+        </p>
+      </header>
+
+      <section class="card status-grid" aria-label="Live status">
+        <div class="status-box">
+          <p>Connection</p>
+          <strong id="connectionState" data-state="idle">Idle</strong>
+        </div>
+        <div class="status-box">
+          <p>Capture</p>
+          <strong id="captureState" data-state="idle">Idle</strong>
+        </div>
+        <div class="status-box">
+          <p>Transfer</p>
+          <strong id="transferState" data-state="idle">Idle</strong>
+        </div>
+        <div class="status-box">
+          <p>Result</p>
+          <strong id="resultState" data-state="idle">Waiting</strong>
+        </div>
+      </section>
+
+      <section class="card controls" aria-label="Controls">
+        <label class="field">
+          <span>Input</span>
+          <select id="inputMode">
+            <option value="mic">Microphone (live)</option>
+            <option value="file">WAV file upload</option>
+          </select>
+        </label>
+
+        <label class="field file-upload-panel is-collapsed" id="fileField" aria-hidden="true">
+          <span>WAV file</span>
+          <input
+            id="wavFile"
+            class="visually-hidden-file"
+            type="file"
+            accept="audio/wav,.wav"
+          />
+          <button id="chooseWavBtn" class="file-picker-btn" type="button">
+            Choose file
+          </button>
+          <small id="fileHint" class="muted">No file selected</small>
+        </label>
+
+        <div class="row">
+          <label class="field">
+            <span>Network profile</span>
+            <select id="networkProfile">
+              <option value="balanced">Balanced</option>
+              <option value="realtime">Low latency</option>
+              <option value="saver">Low power/data</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Language</span>
+            <select id="languageCode">
+              <option value="auto">Auto</option>
+              <option value="en">English</option>
+              <option value="ko">Korean</option>
+              <option value="ja">Japanese</option>
+              <option value="zh">Chinese</option>
+            </select>
+          </label>
+        </div>
+
+        <details class="advanced">
+          <summary>Advanced</summary>
+          <label class="field">
+            <span>Theme</span>
+            <select id="themeMode">
+              <option value="system">System</option>
+              <option value="dark">Dark</option>
+              <option value="light">Light</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>WebSocket URL</span>
+            <input id="wsUrl" type="text" spellcheck="false" />
+          </label>
+          <div class="row">
+            <label class="field">
+              <span>Session ID (optional)</span>
+              <input id="sessionId" type="text" placeholder="auto" spellcheck="false" />
+            </label>
+            <label class="field checkbox">
+              <input id="realtimePacing" type="checkbox" checked />
+              <span>Realtime pacing (file mode)</span>
+            </label>
+          </div>
+        </details>
+      </section>
+
+      <section class="card transcript" aria-live="polite">
+        <div class="section-head">
+          <h2>Transcript</h2>
+          <button type="button" id="clearBtn" class="ghost">Clear</button>
+        </div>
+        <div id="transcriptList" class="transcript-list">
+          <p class="muted placeholder" id="transcriptPlaceholder">Results will appear here.</p>
+        </div>
+      </section>
+
+      <section class="card logs" aria-label="Client logs">
+        <div class="section-head">
+          <h2>Logs</h2>
+        </div>
+        <div id="logList" class="log-list"></div>
+      </section>
+    </main>
+
+    <footer class="dock">
+      <button id="startBtn" class="primary" type="button">Start</button>
+      <button id="stopBtn" class="danger" type="button" disabled>Stop</button>
+    </footer>
+
+    <script src="./app.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#161b27"/>
+    </linearGradient>
+
+    <linearGradient id="micGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+
+    <linearGradient id="textGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#60a5fa"/>
+      <stop offset="100%" stop-color="#818cf8"/>
+    </linearGradient>
+
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <filter id="textGlow" x="-10%" y="-30%" width="120%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" ry="110" fill="url(#bg)"/>
+
+  <!-- Subtle grid -->
+  <g opacity="0.04" stroke="#60a5fa" stroke-width="1">
+    <line x1="0"   y1="128" x2="512" y2="128"/>
+    <line x1="0"   y1="256" x2="512" y2="256"/>
+    <line x1="0"   y1="384" x2="512" y2="384"/>
+    <line x1="128" y1="0"   x2="128" y2="512"/>
+    <line x1="256" y1="0"   x2="256" y2="512"/>
+    <line x1="384" y1="0"   x2="384" y2="512"/>
+  </g>
+
+  <!-- ── Waveform bars LEFT ── -->
+  <g filter="url(#glow)" opacity="0.85">
+    <rect x="62"  y="198" width="16" height="28"  rx="8" fill="#60a5fa"/>
+    <rect x="88"  y="170" width="16" height="84"  rx="8" fill="#60a5fa"/>
+    <rect x="114" y="182" width="16" height="60"  rx="8" fill="#60a5fa"/>
+    <rect x="140" y="204" width="16" height="16"  rx="8" fill="#60a5fa"/>
+  </g>
+
+  <!-- ── Waveform bars RIGHT ── -->
+  <g filter="url(#glow)" opacity="0.85">
+    <rect x="356" y="204" width="16" height="16"  rx="8" fill="#818cf8"/>
+    <rect x="382" y="178" width="16" height="68"  rx="8" fill="#818cf8"/>
+    <rect x="408" y="166" width="16" height="92"  rx="8" fill="#818cf8"/>
+    <rect x="434" y="196" width="16" height="32"  rx="8" fill="#818cf8"/>
+  </g>
+
+  <!-- ── Microphone body ── -->
+  <!-- Mic capsule -->
+  <rect x="214" y="100" width="84" height="124" rx="42" fill="url(#micGrad)" filter="url(#glow)"/>
+
+  <!-- Mic grille lines -->
+  <g stroke="#fff" stroke-width="2.5" opacity="0.22" stroke-linecap="round">
+    <line x1="235" y1="145" x2="277" y2="145"/>
+    <line x1="232" y1="161" x2="280" y2="161"/>
+    <line x1="235" y1="177" x2="277" y2="177"/>
+  </g>
+
+  <!-- Mic stand arc -->
+  <path
+    d="M 196 234 A 60 60 0 0 0 316 234"
+    fill="none"
+    stroke="url(#micGrad)"
+    stroke-width="11"
+    stroke-linecap="round"
+    filter="url(#glow)"
+  />
+
+  <!-- Mic stem -->
+  <line x1="256" y1="290" x2="256" y2="322"
+        stroke="url(#micGrad)" stroke-width="11" stroke-linecap="round"/>
+
+  <!-- Mic base -->
+  <line x1="216" y1="322" x2="296" y2="322"
+        stroke="url(#micGrad)" stroke-width="11" stroke-linecap="round"/>
+
+  <!-- ── Text: "Whisper" ── -->
+  <text
+    x="256" y="378"
+    text-anchor="middle"
+    font-family="'SF Pro Display', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+    font-size="64"
+    font-weight="700"
+    letter-spacing="-1"
+    fill="url(#textGrad)"
+    filter="url(#textGlow)"
+  >Whisper</text>
+
+  <!-- ── Text: "STT" badge ── -->
+  <!-- Badge background -->
+  <rect x="192" y="390" width="128" height="36" rx="10"
+        fill="#60a5fa" opacity="0.12"/>
+  <!-- Badge border -->
+  <rect x="192" y="390" width="128" height="36" rx="10"
+        fill="none" stroke="url(#textGrad)" stroke-width="1.5" opacity="0.5"/>
+
+  <text
+    x="256" y="416"
+    text-anchor="middle"
+    font-family="'SF Pro Display', 'Segoe UI', 'Helvetica Neue', Arial, sans-serif"
+    font-size="20"
+    font-weight="600"
+    letter-spacing="6"
+    fill="#a5b4fc"
+    opacity="0.9"
+  >STT</text>
+
+  <!-- ── Live indicator dot ── -->
+  <circle cx="390" cy="80" r="14" fill="#22c55e" opacity="0.9"/>
+  <circle cx="390" cy="80" r="22" fill="none" stroke="#22c55e" stroke-width="2.5" opacity="0.3"/>
+</svg>

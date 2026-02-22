@@ -1,0 +1,16 @@
+{
+  admin off
+}
+
+{$MOBILE_WEB_ADDR::8443} {
+  encode gzip zstd
+
+  root * {$MOBILE_WEB_ROOT}
+  file_server
+
+  @stt_ws path /ws/stream
+  reverse_proxy @stt_ws {$MOBILE_WS_UPSTREAM:127.0.0.1:8001}
+
+  # Use Tailscale-issued cert/key by default (override via env vars).
+  tls {$MOBILE_TLS_CERT} {$MOBILE_TLS_KEY}
+}
