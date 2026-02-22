@@ -1,0 +1,86 @@
+%%{init: {"flowchart": {"defaultRenderer": "elk"}} }%%
+flowchart TD
+  subgraph Client[Client]
+    GrpcClient[gRPC Client]
+    WebClient[Web Client]
+    Administrator[Administrator]
+  end
+
+  subgraph Backend[Backend]
+    subgraph Transport[Transport]
+      Servicer[gRPC Servicer]
+      HttpClient[HTTP: health/metrics]
+      HttpAdmin[HTTP: admin]
+      WsBridge[WebSocket Bridge]
+    end
+
+    subgraph RuntimeWrap[Runtime]
+      Runtime[Runtime]
+      Metrics[Metrics]
+    end
+
+    subgraph Application[Application]
+      SessionManager[Session Manager]
+      ModelRegistry[Model Registry]
+      Orchestrator[Stream Orchestrator]
+    end
+
+    subgraph Components[Components]
+      subgraph VADGate[VAD Gate]
+        VADPool[VAD Model Pool]
+        VADState[Session VAD State]
+      end
+      Decode[Decode Scheduler]
+      SessionQueues[Per-session Queues]
+      Dispatcher[Fair Dispatcher + In-flight Gate]
+      Store[Audio Storage]
+    end
+
+    subgraph Model[Model]
+      Worker[Worker]
+    end
+  end
+
+Administrator <-->|http| HttpAdmin
+HttpAdmin <-->|request/render| Runtime
+Runtime -->|assign| ModelRegistry
+ModelRegistry -->|load/unload model| Worker
+
+WebClient <-->|http| HttpClient
+HttpClient <-->|request/render| Runtime
+
+GrpcClient <-->|gRPC unary| Servicer
+Servicer -->|create session| Runtime
+Runtime -->|register/lookup session| SessionManager
+SessionManager -->|resolve session| Orchestrator
+ModelRegistry <-->|request/assign model| SessionManager
+
+GrpcClient <-->|gRPC stream| Servicer
+Servicer -->|audio| Runtime
+Runtime -->|transcribe results| Servicer
+Runtime -->|start stream| Orchestrator
+Orchestrator <-->|check vad| VADGate
+VADState <-->|acquire/release| VADPool
+Orchestrator <-->|schedule/decode| Decode
+Orchestrator -->|store audio| Store
+Decode -->|enqueue| SessionQueues
+SessionQueues -->|round-robin| Dispatcher
+Dispatcher -->|dispatch| Worker
+
+WebClient <-->|websocket| WsBridge
+WsBridge <-->|stream session/results| Runtime
+
+Runtime <-->|request/render| Metrics
+
+style Client fill:#f6f5f2,stroke:#c8c1b8,stroke-width:1px,color:#4b473f
+style Backend fill:#f1f4f7,stroke:#9aa6b2,stroke-width:1px,color:#2f3a44
+style Application fill:#f2f6f3,stroke:#9db2a3,stroke-width:1px,color:#2f3f34
+style Components fill:#f4f2f7,stroke:#a7a0b5,stroke-width:1px,color:#3b3446
+style Transport fill:#f6f7f8,stroke:#b8c0c8,stroke-width:1px,color:#3a424a
+style RuntimeWrap fill:#f0f2f5,stroke:#8f9aa6,stroke-width:1px,color:#2f3740
+
+linkStyle 0,1,2,3 stroke:#3498db,stroke-width:1px;
+linkStyle 4,5 stroke:#f1c40f,stroke-width:1px;
+linkStyle 6,7,8,9,10 stroke:#2ecc71,stroke-width:1px;
+linkStyle 11,12,13,14,15,16,17,18,19,20,21 stroke:#e74c3c,stroke-width:1px;
+linkStyle 22,23 stroke:#e74c3c,stroke-width:1px;
