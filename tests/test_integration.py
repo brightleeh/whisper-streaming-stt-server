@@ -96,6 +96,7 @@ def _temp_grpc_server(config_content: str):
         ]
         env = os.environ.copy()
         env["PYTHONPATH"] = PROJECT_ROOT
+        env["STT_ALLOW_INSECURE_WS"] = "1"
         proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, env=env)
 
         for _ in range(60):
@@ -166,6 +167,7 @@ def grpc_server():
     # Ensure PYTHONPATH includes the project root
     env = os.environ.copy()
     env["PYTHONPATH"] = PROJECT_ROOT
+    env["STT_ALLOW_INSECURE_WS"] = "1"
 
     proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, env=env)
 
@@ -451,6 +453,7 @@ def short_timeout_grpc_server():
         ]
         env = os.environ.copy()
         env["PYTHONPATH"] = PROJECT_ROOT
+        env["STT_ALLOW_INSECURE_WS"] = "1"
         proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, env=env)
 
         # Wait for the server to become healthy

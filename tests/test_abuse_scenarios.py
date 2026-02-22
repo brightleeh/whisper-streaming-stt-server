@@ -66,6 +66,7 @@ def _start_temp_server(config: dict) -> dict:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(PROJECT_ROOT)
     env["STT_OBSERVABILITY_TOKEN"] = token
+    env["STT_ALLOW_INSECURE_WS"] = "1"
 
     proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, env=env)
 

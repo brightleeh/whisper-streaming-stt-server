@@ -64,6 +64,11 @@ An example UI is available at `examples/ui/subtitles.html` and expects:
 
 The server responds with JSON messages of type `session`, `result`, `done`, or `error`.
 
+When WS is bound to a non-loopback host (`0.0.0.0`, `::`, or public hostname/IP),
+the server requires CreateSession auth (`auth.create_session_auth_profile=api_key|signed_token`
+or `auth.require_api_key=true`). For local-only debugging, set `STT_ALLOW_INSECURE_WS=1`
+to bypass this guard.
+
 ## UI example
 
 The example UI renders `committed_text` and `unstable_text` as a stable prefix +

@@ -1,6 +1,7 @@
 """CLI entrypoint for the streaming STT server."""
 
 import argparse
+import ipaddress
 import os
 import signal
 import threading
@@ -30,8 +31,59 @@ from stt_server.config import (
 from stt_server.utils.logger import LOGGER, configure_logging
 
 
+def _binds_public_host(host: str) -> bool:
+    value = (host or "").strip().lower()
+    if not value:
+        return False
+    if value in {"localhost", "127.0.0.1", "::1"}:
+        return False
+    if value in {"0.0.0.0", "::"}:
+        return True
+    try:
+        return not ipaddress.ip_address(value).is_loopback
+    except ValueError:
+        # Treat hostnames as externally reachable by default.
+        return True
+
+
+def _enforce_ws_auth_guard(config: ServerConfig) -> None:
+    if not config.ws_port or config.ws_port <= 0:
+        return
+    if not _binds_public_host(config.ws_host):
+        return
+
+    auth_profile = (config.create_session_auth_profile or "").strip().lower()
+    auth_enabled = auth_profile not in {"", "none"} or bool(config.require_api_key)
+    if auth_enabled:
+        return
+
+    insecure_allowed = os.getenv("STT_ALLOW_INSECURE_WS", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    message = (
+        "WebSocket is bound to a non-loopback host without CreateSession auth. "
+        "Set auth.create_session_auth_profile (api_key or signed_token) "
+        "or auth.require_api_key=true."
+    )
+    if insecure_allowed:
+        LOGGER.warning(
+            "%s Allowing startup only because STT_ALLOW_INSECURE_WS is enabled.",
+            message,
+        )
+        return
+
+    raise ValueError(
+        f"{message} For local testing only, set STT_ALLOW_INSECURE_WS=1 to bypass."
+    )
+
+
 def serve(config: ServerConfig) -> None:
     """Launch gRPC + HTTP observability servers."""
+    _enforce_ws_auth_guard(config)
+
     server_state = {"grpc_running": False}
     stop_event = threading.Event()
     shutdown_once = threading.Event()

@@ -10,25 +10,25 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = { file = "LICENSE" }
 dependencies = [
-  "faster-whisper",
-  "grpcio",
-  "numpy",
-  "onnxruntime",
-  "soundfile",
-  "torchaudio",
-  "pyyaml",
-  "sounddevice",
-  "fastapi",
-  "uvicorn",
-  "websockets",
-  "torch",
-  "silero-vad",
-  "requests",
-  "psutil",
+  "faster-whisper>=1.0.0",
+  "grpcio>=1.60.0",
+  "numpy>=1.24.0",
+  "onnxruntime>=1.17.0",
+  "soundfile>=0.12.1",
+  "torchaudio>=2.1.0",
+  "pyyaml>=6.0.1",
+  "sounddevice>=0.4.6",
+  "fastapi>=0.110.0",
+  "uvicorn>=0.27.0",
+  "websockets>=11.0",
+  "torch>=2.1.0",
+  "silero-vad>=5.1.2",
+  "requests>=2.31.0",
+  "psutil>=5.9.8",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "grpcio-tools", "mypy-protobuf"]
+dev = ["pytest>=8.0.0", "grpcio-tools>=1.60.0", "mypy-protobuf>=3.5.0"]
 
 [project.scripts]
 stt-server = "stt_server.main:main"

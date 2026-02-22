@@ -80,7 +80,7 @@ metrics:
 
 auth:
   require_api_key: false # Require api_key attribute on CreateSession
-  create_session_auth_profile: "none" # none|api_key|signed_token
+  create_session_auth_profile: "none" # none|api_key|signed_token (public WS bind requires non-none unless STT_ALLOW_INSECURE_WS=1)
   create_session_auth_secret: "" # HMAC secret for signed_token profile
   create_session_auth_ttl_sec: 0.0 # Auth token TTL seconds (0 disables)
   # signed_token expects gRPC metadata: authorization (Bearer <sig> or <ts>:<sig>) and x-stt-auth-ts

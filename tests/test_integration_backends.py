@@ -48,6 +48,7 @@ def _start_server(model_backend: str, device: str):
     ]
     env = os.environ.copy()
     env["PYTHONPATH"] = PROJECT_ROOT
+    env["STT_ALLOW_INSECURE_WS"] = "1"
     proc = subprocess.Popen(cmd, cwd=PROJECT_ROOT, env=env)
     for _ in range(60):
         try:

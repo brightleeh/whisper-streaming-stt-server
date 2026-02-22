@@ -6,6 +6,37 @@ import pytest
 from stt_server.config import ServerConfig
 
 
+def test_ws_auth_guard_rejects_public_ws_without_auth(monkeypatch):
+    """Public WS bind must require CreateSession auth unless explicitly overridden."""
+    from stt_server import main as main_module
+
+    monkeypatch.delenv("STT_ALLOW_INSECURE_WS", raising=False)
+
+    config = ServerConfig()
+    config.ws_port = 8001
+    config.ws_host = "0.0.0.0"
+    config.create_session_auth_profile = "none"
+    config.require_api_key = False
+
+    with pytest.raises(ValueError, match="WebSocket is bound to a non-loopback host"):
+        main_module._enforce_ws_auth_guard(config)
+
+
+def test_ws_auth_guard_allows_public_ws_with_signed_token(monkeypatch):
+    """Public WS bind is allowed when signed-token auth is enabled."""
+    from stt_server import main as main_module
+
+    monkeypatch.delenv("STT_ALLOW_INSECURE_WS", raising=False)
+
+    config = ServerConfig()
+    config.ws_port = 8001
+    config.ws_host = "0.0.0.0"
+    config.create_session_auth_profile = "signed_token"
+    config.require_api_key = False
+
+    main_module._enforce_ws_auth_guard(config)
+
+
 def test_graceful_shutdown_on_signal(monkeypatch):
     """Test graceful shutdown on signal."""
     handlers = {}
@@ -71,9 +102,7 @@ def test_graceful_shutdown_on_signal(monkeypatch):
         main_module, "start_http_server", lambda **kwargs: fake_http_handle
     )
     fake_ws_handle = MagicMock()
-    monkeypatch.setattr(
-        main_module, "start_ws_server", lambda **kwargs: fake_ws_handle
-    )
+    monkeypatch.setattr(main_module, "start_ws_server", lambda **kwargs: fake_ws_handle)
 
     fake_runtime = MagicMock()
     fake_servicer = MagicMock()
@@ -151,9 +180,7 @@ def test_serve_skips_signal_handlers_outside_main_thread(monkeypatch):
         main_module, "start_http_server", lambda **kwargs: fake_http_handle
     )
     fake_ws_handle = MagicMock()
-    monkeypatch.setattr(
-        main_module, "start_ws_server", lambda **kwargs: fake_ws_handle
-    )
+    monkeypatch.setattr(main_module, "start_ws_server", lambda **kwargs: fake_ws_handle)
 
     fake_runtime = MagicMock()
     fake_servicer = MagicMock()
@@ -240,9 +267,7 @@ def test_serve_passes_grpc_message_limits(monkeypatch):
         main_module, "start_http_server", lambda **kwargs: fake_http_handle
     )
     fake_ws_handle = MagicMock()
-    monkeypatch.setattr(
-        main_module, "start_ws_server", lambda **kwargs: fake_ws_handle
-    )
+    monkeypatch.setattr(main_module, "start_ws_server", lambda **kwargs: fake_ws_handle)
 
     fake_runtime = MagicMock()
     fake_servicer = MagicMock()
@@ -311,9 +336,7 @@ def test_serve_requires_tls_when_configured(monkeypatch):
         main_module, "start_http_server", lambda **kwargs: fake_http_handle
     )
     fake_ws_handle = MagicMock()
-    monkeypatch.setattr(
-        main_module, "start_ws_server", lambda **kwargs: fake_ws_handle
-    )
+    monkeypatch.setattr(main_module, "start_ws_server", lambda **kwargs: fake_ws_handle)
 
     fake_runtime = MagicMock()
     fake_servicer = MagicMock()

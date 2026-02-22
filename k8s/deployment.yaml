@@ -29,6 +29,29 @@ spec:
               name: grpc
             - containerPort: 8000
               name: metrics
+          startupProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 2
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
           volumeMounts:
             - name: stt-config
               mountPath: /app/config
