@@ -114,7 +114,7 @@ python -m stt_server.main \
 
 6. For a browser web client (WebSocket bridge + PWA):
 
-   - See `stt_client/web_mobile/README.md` for setup and run steps.
+   - See [`stt_client/web_mobile/README.md`](stt_client/web_mobile/README.md) for setup and run steps.
 
 ## Configuration
 
@@ -418,6 +418,7 @@ Each client first calls `CreateSession`:
 - The WebSocket bridge exposes `/ws/stream` for browser-based streaming clients.
 
 ```mermaid
+%%{init: {"flowchart": {"defaultRenderer": "elk"}} }%%
 flowchart TD
   subgraph Client[Client]
     GrpcClient[gRPC Client]
@@ -507,19 +508,20 @@ linkStyle 22,23 stroke:#e74c3c,stroke-width:1px;
 
 ## Documentation
 
-- `docs/operations.md`: observability, backpressure checks, dashboards, and runtime ops.
-- `docs/admin.md`: admin/control plane endpoints and security.
-- `docs/clients.md`: Python SDK usage.
-- `docs/client_errors.md`: client error handling guidance.
-- `docs/troubleshooting.md`: error code reference.
-- `docs/development.md`: tests, load testing, and dev workflows.
-- `docs/slo.md`: SLO targets and reporting template.
-- `stt_client/web_mobile/README.md`: browser web client (WebSocket + PWA).
+- [`docs/operations.md`](docs/operations.md): observability, backpressure checks, dashboards, and runtime ops.
+- [`docs/admin.md`](docs/admin.md): admin/control plane endpoints and security.
+- [`docs/clients.md`](docs/clients.md): Python SDK usage.
+- [`docs/client_errors.md`](docs/client_errors.md): client error handling guidance.
+- [`docs/troubleshooting.md`](docs/troubleshooting.md): error code reference.
+- [`docs/development.md`](docs/development.md): tests, load testing, and dev workflows.
+- [`docs/slo.md`](docs/slo.md): SLO targets and reporting template.
+- [`stt_client/web_mobile/README.md`](stt_client/web_mobile/README.md): browser web client (WebSocket + PWA).
 
 ## API Stability Contract
 
 Changes to public APIs must be **additive**. The rules below are enforced by tests
-(`tests/test_api_contract.py`) and the golden contract files in `tests/compat/`.
+([`tests/test_api_contract.py`](tests/test_api_contract.py)) and the golden contract files in
+[`tests/compat/`](tests/compat/).
 Include API/compat notes in release tags to make contract impact explicit.
 
 ### gRPC/proto rules
@@ -528,20 +530,20 @@ Include API/compat notes in release tags to make contract impact explicit.
 - **No removals/renames**: existing fields/messages must remain.
 - **No type/label changes**: field type and cardinality (`optional`, `repeated`, `map`) are frozen.
 - **No number reuse**: field numbers are immutable; do not reuse removed numbers.
-- **Document meaning/units** for any new field or enum value in `proto/stt.proto`.
+- **Document meaning/units** for any new field or enum value in [`proto/stt.proto`](proto/stt.proto).
 
 ### HTTP schema rules
 
 - **Additive only**: response payloads may add new fields, but must not remove or change types.
 - **Stable error format**: HTTP errors always return `{code, message}`.
 - **Stable status mapping**: timeout/overload/auth/permission/invalid-input mappings are fixed
-  (see `tests/compat/error_code_contract.json`).
+  (see [`tests/compat/error_code_contract.json`](tests/compat/error_code_contract.json)).
 
 ### Compatibility tests
 
-- `tests/compat/stt_proto_contract.json` captures existing proto fields and numbers.
-- `tests/compat/error_code_contract.json` pins key error/status mappings.
+- [`tests/compat/stt_proto_contract.json`](tests/compat/stt_proto_contract.json) captures existing proto fields and numbers.
+- [`tests/compat/error_code_contract.json`](tests/compat/error_code_contract.json) pins key error/status mappings.
 
 ## License
 
-See `LICENSE`.
+See [`LICENSE`](LICENSE).
