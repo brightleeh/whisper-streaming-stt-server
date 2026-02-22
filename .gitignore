@@ -200,6 +200,11 @@ tools/web_dashboard/uploads/
 # Mobile web client TLS artifacts
 stt_client/web_mobile/certs/
 
+# Generated protobuf stubs (all API versions)
+gen/stt/python/v*/stt_pb2.py
+gen/stt/python/v*/stt_pb2.pyi
+gen/stt/python/v*/stt_pb2_grpc.py
+
 # Ruff stuff:
 .ruff_cache/
 
