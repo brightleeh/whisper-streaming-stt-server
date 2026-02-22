@@ -287,20 +287,29 @@ def serve(config: ServerConfig) -> None:
         config.device,
     )
 
-    def shutdown() -> None:
+    def shutdown(grace_override: float | None = None) -> None:
         if shutdown_once.is_set():
+            if grace_override is not None and grace_override <= 0:
+                try:
+                    server.stop(0)
+                except Exception:  # pragma: no cover - defensive
+                    LOGGER.exception("Failed to request immediate gRPC stop")
             return
         shutdown_once.set()
         server_state["grpc_running"] = False
         servicer.runtime.stop_accepting_sessions()
-        grace = config.decode_timeout_sec if config.decode_timeout_sec > 0 else 5.0
+        if grace_override is None:
+            grace = config.decode_timeout_sec if config.decode_timeout_sec > 0 else 5.0
+        else:
+            grace = max(0.0, grace_override)
         LOGGER.info("Graceful shutdown started (grace=%.2fs)", grace)
         try:
             server.stop(grace).wait()
         finally:
-            http_handle.stop(timeout=grace + 1)
+            stop_timeout = max(1.0, grace + 1.0)
+            http_handle.stop(timeout=stop_timeout)
             if ws_handle is not None:
-                ws_handle.stop(timeout=grace + 1)
+                ws_handle.stop(timeout=stop_timeout)
             servicer.runtime.shutdown()
             grpc_executor.shutdown(wait=False)
             shutdown_done.set()
@@ -308,13 +317,18 @@ def serve(config: ServerConfig) -> None:
     def _force_exit_after(delay: float) -> None:
         if shutdown_done.wait(timeout=delay):
             return
-        LOGGER.error("Graceful shutdown timed out; forcing exit")
-        os._exit(1)
+        LOGGER.error("Graceful shutdown timed out; forcing immediate shutdown")
+        stop_event.set()
+        shutdown(grace_override=0.0)
 
     def _handle_signal(signum: int, _frame) -> None:  # type: ignore[no-untyped-def]
         if shutdown_once.is_set():
-            LOGGER.error("Second signal %s received; forcing exit", signum)
-            os._exit(1)
+            LOGGER.error(
+                "Second signal %s received; forcing immediate shutdown", signum
+            )
+            stop_event.set()
+            shutdown(grace_override=0.0)
+            return
         LOGGER.info("Received signal %s; shutting down", signum)
         stop_event.set()
         if not force_exit_scheduled.is_set():
