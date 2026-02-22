@@ -10,6 +10,7 @@ See `docs/slo.md` for draft targets and a load-test report template.
 - Integration tests (requires running server): `./tools/run_tests.sh integration`
 - Abuse/load smoke tests (starts temp server): `./tools/run_tests.sh abuse`
 - Abuse scenarios include a backpressure metrics check (buffer cap + pending drops); enable with `STT_RUN_ABUSE_TESTS=1`.
+- Shutdown integration tests (real process + SIGTERM): `STT_RUN_SHUTDOWN_INTEGRATION=1 python3 -m pytest tests/test_shutdown_integration.py -q`
 - Full test run: `./tools/run_tests.sh all`
 
 ## Long-run abuse/profiling
