@@ -70,6 +70,5 @@ spec:
           configMap:
             name: stt-config
         - name: stt-audio
-          # Ephemeral storage for audio capture.
-          # For persistent recordings across Pod restarts, use k8s/deployment.pvc.yaml.
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: stt-audio-pvc

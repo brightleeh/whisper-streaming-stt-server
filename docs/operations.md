@@ -193,6 +193,19 @@ kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 ```
 
+Storage policy:
+
+- `k8s/deployment.yaml`: uses `emptyDir` for `/app/data/audio` (ephemeral; reset on Pod restart).
+- `k8s/deployment.pvc.yaml`: uses `PersistentVolumeClaim` (`stt-audio-pvc`) for durable audio capture.
+
+If you need durable server-side recordings:
+
+```bash
+kubectl apply -f k8s/pvc.yaml
+kubectl apply -f k8s/deployment.pvc.yaml
+kubectl apply -f k8s/service.yaml
+```
+
 NodePort access (on-premises):
 
 ```bash
