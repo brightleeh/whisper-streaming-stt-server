@@ -24,6 +24,12 @@ spec:
             - /app/config/server.yaml
             - --model-config
             - /app/config/model.yaml
+          env:
+            # Allow K8s liveness/readiness probes to reach /health without an
+            # Authorization header even when STT_OBSERVABILITY_TOKEN is set.
+            # Without this, probes return 401 and the pod never becomes Ready.
+            - name: STT_PUBLIC_HEALTH
+              value: "minimal"
           ports:
             - containerPort: 50051
               name: grpc
