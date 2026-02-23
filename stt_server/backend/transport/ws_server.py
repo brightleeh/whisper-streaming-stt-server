@@ -20,7 +20,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from gen.stt.python.v1 import stt_pb2
 from stt_server.backend.runtime import ApplicationRuntime
 from stt_server.backend.utils.rate_limit import KeyedRateLimiter
-from stt_server.errors import ErrorCode, STTError, http_payload_for
+from stt_server.errors import ErrorCode, STTError
 
 _HTTP_RATE_LIMIT_RPS_ENV = "STT_HTTP_RATE_LIMIT_RPS"
 _HTTP_RATE_LIMIT_BURST_ENV = "STT_HTTP_RATE_LIMIT_BURST"
@@ -270,17 +270,21 @@ def build_ws_app(
 
     @app.websocket("/ws/stream")
     async def websocket_stream(websocket: WebSocket) -> None:
-        await websocket.accept()
+        # Extract client IP and enforce access controls BEFORE completing the
+        # WebSocket handshake.  Calling websocket.close() without a prior
+        # websocket.accept() causes Starlette to send an accept+close pair,
+        # which rejects the connection at the HTTP-upgrade level and avoids
+        # completing a full connection for rate-limited or blocked clients.
         client_ip = _extract_ws_client_ip(
             websocket, trusted_proxy_hosts, trusted_proxies
         )
         try:
             _enforce_ws_allowlist(client_ip)
             _enforce_ws_rate_limit(client_ip)
-        except STTError as exc:
-            await websocket.send_json(http_payload_for(exc.code, exc.detail))
+        except STTError:
             await websocket.close(code=4403)
             return
+        await websocket.accept()
         try:
             start_payload = await websocket.receive_json()
         except Exception:
