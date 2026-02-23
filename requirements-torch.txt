@@ -1,0 +1,9 @@
+# Optional torch backend dependencies.
+# Install alongside requirements.txt when using the torch_whisper backend,
+# Apple Silicon (MPS), or the openai-whisper fallback.
+#
+#   pip install -r requirements.txt -r requirements-torch.txt
+#
+torch>=2.1.0,<3.0.0
+torchaudio>=2.1.0,<3.0.0
+openai-whisper>=20240930,<20270000

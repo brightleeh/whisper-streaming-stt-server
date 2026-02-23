@@ -1,21 +1,23 @@
+# Core dependencies (faster_whisper backend + ONNX Silero VAD).
+# For torch_whisper backend or Apple Silicon (MPS), also install requirements-torch.txt.
 faster-whisper>=1.0.0,<2.0.0
 grpcio>=1.60.0,<2.0.0
 grpcio-tools>=1.60.0,<2.0.0
 numpy>=1.24.0,<3.0.0
 onnxruntime>=1.17.0,<2.0.0
 soundfile>=0.12.1,<1.0.0
-torchaudio>=2.1.0,<3.0.0
 pyyaml>=6.0.1,<7.0.0
 sounddevice>=0.4.6,<1.0.0
 fastapi>=0.110.0,<1.0.0
 uvicorn[standard]>=0.27.0,<1.0.0
 python-multipart>=0.0.6,<1.0.0
-websockets>=11.0,<16.0
+websockets>=11.0,<17.0
 mypy-protobuf>=3.5.0,<4.0.0
-torch>=2.1.0,<3.0.0
-openai-whisper>=20240930,<20270000
 silero-vad>=5.1.2,<7.0.0
 requests>=2.31.0,<3.0.0
 pytest>=8.0.0,<9.0.0
 psutil>=5.9.8,<8.0.0
 matplotlib>=3.8.0,<4.0.0
+
+# Torch backend (torch_whisper, openai-whisper fallback, MPS):
+# pip install -r requirements-torch.txt
