@@ -652,8 +652,14 @@ class StreamOrchestrator:
         if state.events.timeout_event.is_set():
             state.session.final_reason = "timeout"
 
-        if state.vad.vad_state:
-            state.vad.vad_state.close()
+        try:
+            if state.vad.vad_state:
+                state.vad.vad_state.close()
+        except Exception:
+            # Defensive: a VAD model release failure must not prevent
+            # remove_session() from running (which releases the VAD slot
+            # reservation tracked by session_info.vad_reserved).
+            LOGGER.exception("VAD state close failed during stream teardown")
 
         if state.decode.decode_stream:
             (
@@ -712,20 +718,25 @@ class StreamOrchestrator:
                 self._hooks.on_stream_buffer_bytes(
                     state.session.session_state.session_id, 0
                 )
-        if state.session.session_state:
-            self._hooks.on_stream_end(state.session.session_state.session_id)
-            duration = time.monotonic() - state.session.session_start
-            LOGGER.info(
-                "Streaming finished for session_id=%s reason=%s vad_count=%d duration=%.2fs",
-                state.session.session_state.session_id,
-                state.session.final_reason,
-                state.vad.vad_count,
-                duration,
+        try:
+            if state.session.session_state:
+                self._hooks.on_stream_end(state.session.session_state.session_id)
+                duration = time.monotonic() - state.session.session_start
+                LOGGER.info(
+                    "Streaming finished for session_id=%s reason=%s vad_count=%d duration=%.2fs",
+                    state.session.session_state.session_id,
+                    state.session.final_reason,
+                    state.vad.vad_count,
+                    duration,
+                )
+        finally:
+            # Always remove the session so the VAD slot reservation
+            # (session_info.vad_reserved) is released via the on_remove hook,
+            # even if on_stream_end or the log statement above raises.
+            self._session_facade.remove_session(
+                state.session.session_state, reason=state.session.final_reason
             )
-        self._session_facade.remove_session(
-            state.session.session_state, reason=state.session.final_reason
-        )
-        clear_session_id()
+            clear_session_id()
 
     def run(
         self,
