@@ -153,8 +153,6 @@ def serve(config: ServerConfig) -> None:
         max_pending_decodes_global=config.max_pending_decodes_global,
         max_total_buffer_bytes=config.max_total_buffer_bytes,
         decode_queue_timeout_sec=config.decode_queue_timeout_sec,
-        decode_batch_window_ms=config.decode_batch_window_ms,
-        max_decode_batch_size=config.max_decode_batch_size,
         buffer_overlap_sec=config.buffer_overlap_sec,
         create_session_rps=config.create_session_rps,
         create_session_burst=config.create_session_burst,
@@ -190,9 +188,6 @@ def serve(config: ServerConfig) -> None:
     )
     streaming_cfg.adaptive_partial_interval_max_sec = (
         config.adaptive_partial_interval_max_sec
-    )
-    streaming_cfg.adaptive_batch_window_target_ms = (
-        config.adaptive_batch_window_target_ms
     )
     streaming_cfg.adaptive_create_session_backoff_sec = (
         config.adaptive_create_session_backoff_sec

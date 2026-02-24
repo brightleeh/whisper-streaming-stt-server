@@ -75,10 +75,7 @@ class ApplicationRuntime:  # pylint: disable=too-many-instance-attributes
             default_profile = "realtime"
         self.default_decode_profile = default_profile
 
-        self.model_registry = ModelRegistry(
-            batch_window_ms=streaming_config.decode_batch_window_ms,
-            max_batch_size=streaming_config.max_decode_batch_size,
-        )
+        self.model_registry = ModelRegistry()
 
         session_hooks = SessionRegistryHooks(
             on_create=self._on_session_created,
@@ -285,7 +282,6 @@ class AdaptiveThrottle:
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._loop, daemon=True)
         self._base_partial_interval = config.partial_decode_interval_sec
-        self._base_batch_window_ms = max(0, int(config.decode_batch_window_ms))
         self._pending_limit = max(0, int(config.max_pending_decodes_global))
         self._buffer_limit = (
             max(0, int(config.max_total_buffer_bytes))
@@ -352,23 +348,17 @@ class AdaptiveThrottle:
         interval = self._scaled_partial_interval()
         self._runtime.stream_orchestrator.set_partial_interval_override(interval)
 
-        target_window_ms = max(0, int(self._config.adaptive_batch_window_target_ms))
-        window_ms = min(self._base_batch_window_ms, target_window_ms)
-        self._runtime.model_registry.set_batch_window_ms(window_ms)
-
         if self._mode != "throttled":
             self._mode = "throttled"
             LOGGER.warning(
-                "Adaptive throttling enabled: partial_interval=%s batch_window_ms=%s",
+                "Adaptive throttling enabled: partial_interval=%s",
                 interval,
-                window_ms,
             )
 
     def _restore_defaults(self) -> None:
         self._runtime.stream_orchestrator.set_partial_interval_override(
             self._base_partial_interval
         )
-        self._runtime.model_registry.set_batch_window_ms(self._base_batch_window_ms)
         if self._mode != "normal":
             self._mode = "normal"
             LOGGER.info("Adaptive throttling disabled; restored defaults.")

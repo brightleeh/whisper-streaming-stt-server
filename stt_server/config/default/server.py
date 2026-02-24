@@ -28,8 +28,6 @@ DEFAULT_MAX_PENDING_DECODES_PER_STREAM = 8
 DEFAULT_MAX_PENDING_DECODES_GLOBAL = 64
 DEFAULT_MAX_TOTAL_BUFFER_BYTES = 64 * 1024 * 1024
 DEFAULT_DECODE_QUEUE_TIMEOUT_SEC = 1.0
-DEFAULT_DECODE_BATCH_WINDOW_MS = 0
-DEFAULT_MAX_DECODE_BATCH_SIZE = 1
 DEFAULT_BUFFER_OVERLAP_SEC = 0.5
 DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES = 8 * 1024 * 1024
 DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES = 4 * 1024 * 1024
@@ -68,9 +66,6 @@ DEFAULT_ADAPTIVE_BUFFER_RATIO_HIGH = 0.85
 DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH = 0.2
 DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_SCALE = 2.0
 DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC = None
-DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS = 0
-# Deprecated alias for backward compatibility.
-DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS = DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS
 DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC = 2.0
 DEFAULT_LOG_LEVEL = "INFO"
 DEFAULT_LOG_FILE = None
@@ -111,8 +106,6 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "max_pending_decodes_global": "max_pending_decodes_global",
         "max_total_buffer_bytes": "max_total_buffer_bytes",
         "decode_queue_timeout_sec": "decode_queue_timeout_sec",
-        "decode_batch_window_ms": "decode_batch_window_ms",
-        "max_decode_batch_size": "max_decode_batch_size",
         "buffer_overlap_sec": "buffer_overlap_sec",
         "partial_decode_interval_sec": "partial_decode_interval_sec",
         "partial_decode_window_sec": "partial_decode_window_sec",
@@ -124,8 +117,6 @@ SERVER_SECTION_MAP: Dict[str, Dict[str, str]] = {
         "adaptive_orphan_rate_high": "adaptive_orphan_rate_high",
         "adaptive_partial_interval_scale": "adaptive_partial_interval_scale",
         "adaptive_partial_interval_max_sec": "adaptive_partial_interval_max_sec",
-        "adaptive_batch_window_min_ms": "adaptive_batch_window_target_ms",
-        "adaptive_batch_window_target_ms": "adaptive_batch_window_target_ms",
         "adaptive_create_session_backoff_sec": "adaptive_create_session_backoff_sec",
         "grpc_max_receive_message_bytes": "grpc_max_receive_message_bytes",
         "grpc_max_send_message_bytes": "grpc_max_send_message_bytes",
@@ -206,8 +197,6 @@ __all__ = [
     "DEFAULT_MAX_PENDING_DECODES_GLOBAL",
     "DEFAULT_MAX_TOTAL_BUFFER_BYTES",
     "DEFAULT_DECODE_QUEUE_TIMEOUT_SEC",
-    "DEFAULT_DECODE_BATCH_WINDOW_MS",
-    "DEFAULT_MAX_DECODE_BATCH_SIZE",
     "DEFAULT_BUFFER_OVERLAP_SEC",
     "DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES",
     "DEFAULT_GRPC_MAX_SEND_MESSAGE_BYTES",
@@ -245,8 +234,6 @@ __all__ = [
     "DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH",
     "DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_SCALE",
     "DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC",
-    "DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS",
-    "DEFAULT_ADAPTIVE_BATCH_WINDOW_MIN_MS",
     "DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC",
     "DEFAULT_LOG_LEVEL",
     "DEFAULT_LOG_FILE",

@@ -7,7 +7,6 @@ from typing import Any, Dict, Optional
 import yaml
 
 from stt_server.config.default import (
-    DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS,
     DEFAULT_ADAPTIVE_BUFFER_RATIO_HIGH,
     DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC,
     DEFAULT_ADAPTIVE_ORPHAN_RATE_HIGH,
@@ -25,7 +24,6 @@ from stt_server.config.default import (
     DEFAULT_CREATE_SESSION_AUTH_TTL_SEC,
     DEFAULT_CREATE_SESSION_BURST,
     DEFAULT_CREATE_SESSION_RPS,
-    DEFAULT_DECODE_BATCH_WINDOW_MS,
     DEFAULT_DECODE_PROFILE,
     DEFAULT_DECODE_PROFILE_NAME,
     DEFAULT_DECODE_QUEUE_TIMEOUT_SEC,
@@ -59,7 +57,6 @@ from stt_server.config.default import (
     DEFAULT_MAX_AUDIO_SECONDS_PER_SESSION,
     DEFAULT_MAX_BUFFER_SEC,
     DEFAULT_MAX_CHUNK_MS,
-    DEFAULT_MAX_DECODE_BATCH_SIZE,
     DEFAULT_MAX_PENDING_DECODES_GLOBAL,
     DEFAULT_MAX_PENDING_DECODES_PER_STREAM,
     DEFAULT_MAX_SESSIONS,
@@ -175,7 +172,6 @@ class ServerConfig:
     adaptive_partial_interval_max_sec: Optional[float] = (
         DEFAULT_ADAPTIVE_PARTIAL_INTERVAL_MAX_SEC
     )
-    adaptive_batch_window_target_ms: int = DEFAULT_ADAPTIVE_BATCH_WINDOW_TARGET_MS
     adaptive_create_session_backoff_sec: float = (
         DEFAULT_ADAPTIVE_CREATE_SESSION_BACKOFF_SEC
     )
@@ -183,8 +179,6 @@ class ServerConfig:
     max_pending_decodes_global: int = DEFAULT_MAX_PENDING_DECODES_GLOBAL
     max_total_buffer_bytes: Optional[int] = DEFAULT_MAX_TOTAL_BUFFER_BYTES
     decode_queue_timeout_sec: float = DEFAULT_DECODE_QUEUE_TIMEOUT_SEC
-    decode_batch_window_ms: int = DEFAULT_DECODE_BATCH_WINDOW_MS
-    max_decode_batch_size: int = DEFAULT_MAX_DECODE_BATCH_SIZE
     buffer_overlap_sec: float = DEFAULT_BUFFER_OVERLAP_SEC
     grpc_max_receive_message_bytes: Optional[int] = (
         DEFAULT_GRPC_MAX_RECEIVE_MESSAGE_BYTES

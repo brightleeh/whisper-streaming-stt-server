@@ -335,12 +335,6 @@ def build_http_app(
                 "partial_decode_window_sec": getattr(
                     streaming_cfg, "partial_decode_window_sec", None
                 ),
-                "decode_batch_window_ms": getattr(
-                    streaming_cfg, "decode_batch_window_ms", None
-                ),
-                "max_decode_batch_size": getattr(
-                    streaming_cfg, "max_decode_batch_size", None
-                ),
                 "max_pending_decodes_global": getattr(
                     streaming_cfg, "max_pending_decodes_global", None
                 ),
