@@ -114,3 +114,20 @@ def test_torch_whisper_cpu_integration():
         if proc is not None:
             proc.terminate()
             proc.wait()
+
+
+def test_mlx_whisper_integration():
+    """Run client against mlx_whisper backend on MLX device."""
+    _maybe_skip_backend_tests()
+    pytest.importorskip("mlx_whisper")
+    if sys.platform != "darwin":
+        pytest.skip("mlx_whisper requires macOS")
+    proc = None
+    try:
+        proc, grpc_target = _start_server("mlx_whisper", "mlx")
+        result = _run_client(grpc_target)
+        assert result.returncode == 0, f"Client failed: {result.stderr}"
+    finally:
+        if proc is not None:
+            proc.terminate()
+            proc.wait()

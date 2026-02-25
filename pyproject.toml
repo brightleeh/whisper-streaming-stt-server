@@ -34,12 +34,16 @@ torch = [
   "torchaudio>=2.1.0,<3.0.0",
   "openai-whisper>=20240930,<20270000",
 ]
+# mlx extra: needed for mlx_whisper backend on Apple Silicon (macOS only).
+mlx = ["mlx>=0.12.0", "mlx-whisper>=0.4.0"]
 dev = [
   "pytest>=8.0.0,<9.0.0",
   "grpcio-tools>=1.60.0,<2.0.0",
   "mypy-protobuf>=3.5.0,<4.0.0",
 ]
-# Full install with all backends
+# Full install with all backends.
+# mlx packages intentionally omitted: macOS + Apple Silicon only.
+# Install with: pip install .[mlx]
 all = [
   "torch>=2.1.0,<3.0.0",
   "torchaudio>=2.1.0,<3.0.0",

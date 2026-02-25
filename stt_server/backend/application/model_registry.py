@@ -310,6 +310,18 @@ class ModelRegistry:
             mps_backend = getattr(torch.backends, "mps", None)
             if not (mps_backend and mps_backend.is_available()):
                 raise ValueError("MPS requested but torch reports no MPS device")
+            return
+        if device_norm == "mlx":
+            if backend_norm != "mlx_whisper":
+                raise ValueError("MLX device requires mlx_whisper backend")
+            if sys.platform != "darwin":
+                raise ValueError("MLX device requested on non-macOS platform")
+            try:
+                import mlx.core  # noqa: F401
+            except ImportError as exc:  # pragma: no cover - mlx optional
+                raise ValueError(
+                    "MLX requested but mlx package is not available"
+                ) from exc
 
     def get_worker(self, model_id: str) -> Optional[ModelWorkerProtocol]:
         """Acquire a worker for the given model_id (Round-Robin)."""

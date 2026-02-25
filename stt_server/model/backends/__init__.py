@@ -20,6 +20,16 @@ def get_backend(name: str) -> Type[ModelBackend]:
             ) from exc
 
         return TorchWhisperBackend
+    if normalized in {"mlx_whisper", "mlx-whisper", "mlx"}:
+        try:
+            from stt_server.model.backends.mlx_whisper import MlxWhisperBackend
+        except ImportError as exc:  # pragma: no cover - optional dependency
+            raise RuntimeError(
+                "mlx_whisper backend requires the mlx-whisper package. "
+                "Install with: pip install mlx-whisper"
+            ) from exc
+
+        return MlxWhisperBackend
     raise ValueError(f"Unknown model backend: {name}")
 
 

@@ -1,0 +1,7 @@
+# Optional MLX backend dependencies (Apple Silicon / macOS only).
+# Install alongside requirements.txt when using the mlx_whisper backend.
+#
+#   pip install -r requirements.txt -r requirements-mlx.txt
+#
+mlx>=0.12.0
+mlx-whisper>=0.4.0

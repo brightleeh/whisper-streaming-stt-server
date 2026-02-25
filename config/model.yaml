@@ -1,7 +1,7 @@
 model:
   name: "small" # Whisper model size: tiny | base | small | medium | large | large-v1 | large-v2 | large-v3
-  backend: "faster_whisper" # faster_whisper | torch_whisper
-  device: "cpu" # cpu / cuda / mps (torch_whisper)
+  backend: "faster_whisper" # faster_whisper | torch_whisper | mlx_whisper
+  device: "cpu" # cpu / cuda / mps (torch_whisper) / mlx (mlx_whisper)
   compute_type: "int8" # backend compute type: int8 | int8_float16 | float16 | float32 (recommend: int8)
   pool_size: 1 # Number of preloaded model instances
 
@@ -31,6 +31,11 @@ model_load_profiles:
     <<: *profile_default
     backend: "torch_whisper"
     device: "mps"
+    compute_type: "float16"
+  apple_silicon_mlx:
+    <<: *profile_default
+    backend: "mlx_whisper"
+    device: "mlx"
     compute_type: "float16"
 
 # Decode profiles picked per client request

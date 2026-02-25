@@ -1,7 +1,7 @@
 # Whisper Streaming STT Server
 
 Whisper Streaming STT Server is a gRPC service that performs low-latency speech to text with VAD-based endpointing, streaming partial/final results as audio arrives.
-It supports both `faster_whisper` (CPU/CUDA) and `torch_whisper` (CPU/MPS) backends.
+It supports `faster_whisper` (CPU/CUDA), `torch_whisper` (CPU/MPS), and `mlx_whisper` (Apple Silicon MLX) backends.
 
 ## Quickstart
 
@@ -228,8 +228,8 @@ Example model snippet (`config/model.yaml`):
 ```yaml
 model:
   name: "small" # Whisper model size: tiny | base | small | medium | large | large-v1 | large-v2 | large-v3
-  backend: "faster_whisper" # faster_whisper | torch_whisper
-  device: "cpu" # cpu / cuda / mps (torch_whisper)
+  backend: "faster_whisper" # faster_whisper | torch_whisper | mlx_whisper
+  device: "cpu" # cpu / cuda / mps (torch_whisper) / mlx (mlx_whisper)
   compute_type: "int8" # int8 | int8_float16 | float16 | float32 (recommend: int8)
   pool_size: 1 # Number of preloaded model instances
   language_fix: false
@@ -288,11 +288,14 @@ CLI flags always override YAML entries if provided.
 
 - `faster_whisper` (default): fastest on CPU/CUDA with CTranslate2.
 - `torch_whisper`: PyTorch Whisper backend (supports `mps` on macOS).
+- `mlx_whisper`: MLX-based backend for Apple Silicon (`pip install .[mlx]`).
+  Uses `mlx-community` HuggingFace models optimized for MLX. Recommended on
+  M-series Macs for best Metal GPU utilization via zero-copy unified memory.
 - Clients choose among preloaded model variants using `model_id` (e.g., `cpu-small`, `mps-small`).
   Backend/device selection is controlled by the server via model profiles or admin load.
-  On Apple Silicon, `torch_whisper` with `device: mps` can outperform CPU `faster_whisper`
-  in end-to-end throughput; verify on your hardware with the load-test tool.
-  Example: `python -m tools.bench.grpc_load_test --channels 30 --realtime`.
+  On Apple Silicon, `mlx_whisper` with `device: mlx` or `torch_whisper` with `device: mps`
+  can outperform CPU `faster_whisper` in end-to-end throughput; verify on your hardware
+  with the load-test tool. Example: `python -m tools.bench.grpc_load_test --channels 30 --realtime`.
 
 **Observability security**
 
