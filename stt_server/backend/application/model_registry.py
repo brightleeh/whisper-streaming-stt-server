@@ -217,6 +217,14 @@ class ModelRegistry:
             if "task" in config:
                 base_options["task"] = config.get("task", DEFAULT_TASK)
 
+            backend_norm = backend.lower().replace("-", "_")
+            if backend_norm == "mlx_whisper" and pool_size > 1:
+                raise ValueError(
+                    "mlx_whisper does not support pool_size > 1 "
+                    "(MLX is not thread-safe). Use pool_size=1 or "
+                    "switch to torch_whisper for multi-worker pools."
+                )
+
             try:
                 self._validate_device_backend(backend, device)
                 for i in range(pool_size):
@@ -299,17 +307,29 @@ class ModelRegistry:
                     raise ValueError("CUDA requested but torch reports no CUDA devices")
             return
         if device_norm == "mps":
-            if backend_norm != "torch_whisper":
-                raise ValueError("MPS device requires torch_whisper backend")
+            if backend_norm not in ("torch_whisper", "mlx_whisper"):
+                raise ValueError(
+                    "MPS device requires torch_whisper or mlx_whisper backend"
+                )
             if sys.platform != "darwin":
                 raise ValueError("MPS device requested on non-macOS platform")
-            try:
-                import torch
-            except ImportError as exc:  # pragma: no cover - torch optional
-                raise ValueError("MPS requested but torch is not available") from exc
-            mps_backend = getattr(torch.backends, "mps", None)
-            if not (mps_backend and mps_backend.is_available()):
-                raise ValueError("MPS requested but torch reports no MPS device")
+            if backend_norm == "mlx_whisper":
+                try:
+                    import mlx.core  # noqa: F401
+                except ImportError as exc:  # pragma: no cover - mlx optional
+                    raise ValueError(
+                        "MPS requested with mlx_whisper but mlx package is not available"
+                    ) from exc
+            else:
+                try:
+                    import torch
+                except ImportError as exc:  # pragma: no cover - torch optional
+                    raise ValueError(
+                        "MPS requested but torch is not available"
+                    ) from exc
+                mps_backend = getattr(torch.backends, "mps", None)
+                if not (mps_backend and mps_backend.is_available()):
+                    raise ValueError("MPS requested but torch reports no MPS device")
             return
         if device_norm == "mlx":
             if backend_norm != "mlx_whisper":

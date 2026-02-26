@@ -14,18 +14,18 @@ FLOAT16_ALIASES = {"float16", "fp16", "half"}
 
 # Map standard Whisper model size names to mlx-community HuggingFace repos.
 MODEL_REPO_MAP = {
-    "tiny": "mlx-community/whisper-tiny",
-    "tiny.en": "mlx-community/whisper-tiny.en",
-    "base": "mlx-community/whisper-base",
-    "base.en": "mlx-community/whisper-base.en",
-    "small": "mlx-community/whisper-small",
-    "small.en": "mlx-community/whisper-small.en",
-    "medium": "mlx-community/whisper-medium",
-    "medium.en": "mlx-community/whisper-medium.en",
-    "large": "mlx-community/whisper-large-v3",
+    "tiny": "mlx-community/whisper-tiny-mlx",
+    "tiny.en": "mlx-community/whisper-tiny.en-mlx",
+    "base": "mlx-community/whisper-base-mlx",
+    "base.en": "mlx-community/whisper-base.en-mlx",
+    "small": "mlx-community/whisper-small-mlx",
+    "small.en": "mlx-community/whisper-small.en-mlx",
+    "medium": "mlx-community/whisper-medium-mlx",
+    "medium.en": "mlx-community/whisper-medium.en-mlx",
+    "large": "mlx-community/whisper-large-v3-mlx",
     "large-v1": "mlx-community/whisper-large-v1-mlx",
     "large-v2": "mlx-community/whisper-large-v2-mlx",
-    "large-v3": "mlx-community/whisper-large-v3",
+    "large-v3": "mlx-community/whisper-large-v3-mlx",
     "large-v3-turbo": "mlx-community/whisper-large-v3-turbo",
 }
 

@@ -30,11 +30,11 @@ class TestModelRepoMapping:
 
     def test_small_maps_to_mlx_community(self):
         backend = MlxWhisperBackend("small", "mlx", "float16")
-        assert backend.model_repo == "mlx-community/whisper-small"
+        assert backend.model_repo == "mlx-community/whisper-small-mlx"
 
     def test_large_maps_to_v3(self):
         backend = MlxWhisperBackend("large", "mlx", "float16")
-        assert backend.model_repo == "mlx-community/whisper-large-v3"
+        assert backend.model_repo == "mlx-community/whisper-large-v3-mlx"
 
     def test_unknown_size_uses_fallback(self):
         backend = MlxWhisperBackend("distil-large-v3", "mlx", "float16")
@@ -95,7 +95,7 @@ class TestTranscribe:
 
         mock_fn.assert_called_once()
         _, kwargs = mock_fn.call_args
-        assert kwargs["path_or_hf_repo"] == "mlx-community/whisper-small"
+        assert kwargs["path_or_hf_repo"] == "mlx-community/whisper-small-mlx"
         assert kwargs["language"] == "ko"
         assert kwargs["fp16"] is True
 

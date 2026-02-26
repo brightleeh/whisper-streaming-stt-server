@@ -83,6 +83,24 @@ Per-session logs can be emitted in structured formats:
 Per-session fields include decode timing breakdown (`decode_buffer_wait_seconds`, `decode_queue_wait_seconds`, `decode_inference_seconds`, `decode_response_emit_seconds`, `decode_total_seconds`), rounded to three decimals.
 Markdown includes headers/start/end/columns; CSV/TSV/JSONL are data-only.
 
+### Benchmark matrix
+
+Run a full benchmark matrix across pool sizes and channel counts (starts/stops the server automatically per pool_size):
+
+```bash
+./tools/bench/run_benchmark_matrix.sh macos-gpu
+./tools/bench/run_benchmark_matrix.sh macos-gpu-mlx
+```
+
+To use an already-running server:
+
+```bash
+STT_BENCH_SKIP_SERVER=1 ./tools/bench/run_benchmark_matrix.sh ubuntu-gpu
+```
+
+Results are written to `bench_results/<profile>/<timestamp>/`.
+See the script header for available profiles and environment variables.
+
 ## Assets
 
 - `stt_client/assets/hello.wav`: sourced from https://github.com/SkelterLabsInc/stt-dataset-example
