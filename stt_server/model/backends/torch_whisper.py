@@ -29,8 +29,16 @@ class TorchWhisperBackend(ModelBackend):
 
     def _apply_compute_type(self) -> None:
         if self.compute_type in FLOAT16_ALIASES and self.device != "cpu":
-            self.model = self.model.half()
-            return
+            if self.device == "mps":
+                LOGGER.warning(
+                    "MPS does not reliably support fp16 for Whisper decoding; "
+                    "falling back to float32 (requested compute_type=%s)",
+                    self.compute_type,
+                )
+                self.compute_type = "float32"
+            else:
+                self.model = self.model.half()
+                return
         if self.compute_type not in {"float32", "fp32", "int8", "int8_float16"}:
             LOGGER.warning(
                 "Unsupported compute_type=%s for torch_whisper; using float32",

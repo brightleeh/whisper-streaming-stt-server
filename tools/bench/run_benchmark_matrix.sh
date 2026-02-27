@@ -59,8 +59,8 @@ case "$PROFILE" in
   macos-gpu)
     MODEL_BACKEND="torch_whisper"
     DEVICE="mps"
-    COMPUTE_TYPE="float16"
-    PROFILE_LABEL="macOS ARM64 (M4 Pro, 24GB RAM) — torch_whisper (MPS, fp16)"
+    COMPUTE_TYPE="float32"
+    PROFILE_LABEL="macOS ARM64 (M4 Pro, 24GB RAM) — torch_whisper (MPS, fp32)"
     ;;
   macos-gpu-mlx)
     MODEL_BACKEND="mlx_whisper"
