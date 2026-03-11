@@ -128,6 +128,11 @@ if [[ "$MODEL_BACKEND" == "mlx_whisper" ]]; then
   MATRIX=(
     "1:1,3,5,10,15,20,30"
   )
+elif [[ "$DEVICE" == "cuda" || "$DEVICE" == "mps" ]]; then
+  # GPU: pool=1 only — multi-pool adds no throughput on shared GPU
+  MATRIX=(
+    "1:1,3,5,10,15,20,30"
+  )
 else
   MATRIX=(
     "1:1,3,5,10"
