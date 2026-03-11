@@ -436,6 +436,7 @@ Each client first calls `CreateSession`:
 - [`docs/troubleshooting.md`](docs/troubleshooting.md): error code reference.
 - [`docs/development.md`](docs/development.md): tests, load testing, and dev workflows.
 - [`docs/slo.md`](docs/slo.md): SLO targets and reporting template.
+- [`docs/benchmarks.md`](docs/benchmarks.md): hardware performance benchmarks and sizing guide.
 - [`stt_client/web_mobile/README.md`](stt_client/web_mobile/README.md): browser web client (WebSocket + PWA).
 
 ## API Stability Contract
