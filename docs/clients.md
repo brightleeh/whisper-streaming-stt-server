@@ -56,7 +56,8 @@ restartable iterator factory.
 The WebSocket server exposes a bridge at `ws://<host>:<ws-port>/ws/stream`.
 This allows browser clients to push PCM16 audio and receive streaming results without gRPC.
 
-An example UI is available at `examples/ui/subtitles.html` and expects:
+A production-ready web client is available at `stt_client/web_mobile/` (PWA with HTTPS/Caddy support).
+It expects:
 
 - a JSON `start` message with session options
 - binary PCM16 frames (16kHz mono)
@@ -68,9 +69,3 @@ When WS is bound to a non-loopback host (`0.0.0.0`, `::`, or public hostname/IP)
 the server requires CreateSession auth (`auth.create_session_auth_profile=api_key|signed_token`
 or `auth.require_api_key=true`). For local-only debugging, set `STT_ALLOW_INSECURE_WS=1`
 to bypass this guard.
-
-## UI example
-
-The example UI renders `committed_text` and `unstable_text` as a stable prefix +
-dimmed suffix, and can be adapted into a Next.js app (Vercel) without changing
-the WebSocket protocol.
