@@ -1,6 +1,5 @@
 import contextlib
 import os
-import random
 import socket
 import subprocess
 import sys
@@ -20,24 +19,18 @@ from gen.stt.python.v1 import stt_pb2, stt_pb2_grpc
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def _port_in_use(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(0.2)
-        return sock.connect_ex(("127.0.0.1", port)) == 0
-
-
-def _pick_port(env_name: str, default: int) -> int:
-    env_value = os.getenv(env_name)
-    if env_value:
-        try:
-            return int(env_value)
-        except ValueError:
-            pass
-    for _ in range(40):
-        candidate = random.randint(20000, 40000)
-        if not _port_in_use(candidate):
-            return candidate
-    return default
+def _pick_free_port(env_name: str | None = None) -> int:
+    """Return a free port. If env_name is set and valid, use that instead."""
+    if env_name:
+        env_value = os.getenv(env_name)
+        if env_value:
+            try:
+                return int(env_value)
+            except ValueError:
+                pass
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
 
 
 def _load_wav_pcm16(path: str) -> tuple[bytes, int]:
@@ -64,10 +57,9 @@ def _chunk_pcm(pcm16: bytes, sample_rate: int, chunk_ms: int) -> list[bytes]:
 def _temp_grpc_server(config_content: str):
     if os.getenv("STT_SKIP_INTEGRATION", "").strip().lower() in {"1", "true", "yes"}:
         pytest.skip("Integration tests skipped via STT_SKIP_INTEGRATION.")
-    grpc_port = _pick_port("STT_TEST_GRPC_PORT", 50053)
-    http_port = _pick_port("STT_TEST_HTTP_PORT", 8002)
-    if http_port == grpc_port:
-        http_port = _pick_port("STT_TEST_HTTP_PORT", 8002)
+    grpc_port = _pick_free_port("STT_TEST_GRPC_PORT")
+    http_port = _pick_free_port("STT_TEST_HTTP_PORT")
+    ws_port = _pick_free_port()
     health_url = f"http://localhost:{http_port}/health"
     proc = None
     config_path = None
@@ -93,6 +85,8 @@ def _temp_grpc_server(config_content: str):
             str(grpc_port),
             "--metrics-port",
             str(http_port),
+            "--ws-port",
+            str(ws_port),
         ]
         env = os.environ.copy()
         env["PYTHONPATH"] = PROJECT_ROOT
@@ -126,10 +120,9 @@ def grpc_server():
     """Ensure the gRPC server is running for tests. Starts a temporary one if needed."""
     if os.getenv("STT_SKIP_INTEGRATION", "").strip().lower() in {"1", "true", "yes"}:
         pytest.skip("Integration tests skipped via STT_SKIP_INTEGRATION.")
-    grpc_port = _pick_port("STT_TEST_GRPC_PORT", 50051)
-    http_port = _pick_port("STT_TEST_HTTP_PORT", 8000)
-    if http_port == grpc_port:
-        http_port = _pick_port("STT_TEST_HTTP_PORT", 8000)
+    grpc_port = _pick_free_port("STT_TEST_GRPC_PORT")
+    http_port = _pick_free_port("STT_TEST_HTTP_PORT")
+    ws_port = _pick_free_port()
     health_url = f"http://localhost:{http_port}/health"
 
     # 1. Use existing server if healthy
@@ -163,6 +156,8 @@ def grpc_server():
         str(grpc_port),
         "--metrics-port",
         str(http_port),
+        "--ws-port",
+        str(ws_port),
     ]
     # Ensure PYTHONPATH includes the project root
     env = os.environ.copy()
@@ -417,10 +412,9 @@ def short_timeout_grpc_server():
     """Starts a gRPC server with a 2-second session timeout for testing."""
     if os.getenv("STT_SKIP_INTEGRATION", "").strip().lower() in {"1", "true", "yes"}:
         pytest.skip("Integration tests skipped via STT_SKIP_INTEGRATION.")
-    grpc_port = _pick_port("STT_TEST_GRPC_PORT", 50052)
-    http_port = _pick_port("STT_TEST_HTTP_PORT", 8001)
-    if http_port == grpc_port:
-        http_port = _pick_port("STT_TEST_HTTP_PORT", 8001)
+    grpc_port = _pick_free_port("STT_TEST_GRPC_PORT")
+    http_port = _pick_free_port("STT_TEST_HTTP_PORT")
+    ws_port = _pick_free_port()
     health_url = f"http://localhost:{http_port}/health"
     proc = None
     config_path = None
@@ -450,6 +444,8 @@ def short_timeout_grpc_server():
             str(grpc_port),
             "--metrics-port",
             str(http_port),
+            "--ws-port",
+            str(ws_port),
         ]
         env = os.environ.copy()
         env["PYTHONPATH"] = PROJECT_ROOT

@@ -411,6 +411,12 @@ def parse_args() -> argparse.Namespace:
         help="Port for HTTP metrics/health server",
     )
     parser.add_argument(
+        "--ws-port",
+        type=int,
+        default=None,
+        help="Port for WebSocket server (0 or unset disables)",
+    )
+    parser.add_argument(
         "--grpc-worker-threads",
         type=int,
         default=None,
@@ -578,6 +584,8 @@ def configure_from_args(args: argparse.Namespace) -> ServerConfig:
         config.max_sessions = args.max_sessions
     if args.metrics_port is not None:
         config.metrics_port = args.metrics_port
+    if args.ws_port is not None:
+        config.ws_port = args.ws_port
     if args.grpc_worker_threads is not None:
         config.grpc_worker_threads = args.grpc_worker_threads
     if args.decode_timeout is not None:
