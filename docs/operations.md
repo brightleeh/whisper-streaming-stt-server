@@ -79,7 +79,6 @@ Enable adaptive throttling to reduce partial load and shed new sessions when the
 The policy watches pending decode depth, buffer pressure, and orphan rate, then:
 
 - increases `partial_decode_interval_sec` (fewer partials)
-- reduces `decode_batch_window_ms` (lower queue latency)
 - temporarily rejects new CreateSession requests
 
 Configure in `server:`:

@@ -83,8 +83,6 @@ type RuntimeInfo = {
     max_chunk_ms?: number;
     partial_decode_interval_sec?: number;
     partial_decode_window_sec?: number;
-    decode_batch_window_ms?: number;
-    max_decode_batch_size?: number;
     max_pending_decodes_global?: number;
     max_pending_decodes_per_stream?: number;
     adaptive_throttle_enabled?: boolean;
@@ -1031,11 +1029,6 @@ export default function HomePage() {
                           <strong>Partial</strong>{" "}
                           {streaming.partial_decode_interval_sec ?? "--"} s /{" "}
                           {streaming.partial_decode_window_sec ?? "--"} s
-                        </div>
-                        <div>
-                          <strong>Batch</strong>{" "}
-                          {streaming.decode_batch_window_ms ?? "--"} ms /{" "}
-                          {streaming.max_decode_batch_size ?? "--"}
                         </div>
                         {runtimeAgeSec != null ? (
                           <div className="server-config-meta">
